@@ -1,14 +1,18 @@
+import AskBar from "@/components/AskBar";
+
 export const metadata = { title: "Assistant · Jesse's Bakery OS" };
-export default function Page() {
+
+export default function AssistantPage() {
   return (
     <>
       <div className="head"><h1>Assistant</h1></div>
-      <div className="panel">
-        <div style={{ fontFamily: "var(--serif)", fontSize: 18, marginBottom: 8 }}>Coming in the next build phase</div>
-        <div style={{ color: "var(--ink2)", maxWidth: 560, lineHeight: 1.6 }}>
-          The assistant workspace is scaffolded and wired into the same live data layer as the Overview.
-          It lights up as we build Phase 2 (accountability &amp; logistics) on top of the foundation that&apos;s now running.
-        </div>
+      <div style={{ maxWidth: 720 }}>
+        <p style={{ color: "var(--ink2)", marginBottom: 16, lineHeight: 1.6 }}>
+          Ask anything about your stores — waste, stockouts, sales, regions, or which stores need
+          attention. Every answer comes from a direct query over your live data, so the numbers are
+          exact, never guessed.
+        </p>
+        <AskBar />
       </div>
     </>
   );

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getRegionStores } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 120; // cache pages ~2 min so navigation is instant (prefetchable)
 
 export default async function RegionPage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = await params;

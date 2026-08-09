@@ -4,7 +4,7 @@ import { getStoreById, getStoreDaily, getStoreProducts } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
 import StoreBars from "@/components/StoreBars";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 120; // cache pages ~2 min so navigation is instant (prefetchable)
 
 export default async function StorePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

@@ -5,7 +5,7 @@ import WasteChart from "@/components/WasteChart";
 import RecCard from "@/components/RecCard";
 import AskBar from "@/components/AskBar";
 
-export const dynamic = "force-dynamic"; // always read live data
+export const revalidate = 120; // cache pages ~2 min so navigation is instant (prefetchable)
 
 function fmtDate(d: Date) {
   return new Intl.DateTimeFormat("en-AU", { weekday: "short", day: "numeric", month: "short" }).format(new Date(d));

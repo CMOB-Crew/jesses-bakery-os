@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getStoreWeek } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 120; // cache pages ~2 min so navigation is instant (prefetchable)
 
 const order = { red: 0, amber: 1, green: 2 } as const;
 
