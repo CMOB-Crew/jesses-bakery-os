@@ -1,0 +1,9 @@
+# Netlify config for the Jesse's Bakery OS web app.
+# Monorepo: when importing on Netlify, set "Base directory" to  apps/web
+# and Netlify will pick this up. The Next.js runtime plugin handles the
+# App Router SSR (server components read Postgres at request time).
+[build]
+  command = "npm run build"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
