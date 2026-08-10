@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { getNetwork, getRegions, getWasteTrend, getRecommendations, getAsOf, getFeedStatus } from "@/lib/queries";
+import { getNetwork, getRegions, getWasteTrend, getRecommendations, getAsOf, getFeedStatus, getEngineProjection } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
 import WasteChart from "@/components/WasteChart";
 import RecCard from "@/components/RecCard";
 import AskBar from "@/components/AskBar";
+import EnginePanel from "@/components/EnginePanel";
 
 export const revalidate = 120; // cache pages ~2 min so navigation is instant (prefetchable)
 
@@ -12,8 +13,8 @@ function fmtDate(d: Date) {
 }
 
 export default async function Overview() {
-  const [net, regions, trend, recs, asOf, feeds] = await Promise.all([
-    getNetwork(), getRegions(), getWasteTrend(), getRecommendations(3), getAsOf(), getFeedStatus(),
+  const [net, regions, trend, recs, asOf, feeds, engine] = await Promise.all([
+    getNetwork(), getRegions(), getWasteTrend(), getRecommendations(3), getAsOf(), getFeedStatus(), getEngineProjection(),
   ]);
 
   const stale = feeds.find((f) => f.status === "stale");
@@ -44,6 +45,8 @@ export default async function Overview() {
           <Stat dot="var(--green)" n={net.green} l="On track" />
         </div>
       </div>
+
+      <EnginePanel scenarios={engine} />
 
       <AskBar />
 

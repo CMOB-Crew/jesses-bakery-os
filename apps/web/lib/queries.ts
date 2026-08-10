@@ -60,6 +60,28 @@ export async function getWasteTrend(): Promise<number[]> {
   );
 }
 
+// Engine projection — the real "32% -> X%" waste model (Woolworths mature feed).
+// One row per scenario: current + lean/balanced/service service-levels. Computed
+// offline by the newsvendor engine on the real delivered-vs-sold ledger and loaded
+// into engine_projection. The service dial on the dashboard picks between them.
+export type EngineScenario = {
+  scenario: string;
+  label: string;
+  ord: number;
+  waste_pct: number | null;
+  lost_sales_pct: number | null;
+  units_saved_wk: number;
+  delivered: number | null;
+  channel: string;
+};
+export async function getEngineProjection(): Promise<EngineScenario[]> {
+  try {
+    return await sql<EngineScenario[]>`select * from engine_projection order by ord`;
+  } catch {
+    return []; // table not present yet — panel renders nothing rather than crashing
+  }
+}
+
 export type FeedStatus = { source: string; status: string; as_of: Date; detail: string | null };
 export async function getFeedStatus(): Promise<FeedStatus[]> {
   return sql<FeedStatus[]>`
