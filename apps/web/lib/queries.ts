@@ -117,6 +117,22 @@ export async function getStoreById(id: string): Promise<StoreWeek | null> {
   return rows[0] ?? null;
 }
 
+// Per-product engine order recommendation for a store — the "does Simona's job"
+// table. sold/sent are this week's real numbers; recommended is the newsvendor
+// order-up-to (balanced). Woolworths mature feed; empty for stores without a plan.
+export type StoreReco = { product_name: string; sold: number; sent: number; recommended: number };
+export async function getStoreRecos(id: string): Promise<StoreReco[]> {
+  try {
+    return await sql<StoreReco[]>`
+      select p.name as product_name, r.sold, r.sent, r.recommended
+      from store_reco r join products p on p.id = r.product_id
+      where r.store_id = ${id}
+      order by (r.sent - r.recommended) desc, p.name`;
+  } catch {
+    return []; // table not present yet — store page falls back gracefully
+  }
+}
+
 export type DailyBar = { sale_date: Date; dow: string; sold: number; sent: number };
 export async function getStoreDaily(id: string): Promise<DailyBar[]> {
   return sql<DailyBar[]>`
