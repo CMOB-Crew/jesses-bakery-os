@@ -180,6 +180,8 @@ export async function getStoreProducts(id: string): Promise<ProductRow[]> {
     order by wasted desc, p.name`;
 }
 
+const titleCase = (t: string) => t.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
 export async function getRecommendations(limit = 3): Promise<Recommendation[]> {
   const stores = await getStoreWeek();
   const red = stores
@@ -187,32 +189,46 @@ export async function getRecommendations(limit = 3): Promise<Recommendation[]> {
     .sort((a, b) => b.total_wasted - a.total_wasted)
     .slice(0, limit);
 
-  return red.map((s, i) => {
-    const atStake = Math.round(s.total_wasted * 0.9);
-    if (i % 3 === 0) {
+  return Promise.all(
+    red.map(async (s, i) => {
+      const atStake = Math.round(s.total_wasted * 0.9);
+      const recos = await getStoreRecos(s.store_id);
+
+      // Real engine numbers when we have a plan for this store — the card text is
+      // built straight from store_reco so it matches the store drill-down exactly.
+      if (recos.length >= 2) {
+        const sentNow = recos.reduce((a, r) => a + r.sent, 0);
+        const engineSend = recos.reduce((a, r) => a + r.recommended, 0);
+        const soldSum = recos.reduce((a, r) => a + r.sold, 0);
+        const trim = sentNow - engineSend;
+        const top = recos.filter((r) => r.sent > r.recommended).slice(0, 3);
+        const fixList = top.map((r) => `${titleCase(r.product_name)} ${r.sent}→${r.recommended}`).join(", ");
+        return {
+          store: s,
+          cause: `Over-delivering the top lines — sending ${sentNow} a week where ${soldSum} sells. ${titleCase(recos[0].product_name)} is the worst offender.`,
+          fix: fixList ? `Cut ${fixList}.` : `Right-size the over-supplied lines to real demand.`,
+          impact: `~${trim} fewer units a week`,
+          atStake,
+        };
+      }
+
+      // Fallback for stores without a loaded plan (heuristic, grounded in their week).
+      if (i % 2 === 0) {
+        return {
+          store: s,
+          cause: `Sent ${s.total_sent} this week but sold ${s.total_sold} — over-delivery is leaving stock on the shelf.`,
+          fix: `Right-size the drops to recent same-weekday demand.`,
+          impact: `~${Math.max(3, Math.round(s.total_wasted * 0.5))} fewer loaves wasted a week`,
+          atStake,
+        };
+      }
       return {
         store: s,
-        cause: `Sent ${s.total_sent} this week but sold ${s.total_sold}. Weekend over-delivery is the pattern — Saturday leaves stock on the shelf and Sunday tops up on top of it.`,
-        fix: `Trim the Sunday drop by roughly a third and hold weekday drops flat.`,
-        impact: `~${Math.max(3, Math.round(s.total_wasted * 0.5))} fewer loaves wasted a week`,
+        cause: `Waste is running at ${s.waste_pct}% — well above the 20% target${s.stockout_days ? `, with ${s.stockout_days} stockout day${s.stockout_days === 1 ? "" : "s"} too` : ""}.`,
+        fix: `Rebalance the week: lower the peak drop, protect the days it actually sells.`,
+        impact: `~${Math.max(3, Math.round(s.total_wasted * 0.4))} fewer loaves wasted a week`,
         atStake,
       };
-    }
-    if (i % 3 === 1) {
-      return {
-        store: s,
-        cause: `Weekday drops are sized off the weekly average, so Monday and Tuesday arrive over-stocked while sales are quiet.`,
-        fix: `Right-size Mon & Tue to recent same-weekday demand.`,
-        impact: `~${Math.max(3, Math.round(s.total_wasted * 0.45))} fewer loaves wasted a week`,
-        atStake,
-      };
-    }
-    return {
-      store: s,
-      cause: `Waste is running at ${s.waste_pct}% — well above the 20% target — with ${s.stockout_days} stockout day${s.stockout_days === 1 ? "" : "s"} too, so the sizing is both too high and mistimed.`,
-      fix: `Rebalance the week: lower the peak drop, protect the days it actually sells.`,
-      impact: `~${Math.max(3, Math.round(s.total_wasted * 0.4))} fewer loaves wasted a week`,
-      atStake,
-    };
-  });
+    })
+  );
 }
