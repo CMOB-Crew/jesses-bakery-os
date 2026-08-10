@@ -107,7 +107,7 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
             Green trims over-supply (less waste); amber adds cover where the shelf ran short. Woolworths mature feed.
           </div>
         </>
-      ) : (
+      ) : products.length > 0 ? (
         <>
           <div className="section-h" style={{ marginBottom: 12 }}><span className="tick" />Products this week</div>
           <div className="tablewrap">
@@ -134,6 +134,14 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
             Dashes show where the engine hasn&apos;t written a plan for that product yet.
           </div>
         </>
+      ) : (
+        <div className="panel" style={{ marginTop: 4 }}>
+          <div style={{ fontFamily: "var(--serif)", fontSize: 17, marginBottom: 6 }}>Per-product order plan is warming up for this store</div>
+          <div style={{ color: "var(--ink2)", maxWidth: 640, lineHeight: 1.6 }}>
+            The engine writes full per-product recommendations for stores on a mature sales feed — that&apos;s the Woolworths network today.
+            This store&apos;s weekly totals are shown above; its line-by-line order plan lights up as its retailer feed fills in the ledger.
+          </div>
+        </div>
       )}
     </>
   );
