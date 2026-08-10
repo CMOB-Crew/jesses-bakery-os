@@ -5,10 +5,11 @@ type Bar = { label: string; value: number; suffix?: string };
 type Answer = { headline: string; bars?: Bar[]; note?: string; sql?: string };
 
 const CHIPS = [
+  "How much can you save us?",
+  "What should we cut?",
   "Where is my waste worst?",
   "Which stores need attention?",
   "Sunday stockouts",
-  "Sales this week vs last",
 ];
 
 export default function AskBar() {

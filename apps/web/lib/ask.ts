@@ -18,6 +18,50 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
   const q = (qRaw || "").toLowerCase().trim();
   if (!q) return { headline: "Ask about waste, stockouts, sales, or which stores need attention." };
 
+  const title = (t: string) => t.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+  // ---- engine savings / how much can we cut waste ----
+  if (
+    q.includes("save") || q.includes("saving") || q.includes("engine") ||
+    q.includes("potential") || q.includes("reduce waste") || q.includes("cut waste") ||
+    q.includes("how much can")
+  ) {
+    const rows = await sql<{ scenario: string; label: string; waste_pct: number; lost_sales_pct: number | null; units_saved_wk: number }[]>`
+      select scenario, label, waste_pct, lost_sales_pct, units_saved_wk from engine_projection order by ord`;
+    const cur = rows.find((r) => r.scenario === "current");
+    const bal = rows.find((r) => r.scenario === "balanced");
+    if (cur && bal) {
+      return {
+        headline: `The engine cuts Woolworths waste from ${cur.waste_pct}% to ${bal.waste_pct}% at a balanced setting — about ${bal.units_saved_wk.toLocaleString("en-AU")} loaves a week (~${(bal.units_saved_wk * 52).toLocaleString("en-AU")} a year). Push to the lean setting and it drops under 20%.`,
+        bars: rows.map((r) => ({ label: r.label, value: r.waste_pct ?? 0, suffix: "%" })),
+        note: "Woolworths mature feed. Dollar savings unlock once we have cost-per-product.",
+        sql: "select label, waste_pct, units_saved_wk from engine_projection order by ord;",
+      };
+    }
+  }
+
+  // ---- most over-supplied products / what to cut ----
+  if (
+    q.includes("product") || q.includes("what to cut") || q.includes("what should we cut") ||
+    q.includes("over-suppl") || q.includes("oversupply") || q.includes("over order") ||
+    q.includes("over-order") || q.includes("which line") || q.includes("over sending") || q.includes("over-sending")
+  ) {
+    const rows = await sql<{ name: string; sent: number; sold: number; rec: number; trim: number }[]>`
+      select p.name, sum(r.sent)::int sent, sum(r.sold)::int sold, sum(r.recommended)::int rec,
+             sum(r.sent - r.recommended)::int trim
+      from store_reco r join products p on p.id = r.product_id
+      group by p.name order by trim desc limit 5`;
+    if (rows.length) {
+      const t = rows[0];
+      return {
+        headline: `${title(t.name)} is the most over-supplied line — sending ${t.sent.toLocaleString("en-AU")} a week across the worst stores where ${t.sold.toLocaleString("en-AU")} sells. The engine would send ${t.rec.toLocaleString("en-AU")}.`,
+        bars: rows.map((r) => ({ label: title(r.name), value: r.trim })),
+        note: "Ranked by units to trim across the worst-waste Woolworths stores. Open a store for its full order.",
+        sql: "select name, sum(sent) sent, sum(recommended) rec from store_reco group by name order by sum(sent-recommended) desc;",
+      };
+    }
+  }
+
   // ---- waste ----
   if (q.includes("waste") || q.includes("wasting") || q.includes("throwing")) {
     const rows = await sql<{ name: string; waste_pct: number; total_wasted: number }[]>`
