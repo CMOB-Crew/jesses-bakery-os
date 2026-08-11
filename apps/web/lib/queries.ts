@@ -82,6 +82,25 @@ export async function getEngineProjection(): Promise<EngineScenario[]> {
   }
 }
 
+// Delivery order sheet — per-store current-send vs engine-recommended, from the
+// engine's plan (store_reco). Grouped by region in the Deliveries page. This is
+// the run sheet Simona would actually work from.
+export type DeliveryLine = { store_id: string; name: string; region: string | null; sent: number; recommended: number };
+export async function getDeliveryPlan(): Promise<DeliveryLine[]> {
+  try {
+    return await sql<DeliveryLine[]>`
+      select s.id as store_id, s.name, reg.name as region,
+             sum(r.sent)::int as sent, sum(r.recommended)::int as recommended
+      from store_reco r
+      join stores s on s.id = r.store_id
+      left join regions reg on reg.id = s.region_id
+      group by s.id, s.name, reg.name
+      order by sum(r.sent - r.recommended) desc`;
+  } catch {
+    return [];
+  }
+}
+
 export type FeedStatus = { source: string; status: string; as_of: Date; detail: string | null };
 export async function getFeedStatus(): Promise<FeedStatus[]> {
   return sql<FeedStatus[]>`
