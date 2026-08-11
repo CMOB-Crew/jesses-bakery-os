@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { getNetwork, getRegions, getWasteTrend, getRecommendations, getAsOf, getFeedStatus, getEngineProjection } from "@/lib/queries";
+import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
-import WasteChart from "@/components/WasteChart";
 import RecCard from "@/components/RecCard";
 import AskBar from "@/components/AskBar";
 import EnginePanel from "@/components/EnginePanel";
@@ -13,14 +12,16 @@ function fmtDate(d: Date) {
 }
 
 export default async function Overview() {
-  const [net, regions, trend, recs, asOf, feeds, engine] = await Promise.all([
-    getNetwork(), getRegions(), getWasteTrend(), getRecommendations(3), getAsOf(), getFeedStatus(), getEngineProjection(),
+  const [net, regions, recs, asOf, feeds, engine] = await Promise.all([
+    getNetwork(), getRegions(), getRecommendations(3), getAsOf(), getFeedStatus(), getEngineProjection(),
   ]);
 
   const stale = feeds.find((f) => f.status === "stale");
   const target = 20;
   const underTarget = (net.waste_pct ?? 0) <= target;
   const topRegions = regions.filter((r) => r.red + r.amber > 0).slice(0, 5);
+  const engCur = engine.find((s) => s.scenario === "current")?.waste_pct ?? null;
+  const engBal = engine.find((s) => s.scenario === "balanced")?.waste_pct ?? null;
 
   return (
     <>
@@ -61,8 +62,15 @@ export default async function Overview() {
             <div className="cc-top"><div className="cc-lbl">Network waste · this week</div><StatusTag status={underTarget ? "green" : "amber"} /></div>
             <div className="cc-big">{net.waste_pct}<span className="u">%</span></div>
             <div className={`cc-sub ${underTarget ? "good" : "bad"}`}>{underTarget ? "▼ under" : "▲ over"} the {target}% target</div>
-            <WasteChart vals={trend} />
-            <div className="cc-foot">6-week trend · {trend[0]}% → {trend[trend.length - 1]}%</div>
+            <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 9 }}>
+              <MiniBar label="This week" pct={net.waste_pct ?? 0} max={35} color={underTarget ? "var(--green)" : "var(--amber)"} />
+              <MiniBar label={`${target}% target`} pct={target} max={35} color="var(--ink2)" faded />
+            </div>
+            <div className="cc-foot">
+              {engCur != null && engBal != null
+                ? `Mature Woolworths runs ${engCur}% today; the engine's plan takes it toward ${engBal}%.`
+                : "Exception-first — the on-track stores run themselves."}
+            </div>
           </div>
 
           <div className="rl">
@@ -111,6 +119,18 @@ function Stat({ dot, n, l }: { dot: string; n: number; l: string }) {
     <div className="stat">
       <div className="n"><span className="sdot" style={{ background: dot }} />{n}</div>
       <div className="l">{l}</div>
+    </div>
+  );
+}
+
+function MiniBar({ label, pct, max, color, faded }: { label: string; pct: number; max: number; color: string; faded?: boolean }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ width: 76, fontSize: 11.5, color: "var(--ink2)", textAlign: "right", flexShrink: 0 }}>{label}</div>
+      <div style={{ flex: 1, height: 9, background: "#f0e9db", borderRadius: 5, overflow: "hidden" }}>
+        <div style={{ width: `${Math.min(100, (pct / max) * 100)}%`, height: "100%", background: color, opacity: faded ? 0.4 : 1, borderRadius: 5 }} />
+      </div>
+      <div style={{ width: 40, fontSize: 12, fontWeight: 700, textAlign: "right", flexShrink: 0 }}>{pct}%</div>
     </div>
   );
 }
