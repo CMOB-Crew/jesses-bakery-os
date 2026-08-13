@@ -36,6 +36,9 @@ export default function Sidebar() {
         <Link href="/new-store" className={isOn("/new-store") ? "on" : ""}>
           <svg viewBox="0 0 24 24"><path d="M3 10l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" /><path d="M12 8v6M9 11h6" /></svg>New store
         </Link>
+        <Link href="/archive" className={isOn("/archive") ? "on" : ""}>
+          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1" /><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4" /></svg>Archive
+        </Link>
         <div className="grp">Intelligence</div>
         <Link href="/assistant" className={isOn("/assistant") ? "on" : ""}>
           <svg viewBox="0 0 24 24"><path d="M12 3l1.9 4.9L19 9l-4 3.4L16 18l-4-2.6L8 18l1-5.6L5 9l5.1-1.1z" /></svg>Assistant
