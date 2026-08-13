@@ -1,11 +1,11 @@
-import { getDeliveryPlan } from "@/lib/queries";
+import { getDeliveryPlan, getDeliveryDetail } from "@/lib/queries";
 import DeliveriesBoard from "@/components/DeliveriesBoard";
 
 export const metadata = { title: "Deliveries · Jesse's Bakery OS" };
 export const revalidate = 120; // cache ~2 min
 
 export default async function DeliveriesPage() {
-  const lines = await getDeliveryPlan();
+  const [lines, detail] = await Promise.all([getDeliveryPlan(), getDeliveryDetail()]);
 
   return (
     <>
@@ -17,7 +17,7 @@ export default async function DeliveriesPage() {
       </div>
 
       {lines.length ? (
-        <DeliveriesBoard lines={lines} />
+        <DeliveriesBoard lines={lines} detail={detail} />
       ) : (
         // Empty until the plan is loaded — keep it honest, don't show a blank grid.
         <div className="panel">

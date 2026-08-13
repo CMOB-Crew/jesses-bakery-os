@@ -101,6 +101,24 @@ export async function getDeliveryPlan(): Promise<DeliveryLine[]> {
   }
 }
 
+// Per-store, per-product delivery lines — powers the expandable product
+// breakdown under each store on the Deliveries sheet (Simona: "a dropdown to
+// see per-product without opening the full profile").
+export type DeliveryDetailLine = { store_id: string; product_name: string; sent: number; recommended: number };
+export async function getDeliveryDetail(): Promise<DeliveryDetailLine[]> {
+  try {
+    return await sql<DeliveryDetailLine[]>`
+      select r.store_id, p.name as product_name,
+             sum(r.sent)::int as sent, sum(r.recommended)::int as recommended
+      from store_reco r
+      join products p on p.id = r.product_id
+      group by r.store_id, p.name
+      order by sum(r.sent - r.recommended) desc`;
+  } catch {
+    return [];
+  }
+}
+
 // Production bake plan — per-product totals across the whole plan (store_reco),
 // current bake vs engine-sized. This is the factory sheet: what to make today.
 export type ProductionLine = { name: string; category: string; sent: number; recommended: number; stores: number };

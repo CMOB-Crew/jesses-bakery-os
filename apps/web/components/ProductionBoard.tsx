@@ -191,11 +191,11 @@ export default function ProductionBoard({ lines: raw }: { lines: ProductionLine[
             {isWeek ? (
               <>
                 Right now the factory bakes <b>{nf(totalSent)}</b> units this week. Sized to what actually sells, the plan is <b>{nf(totalEng)}</b>
-                {trim > 0 ? <> — <span className="fewer">{nf(trim)} fewer</span>, so far less comes back at day&apos;s end.</> : <>.</>}
+                {trim > 0 ? <> — <span className="fewer">{nf(trim)} less</span> to bake, so far less comes back at day&apos;s end.</> : <>.</>}
               </>
             ) : (
               <>
-                <b>{dayName}{isToday ? " (today)" : ""}</b> — the bakery makes <b>{nf(totalEng)}</b> loaves. That&apos;s <b>{nf(totalSent)}</b> under the old plan, so <span className="fewer">{nf(Math.max(0, trim))} fewer</span> come back. This is the sheet for the floor.
+                <b>{dayName}{isToday ? " (today)" : ""}</b> — the bakery makes <b>{nf(totalEng)}</b> loaves. That&apos;s <b>{nf(totalSent)}</b> under the old plan, so <span className="fewer">{nf(Math.max(0, trim))} less</span> comes back. This is the sheet for the floor.
               </>
             )}
           </div>

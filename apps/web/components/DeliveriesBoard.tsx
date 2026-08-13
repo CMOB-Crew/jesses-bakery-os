@@ -2,19 +2,31 @@
 
 import { Fragment, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import type { DeliveryLine } from "@/lib/queries";
+import type { DeliveryLine, DeliveryDetailLine } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 
 // The "calm" delivery order sheet. The engine writes the plan; Simona works
 // through it region by region, nudging any Final delivery number (−/+ appear on
-// hover), resetting or undoing, and ticking each store to approve. Totals recalc
-// live. Nothing sends to the bakery until she signs it off.
-export default function DeliveriesBoard({ lines }: { lines: DeliveryLine[] }) {
+// hover), resetting or undoing, and ticking each store to approve. Each store
+// opens a per-product breakdown inline. Totals recalc live. Nothing sends to the
+// bakery until she signs it off.
+export default function DeliveriesBoard({ lines, detail = [] }: { lines: DeliveryLine[]; detail?: DeliveryDetailLine[] }) {
   const orig = useMemo(
     () => Object.fromEntries(lines.map((l) => [l.store_id, l.recommended])) as Record<string, number>,
     [lines],
   );
+  // per-store product lines for the inline dropdown
+  const detailMap = useMemo(() => {
+    const m = new Map<string, DeliveryDetailLine[]>();
+    for (const d of detail) {
+      if (!m.has(d.store_id)) m.set(d.store_id, []);
+      m.get(d.store_id)!.push(d);
+    }
+    return m;
+  }, [detail]);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggleExpand = (id: string) => setExpanded((e) => ({ ...e, [id]: !e[id] }));
   const groups = useMemo(() => {
     const m = new Map<string, DeliveryLine[]>();
     for (const l of lines) {
@@ -193,10 +205,20 @@ export default function DeliveriesBoard({ lines }: { lines: DeliveryLine[] }) {
                 const val = v(l.store_id);
                 const changed = val !== orig[l.store_id];
                 const appr = !!approved[l.store_id];
+                const prods = detailMap.get(l.store_id) ?? [];
+                const open = !!expanded[l.store_id];
                 return (
-                  <div key={l.store_id} className={`row ${appr ? "approved" : ""} ${changed ? "edited" : ""}`}>
+                  <Fragment key={l.store_id}>
+                  <div className={`row ${appr ? "approved" : ""} ${changed ? "edited" : ""}`}>
                     <div className="grid">
-                      <div className="stname"><Link href={`/store/${l.store_id}`}><span className="chev">→</span>{l.name}</Link></div>
+                      <div className="stname">
+                        {prods.length > 0 && (
+                          <button type="button" className={`xpand ${open ? "open" : ""}`} aria-label={`${open ? "hide" : "show"} products for ${l.name}`} onClick={() => toggleExpand(l.store_id)}>
+                            <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg>
+                          </button>
+                        )}
+                        <Link href={`/store/${l.store_id}`}><span className="chev">→</span>{l.name}</Link>
+                      </div>
                       <div className="sendnow hide">{nf(l.sent)}</div>
                       <div className="engcell"><div className="stepper">
                         <button type="button" aria-label={`decrease ${l.name}`} onClick={() => setEngine(l.store_id, val - 1)}>−</button>
@@ -224,6 +246,21 @@ export default function DeliveriesBoard({ lines }: { lines: DeliveryLine[] }) {
                       </div>
                     </div>
                   </div>
+                  {open && prods.map((p) => {
+                    const d = Number(p.sent) - Number(p.recommended);
+                    return (
+                      <div className="prow" key={p.product_name}>
+                        <div className="grid">
+                          <div className="pname">{p.product_name}</div>
+                          <div className="sendnow hide">{nf(Number(p.sent) || 0)}</div>
+                          <div className="peng">{nf(Number(p.recommended) || 0)}</div>
+                          <div className="pchg">{d > 0 ? `−${nf(d)}` : d < 0 ? `+${nf(-d)}` : "—"}</div>
+                          <div />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  </Fragment>
                 );
               })}
             </Fragment>
@@ -245,6 +282,15 @@ export default function DeliveriesBoard({ lines }: { lines: DeliveryLine[] }) {
 
       <style>{`
       .dcalm{display:block;padding-bottom:72px}
+      .dcalm .stname .xpand{width:20px;height:20px;border:1px solid var(--line);background:var(--card);border-radius:6px;cursor:pointer;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;flex:none;padding:0;margin-right:2px}
+      .dcalm .stname .xpand svg{width:12px;height:12px;stroke:currentColor;stroke-width:2.4;fill:none;transition:transform .18s}
+      .dcalm .stname .xpand.open svg{transform:rotate(180deg)}
+      .dcalm .stname .xpand:hover{border-color:var(--crust);color:var(--ink2)}
+      .dcalm .prow{border-top:1px solid var(--line2);background:#fbf8f1}
+      .dcalm .prow>.grid>div{padding:8px 18px}
+      .dcalm .prow .pname{font-size:13px;color:var(--ink2);padding-left:46px !important}
+      .dcalm .prow .peng{text-align:center;font-weight:600;font-size:13px;font-variant-numeric:tabular-nums}
+      .dcalm .prow .pchg{text-align:right;font-size:12.5px;color:var(--green-t);font-weight:600;font-variant-numeric:tabular-nums}
       .dcalm .hero{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:22px 26px;margin-bottom:16px;display:grid;grid-template-columns:1.5fr 1fr;gap:30px;align-items:center}
       @media(max-width:960px){.dcalm .hero{grid-template-columns:1fr;gap:22px}}
       .dcalm .lead{font-size:15.5px;line-height:1.5}
