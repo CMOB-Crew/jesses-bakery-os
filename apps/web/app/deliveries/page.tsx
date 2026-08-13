@@ -15,7 +15,7 @@ export default async function DeliveriesPage() {
         <div className="panel">
           <div style={{ fontFamily: "var(--serif)", fontSize: 18, marginBottom: 8 }}>Order sheet is warming up</div>
           <div style={{ color: "var(--ink2)", maxWidth: 560, lineHeight: 1.6 }}>
-            The delivery order sheet is generated from the engine plan on the mature Woolworths feed.
+            The delivery order sheet is generated from the plan on the mature Woolworths feed.
             It lights up here store-by-store as the plan is written.
           </div>
         </div>
@@ -47,21 +47,21 @@ export default async function DeliveriesPage() {
     <>
       <div className="head">
         <h1>Deliveries</h1>
-        <div className="meta">This week&apos;s engine order sheet · {lines.length} stores on plan</div>
+        <div className="meta">This week&apos;s delivery plan · {lines.length} stores on plan</div>
       </div>
 
       <div className="panel">
         <div style={{ fontSize: 15, lineHeight: 1.6 }}>
-          Across the stores on plan, you&apos;re sending <b>{totalSent.toLocaleString("en-AU")}</b> units this week; the engine would send{" "}
+          Across the stores on plan, you&apos;re sending <b>{totalSent.toLocaleString("en-AU")}</b> units this week; sized to what actually sells, the plan sends{" "}
           <b>{totalRec.toLocaleString("en-AU")}</b>
           {trim > 0 ? (
-            <> — <b style={{ color: "var(--green)" }}>{trim.toLocaleString("en-AU")} fewer</b>, right-sized to real demand.</>
+            <> — <b style={{ color: "var(--green)" }}>{trim.toLocaleString("en-AU")} less</b>, sized to real demand.</>
           ) : (
             <>.</>
           )}
         </div>
         <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
-          Mature Woolworths feed. Green trims over-supply (less waste); amber adds cover where a store ran short. Tap a store for its line-by-line order.
+          Mature Woolworths feed. Final delivery is the number that actually goes out to each store. Green trims over-supply (less waste); amber adds cover where a store ran short. Tap a store for its line-by-line order.
         </div>
       </div>
 
@@ -73,13 +73,13 @@ export default async function DeliveriesPage() {
               <span><span className="tick" />{r.region}</span>
               <span style={{ fontSize: 12.5, fontWeight: 400, color: "var(--muted)", textTransform: "none", letterSpacing: 0 }}>
                 {r.sent.toLocaleString("en-AU")} → {r.rec.toLocaleString("en-AU")}
-                {rTrim > 0 ? <span style={{ color: "var(--green)" }}> · {rTrim.toLocaleString("en-AU")} fewer</span> : null}
+                {rTrim > 0 ? <span style={{ color: "var(--green)" }}> · {rTrim.toLocaleString("en-AU")} less</span> : null}
               </span>
             </div>
             <div className="tablewrap">
               <table>
                 <thead>
-                  <tr><th>Store</th><th className="num">Sending now</th><th className="num">Engine sends</th><th className="num">Change</th></tr>
+                  <tr><th>Store</th><th className="num">Sending now</th><th className="num">Final delivery</th><th className="num">Change</th></tr>
                 </thead>
                 <tbody>
                   {r.ls.sort((a, b) => (b.sent - b.recommended) - (a.sent - a.recommended)).map((l) => {
