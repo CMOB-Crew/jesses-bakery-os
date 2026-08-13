@@ -35,6 +35,9 @@ export default function Sidebar() {
         <Link href="/assistant" className={isOn("/assistant") ? "on" : ""}>
           <svg viewBox="0 0 24 24"><path d="M12 3l1.9 4.9L19 9l-4 3.4L16 18l-4-2.6L8 18l1-5.6L5 9l5.1-1.1z" /></svg>Assistant
         </Link>
+        <Link href="/seasonality" className={isOn("/seasonality") ? "on" : ""}>
+          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18M8 2v4M16 2v4" /></svg>Seasonality
+        </Link>
         <Link href="/settings" className={isOn("/settings") ? "on" : ""}>
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" /></svg>Settings
         </Link>
