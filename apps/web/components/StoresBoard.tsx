@@ -41,8 +41,8 @@ export default function StoresBoard({ stores }: { stores: StoreWeek[] }) {
       (!t || s.name.toLowerCase().includes(t)),
     )
     .sort((a, b) => {
-      const av = (sortKey === "waste" ? a.waste_pct : a.total_sold) ?? -1;
-      const bv = (sortKey === "waste" ? b.waste_pct : b.total_sold) ?? -1;
+      const av = Number((sortKey === "waste" ? a.waste_pct : a.total_sold) ?? -1);
+      const bv = Number((sortKey === "waste" ? b.waste_pct : b.total_sold) ?? -1);
       return (av - bv) * sortDir;
     });
 
@@ -102,23 +102,27 @@ export default function StoresBoard({ stores }: { stores: StoreWeek[] }) {
               <tr><td colSpan={6}><div className="empty"><b>No stores match.</b><br />Try clearing a filter.</div></td></tr>
             ) : list.map((s) => {
               const [cls, label] = STAT[s.status] ?? ["green", "On track"];
+              // DB returns numeric columns as strings — coerce before formatting.
+              const w = s.waste_pct == null ? null : Number(s.waste_pct);
+              const so = Number(s.stockout_days) || 0;
+              const sold = Number(s.total_sold) || 0;
               return (
                 <tr key={s.store_id} onClick={() => router.push(`/store/${s.store_id}`)}>
                   <td><span className="st-name"><span className="chev">→</span>{s.name}<span className="rtl">{rtlLabel(s.retailer)}</span></span></td>
                   <td className="region">{s.region ?? "—"}</td>
                   <td><span className={`tag ${cls}`}>● {label}</span></td>
                   <td className="num">
-                    {s.waste_pct == null ? (
+                    {w == null ? (
                       <span className="await">Awaiting feed</span>
                     ) : (
                       <div className="wcell">
-                        <div className="wbar"><i style={{ width: `${Math.min(100, (s.waste_pct / 65) * 100)}%`, background: wasteColor(s.status) }} /></div>
-                        <span className="wnum">{s.waste_pct.toFixed(1)}%</span>
+                        <div className="wbar"><i style={{ width: `${Math.min(100, (w / 65) * 100)}%`, background: wasteColor(s.status) }} /></div>
+                        <span className="wnum">{w.toFixed(1)}%</span>
                       </div>
                     )}
                   </td>
-                  <td className="num">{s.stockout_days ? s.stockout_days : <span className="dash">—</span>}</td>
-                  <td className="num">{s.total_sold.toLocaleString("en-AU")}</td>
+                  <td className="num">{so ? so : <span className="dash">—</span>}</td>
+                  <td className="num">{sold.toLocaleString("en-AU")}</td>
                 </tr>
               );
             })}
