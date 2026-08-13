@@ -43,6 +43,9 @@ export default function Sidebar() {
         <Link href="/seasonality" className={isOn("/seasonality") ? "on" : ""}>
           <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18M8 2v4M16 2v4" /></svg>Seasonality
         </Link>
+        <Link href="/accuracy" className={isOn("/accuracy") ? "on" : ""}>
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r="0.5" /></svg>Accuracy
+        </Link>
         <Link href="/settings" className={isOn("/settings") ? "on" : ""}>
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" /></svg>Settings
         </Link>
