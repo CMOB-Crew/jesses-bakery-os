@@ -6,6 +6,13 @@ import type { DeliveryLine, DeliveryDetailLine } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 
+const DOWSHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+// Typical week-shape — quieter Mon/Tue, heavy Fri–Sun. Splits the weekly plan
+// into a single day's drop; the weekly totals stay exact.
+const DOWMULT = [0.85, 0.85, 0.95, 1, 1.3, 1.55, 1.4];
+const DSUM = DOWMULT.reduce((a, b) => a + b, 0);
+
 // The "calm" delivery order sheet. The engine writes the plan; Simona works
 // through it region by region, nudging any Final delivery number (−/+ appear on
 // hover), resetting or undoing, and ticking each store to approve. Each store
@@ -45,12 +52,16 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
   const [helpOpen, setHelpOpen] = useState(true);
   const [history, setHistory] = useState<{ id: string; prev: number }[][]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [day, setDay] = useState<"week" | number>("week");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const isWeek = day === "week";
+  // displayed value for the current view — whole week, or one day's share
+  const dv = (n: number) => (isWeek ? n : Math.round((n * DOWMULT[day as number]) / DSUM));
   const v = (id: string) => eng[id] ?? orig[id] ?? 0;
   const total = lines.length;
-  const totalSent = lines.reduce((a, l) => a + l.sent, 0);
-  const totalEng = lines.reduce((a, l) => a + v(l.store_id), 0);
+  const totalSent = lines.reduce((a, l) => a + dv(l.sent), 0);
+  const totalEng = lines.reduce((a, l) => a + dv(v(l.store_id)), 0);
   const trim = totalSent - totalEng;
   const apprCount = lines.filter((l) => approved[l.store_id]).length;
   const dirty = lines.some((l) => v(l.store_id) !== orig[l.store_id]);
@@ -112,18 +123,36 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
   const rowVisible = (l: DeliveryLine) => (!t || l.name.toLowerCase().includes(t)) && (!unappOnly || !approved[l.store_id]);
   const regChg = (f: number) => (f > 0 ? `−${nf(f)}` : f < 0 ? `+${nf(-f)}` : "—");
   function chgPill(l: DeliveryLine) {
-    const d = l.sent - v(l.store_id);
+    const d = dv(l.sent) - dv(v(l.store_id));
     if (d > 0) return <span className="chgpill">−{nf(d)}</span>;
     if (d < 0) return <span className="chgpill add">+{nf(-d)}</span>;
     return <span className="chgpill same">—</span>;
   }
 
+  const dayName = isWeek ? "" : DOW[day as number];
+  const dayShort = isWeek ? "" : DOWSHORT[day as number];
+
   return (
     <section className="dcalm">
+      <div className="dayrow">
+        <span className="daylbl">Show delivery for</span>
+        <div className="dayselect">
+          <button type="button" className={`daypill ${isWeek ? "on" : ""}`} onClick={() => setDay("week")}>Whole week</button>
+          <span className="daysep" />
+          {DOWSHORT.map((d, i) => (
+            <button type="button" key={d} className={`daypill ${day === i ? "on" : ""}`} onClick={() => setDay(i)}>{d}</button>
+          ))}
+        </div>
+      </div>
+
       <div className="hero">
         <div>
           <div className="lead">
-            Right now your standing orders send <b>{nf(totalSent)}</b> loaves this week. Sized to what actually sells, the plan sends <b>{nf(totalEng)}</b>
+            {isWeek ? (
+              <>Right now your standing orders send <b>{nf(totalSent)}</b> loaves this week. Sized to what actually sells, the plan sends <b>{nf(totalEng)}</b></>
+            ) : (
+              <><b>{dayName}</b> — the current run sends <b>{nf(totalSent)}</b> loaves. Sized to what actually sells, the plan sends <b>{nf(totalEng)}</b></>
+            )}
             {trim > 0 ? (
               <> — <span className="fewer">{nf(trim)} less</span>, so far less comes back at day&apos;s end.</>
             ) : trim < 0 ? (
@@ -144,7 +173,7 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
         <div className="statgrid">
           <div className="s"><div className="n">{total}</div><div className="l">Stores on plan</div></div>
           <div className="s"><div className="n">{groups.length}</div><div className="l">Regions</div></div>
-          <div className="s"><div className="n g">{nf(Math.max(0, trim))}</div><div className="l">Loaves trimmed / week</div></div>
+          <div className="s"><div className="n g">{nf(Math.max(0, trim))}</div><div className="l">Loaves trimmed{isWeek ? " / week" : ` · ${dayShort}`}</div></div>
           <div className="s"><div className="n">{apprCount}<span style={{ fontSize: 15, color: "var(--muted)" }}>/{total}</span></div><div className="l">Orders approved</div></div>
         </div>
       </div>
@@ -163,8 +192,8 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
           <input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Find a store…" autoComplete="off" />
         </label>
         <button type="button" className={`tgl ${unappOnly ? "on" : ""}`} onClick={() => setUnappOnly((u) => !u)}>Unapproved only</button>
-        <button type="button" className="tgl" onClick={undo} disabled={history.length === 0}>↶ Undo last</button>
-        <button type="button" className="tgl reset" onClick={resetAll} disabled={!dirty}>↺ Reset to plan</button>
+        {isWeek && <button type="button" className="tgl" onClick={undo} disabled={history.length === 0}>↶ Undo last</button>}
+        {isWeek && <button type="button" className="tgl reset" onClick={resetAll} disabled={!dirty}>↺ Reset to plan</button>}
         <button type="button" className="tgl link" onClick={collapseAll}>{allCollapsed ? "Expand all" : "Collapse all"}</button>
       </div>
 
@@ -181,8 +210,8 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
           const anyVisible = g.rows.some(rowVisible);
           if (!anyVisible) return null;
           const isC = !!collapsed[g.region];
-          const send = g.rows.reduce((a, l) => a + l.sent, 0);
-          const engs = g.rows.reduce((a, l) => a + v(l.store_id), 0);
+          const send = g.rows.reduce((a, l) => a + dv(l.sent), 0);
+          const engs = g.rows.reduce((a, l) => a + dv(v(l.store_id)), 0);
           const fewer = send - engs;
           return (
             <Fragment key={g.region}>
@@ -219,20 +248,24 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
                         )}
                         <Link href={`/store/${l.store_id}`}><span className="chev">→</span>{l.name}</Link>
                       </div>
-                      <div className="sendnow hide">{nf(l.sent)}</div>
-                      <div className="engcell"><div className="stepper">
-                        <button type="button" aria-label={`decrease ${l.name}`} onClick={() => setEngine(l.store_id, val - 1)}>−</button>
-                        <input
-                          className={changed ? "edited" : ""}
-                          value={val}
-                          inputMode="numeric"
-                          onChange={(e) => setEngine(l.store_id, parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)}
-                          onFocus={(e) => e.currentTarget.select()}
-                        />
-                        <button type="button" aria-label={`increase ${l.name}`} onClick={() => setEngine(l.store_id, val + 1)}>+</button>
-                      </div></div>
+                      <div className="sendnow hide">{nf(dv(l.sent))}</div>
+                      {isWeek ? (
+                        <div className="engcell"><div className="stepper">
+                          <button type="button" aria-label={`decrease ${l.name}`} onClick={() => setEngine(l.store_id, val - 1)}>−</button>
+                          <input
+                            className={changed ? "edited" : ""}
+                            value={val}
+                            inputMode="numeric"
+                            onChange={(e) => setEngine(l.store_id, parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)}
+                            onFocus={(e) => e.currentTarget.select()}
+                          />
+                          <button type="button" aria-label={`increase ${l.name}`} onClick={() => setEngine(l.store_id, val + 1)}>+</button>
+                        </div></div>
+                      ) : (
+                        <div className="engcell"><div className="engnum">{nf(dv(val))}</div></div>
+                      )}
                       <div className="chg">
-                        {changed && (
+                        {isWeek && changed && (
                           <button type="button" className="rst" title={`Reset to ${orig[l.store_id]}`} onClick={() => resetRow(l.store_id)}>
                             <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4" /></svg>
                           </button>
@@ -247,13 +280,15 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
                     </div>
                   </div>
                   {open && prods.map((p) => {
-                    const d = Number(p.sent) - Number(p.recommended);
+                    const psent = dv(Number(p.sent) || 0);
+                    const prec = dv(Number(p.recommended) || 0);
+                    const d = psent - prec;
                     return (
                       <div className="prow" key={p.product_name}>
                         <div className="grid">
                           <div className="pname">{p.product_name}</div>
-                          <div className="sendnow hide">{nf(Number(p.sent) || 0)}</div>
-                          <div className="peng">{nf(Number(p.recommended) || 0)}</div>
+                          <div className="sendnow hide">{nf(psent)}</div>
+                          <div className="peng">{nf(prec)}</div>
                           <div className="pchg">{d > 0 ? `−${nf(d)}` : d < 0 ? `+${nf(-d)}` : "—"}</div>
                           <div />
                         </div>
@@ -268,10 +303,14 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
         })}
       </div>
 
-      <div className="foot">Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you change it. Tick a store to approve its order. Editing, reset &amp; undo are live; sending the order to the bakery is the next build phase.</div>
+      <div className="foot">
+        {isWeek
+          ? <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you change it. Click a store to see its per-product breakdown. Tick to approve. Editing, reset &amp; undo are live; sending to the bakery is the next build phase. Switch to a day above to see just that day&apos;s drop — the buffer is already baked into every number.</>
+          : <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Click a store for its per-product breakdown, or tick to approve. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is modelled from typical demand until the daily plan is wired.</>}
+      </div>
 
       <div className="actionbar">
-        <div className="prog"><b>{apprCount}</b> of {total} approved · trimming <span className="tr">{nf(Math.max(0, trim))}</span> loaves this week</div>
+        <div className="prog"><b>{apprCount}</b> of {total} approved · trimming <span className="tr">{nf(Math.max(0, trim))}</span> loaves {isWeek ? "this week" : dayShort}</div>
         <div className="sp">
           <button type="button" className="btn" onClick={() => showToast("Run sheet exported (CSV) — auto-send to the bakery lands next phase")}>↓ Export run sheet</button>
           <button type="button" className="btn primary" onClick={() => { setApproved(Object.fromEntries(lines.map((l) => [l.store_id, true]))); showToast(`All ${total} orders approved ✓ — sending to the bakery is the next build phase`); }}>✓ Approve all</button>
@@ -282,6 +321,14 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
 
       <style>{`
       .dcalm{display:block;padding-bottom:72px}
+      .dcalm .dayrow{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+      .dcalm .daylbl{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.2px}
+      .dcalm .dayselect{display:flex;gap:4px;background:#ece3d1;border-radius:11px;padding:4px;flex-wrap:wrap}
+      .dcalm .daypill{border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;color:var(--muted);padding:8px 14px;border-radius:8px;cursor:pointer;transition:.14s}
+      .dcalm .daypill:hover{color:var(--ink2)}
+      .dcalm .daypill.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(60,45,30,.16)}
+      .dcalm .daysep{width:1px;height:22px;background:#d8ccb2;margin:0 2px}
+      .dcalm .engnum{text-align:center;font-weight:700;font-size:15px;font-variant-numeric:tabular-nums}
       .dcalm .stname .xpand{width:20px;height:20px;border:1px solid var(--line);background:var(--card);border-radius:6px;cursor:pointer;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;flex:none;padding:0;margin-right:2px}
       .dcalm .stname .xpand svg{width:12px;height:12px;stroke:currentColor;stroke-width:2.4;fill:none;transition:transform .18s}
       .dcalm .stname .xpand.open svg{transform:rotate(180deg)}
