@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getDeliveryPlan, getDeliveryDetail } from "@/lib/queries";
 import DeliveriesBoard from "@/components/DeliveriesBoard";
 
@@ -12,7 +13,7 @@ export default async function DeliveriesPage() {
       <div className="head">
         <h1>Deliveries</h1>
         {lines.length ? (
-          <div className="meta">This week&apos;s delivery plan · {lines.length} stores on plan</div>
+          <div className="meta">This week&apos;s delivery plan · {lines.length} stores on plan · <Link href="/delivery-sheet" style={{ color: "var(--crust-deep)", fontWeight: 600 }}>spreadsheet grid →</Link></div>
         ) : null}
       </div>
 
