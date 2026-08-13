@@ -44,7 +44,8 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
   if (
     q.includes("product") || q.includes("what to cut") || q.includes("what should we cut") ||
     q.includes("over-suppl") || q.includes("oversupply") || q.includes("over order") ||
-    q.includes("over-order") || q.includes("which line") || q.includes("over sending") || q.includes("over-sending")
+    q.includes("over-order") || q.includes("which line") || q.includes("over sending") || q.includes("over-sending") ||
+    q.includes("bake less") || q.includes("bake fewer") || q.includes("make less") || q.includes("cut back")
   ) {
     const rows = await sql<{ name: string; sent: number; sold: number; rec: number; trim: number }[]>`
       select p.name, sum(r.sent)::int sent, sum(r.sold)::int sold, sum(r.recommended)::int rec,
