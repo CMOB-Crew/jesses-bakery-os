@@ -7,9 +7,12 @@ import { useMemo, useState } from "react";
  * over-send, capture demand where we sell out, and add range where a
  * store is missing an obvious line. This is the surface behind Simona's
  * "where can we make another $20k/month?" — ranked by units at stake
- * now, and it re-sorts by profit the moment the cost feed lands.
+ * now; it weights by revenue once the price feed (Invoice_Cost) lands,
+ * and answers the profit question once Simona's production cost is in.
  *
- * Front-end prototype; the ranking is the engine's, this surfaces it.
+ * Note: Invoice_Cost is what the retailer pays Jesse = revenue, not
+ * margin. So the dollar layer is revenue-weighted until production cost
+ * exists. Front-end prototype; the ranking is the engine's, this surfaces it.
  * ------------------------------------------------------------------ */
 
 type Lever = "demand" | "waste" | "range" | "rebalance";
@@ -68,8 +71,8 @@ export default function OpportunityFinder() {
         <div className="itxt">
           One ranked list of the biggest wins across the network — three levers pulled together: <b>capture demand</b> where
           we sell out, <b>trim waste</b> where we over-send, and <b>add range</b> where a store is missing an obvious line.
-          Ranked by units at stake today; it re-sorts by <i>profit</i> — and can answer &ldquo;where&apos;s another $20k a
-          month?&rdquo; directly — the moment the cost feed lands.
+          Ranked by units at stake today; it weights by <b>revenue</b> once the price feed lands, and answers
+          &ldquo;where&apos;s another $20k a month?&rdquo; in true <b>profit</b> once Simona&apos;s production cost is in.
         </div>
       </div>
 
@@ -78,7 +81,7 @@ export default function OpportunityFinder() {
         <div className="hl-l">
           <div className="hl-lbl">Money on the table · this week</div>
           <div className="hl-big">~{total}<span className="u"> units/wk</span></div>
-          <div className="hl-sub">across {OPPS.length} moves · <span className="dollar">$ value lights up with the cost feed</span></div>
+          <div className="hl-sub">across {OPPS.length} moves · <span className="dollar">revenue weighting lights up with the price feed</span></div>
         </div>
         <div className="hl-levers">
           {levers.map((l) => (
@@ -132,9 +135,9 @@ export default function OpportunityFinder() {
       </div>
 
       <div className="foot" style={{ marginTop: 16 }}>
-        Representative of what the engine surfaces from waste, sell-through and ranging gaps. Ranked by units today; the
-        list re-orders by profit once cost and margin come through (Fred&apos;s cost feed) — that&apos;s the version that
-        answers the dollar question directly.
+        Representative of what the engine surfaces from waste, sell-through and ranging gaps. Ranked by units today; it
+        re-orders by revenue when the price feed lands (Invoice_Cost, per Fred), and by true profit once Simona&apos;s
+        production cost per unit is in — that&apos;s the version that answers the dollar question directly.
       </div>
 
       <style>{`

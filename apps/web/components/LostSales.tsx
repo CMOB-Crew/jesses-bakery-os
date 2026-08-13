@@ -96,7 +96,7 @@ export default function LostSales() {
         </div>
         <div className="tile">
           <div className="tn dim">$ —</div>
-          <div className="tl">Lost revenue / wk · lights up with the cost feed</div>
+          <div className="tl">Lost revenue / wk · lights up with the price feed</div>
         </div>
         <div className="tile">
           <div className="tn amber">{cadenceCount}</div>
@@ -178,7 +178,7 @@ export default function LostSales() {
 
       <div className="foot" style={{ marginTop: 16 }}>
         Representative of the sellout patterns the engine surfaces from delivered-vs-sold and sellout timing. Figures fill
-        in from live detection; lost revenue turns on when the cost feed lands.
+        in from live detection; lost revenue turns on when the price feed lands (Invoice_Cost, per Fred).
       </div>
 
       <style>{`
