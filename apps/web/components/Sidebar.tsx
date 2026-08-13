@@ -38,6 +38,10 @@ export default function Sidebar() {
         <Link href="/settings" className={isOn("/settings") ? "on" : ""}>
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" /></svg>Settings
         </Link>
+        <div className="grp">Field</div>
+        <Link href="/driver" className={isOn("/driver") ? "on" : ""}>
+          <svg viewBox="0 0 24 24"><rect x="1" y="6" width="15" height="11" rx="1" /><path d="M16 9h4l3 3v5h-7z" /><circle cx="6" cy="19" r="2" /><circle cx="19" cy="19" r="2" /></svg>Driver app
+        </Link>
       </nav>
       <div className="side-foot">
         <div className="avatar">S</div>
