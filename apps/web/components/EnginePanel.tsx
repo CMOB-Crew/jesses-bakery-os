@@ -27,7 +27,7 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
       <div className="eng-top">
         <div className="eng-title">
           <span className="tick" />
-          Waste today vs. with the engine
+          Waste this week — today vs. the plan
         </div>
         <div className="eng-src">Woolworths feed · this week · real delivered vs sold</div>
       </div>
@@ -40,7 +40,7 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
           </div>
           <div className="eng-arrow">→</div>
           <div className="eng-to">
-            <div className="eng-cap">With the engine · {eng.label}</div>
+            <div className="eng-cap">With the plan · {eng.label}</div>
             <div className="eng-num good">{engPct}<span className="u">%</span></div>
           </div>
           <div className="eng-drop">
@@ -61,6 +61,7 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
                   type="button"
                 >
                   {e.label.split(" ")[0]}
+                  {e.scenario === "balanced" && <small>default</small>}
                 </button>
               ))}
             </div>
@@ -85,7 +86,7 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
 
       <div className="eng-foot">
         Mature Woolworths feed only (Coles &amp; Harris held until their feeds fill).
-        Dollar value unlocks with Simona&apos;s cost-per-product sheet — then loaves become $.
+        Dollar figures come next — the per-unit cost data already lives in your retailer feeds.
       </div>
 
       <style>{`
@@ -117,6 +118,7 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
         .eng-btn { border:0; background:transparent; color: var(--dim, #b7bdc7); font-size:13px; font-weight:600; padding:7px 14px; border-radius:8px; cursor:pointer; transition:all .12s; }
         .eng-btn:hover { color:#fff; }
         .eng-btn.on { background: var(--accent, #FFC72C); color:#1a1400; }
+        .eng-btn small { display:block; font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; opacity:.7; margin-top:1px; }
         .eng-metrics { display:flex; gap:24px; }
         .eng-mv { font-size:21px; font-weight:700; }
         .eng-mv .u { font-size:13px; font-weight:600; }
