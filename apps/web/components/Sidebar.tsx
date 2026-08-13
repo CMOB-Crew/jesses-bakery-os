@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 const NAV: { href: string; label: string; icon: ReactNode }[] = [
   { href: "/", label: "Overview", icon: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></> },
   { href: "/stores", label: "Stores", icon: <path d="M3 10l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" /> },
+  { href: "/map", label: "Map", icon: <><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z" /><path d="M9 3v15M15 6v15" /></> },
   { href: "/deliveries", label: "Deliveries", icon: <><rect x="1" y="6" width="15" height="11" rx="1" /><path d="M16 9h4l3 3v5h-7z" /><circle cx="6" cy="19" r="2" /><circle cx="19" cy="19" r="2" /></> },
   { href: "/production", label: "Production", icon: <path d="M3 21h18M4 21V9l5-3 5 3v12M14 21V11l6-3v13" /> },
   { href: "/lost-sales", label: "Lost sales", icon: <><path d="M3 17l6-6 4 4 7-8" /><path d="M21 12V7h-5" /></> },
