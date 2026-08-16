@@ -3,65 +3,86 @@ import { useMemo, useState } from "react";
 
 /* ------------------------------------------------------------------ *
  * New-store setup — Simona's SOP: "enter once, set the ceiling, let it
- * fill." No sales history yet, so we seed a starting basket from the
- * store's size + type profile (the 9 basket profiles already in the
- * data), capped at shelf max, then the engine learns from real sales
- * over the first ~4 weeks and takes over. Front-end prototype — the
- * shape of the flow, wired to the real basket model.
+ * fill." A new store has no sales history, so we seed Simona's baseline
+ * stock bundle (her 14 Aug spec, active until sales data builds), sized
+ * to the store, on the real Jesse's product lines with their Woolworths
+ * product numbers. Capped at shelf max; the engine takes over as real
+ * sales come in. Front-end prototype wired to the real bundle.
  * ------------------------------------------------------------------ */
 
-type Cat = "sourdough" | "bagel" | "challah" | "other";
+type Cat = "sourdough" | "bagel" | "minichallah" | "pita";
 type Size = "small" | "medium" | "large";
 type SType = "standard" | "sourdough" | "bagel";
 
-const PRODUCTS: { id: string; name: string; cat: Cat }[] = [
-  { id: "sd-white", name: "White sourdough", cat: "sourdough" },
-  { id: "sd-whole", name: "Wholemeal sourdough", cat: "sourdough" },
-  { id: "sd-spelt", name: "Spelt sourdough", cat: "sourdough" },
-  { id: "sd-rye", name: "Rye sourdough", cat: "sourdough" },
-  { id: "bg-plain", name: "Plain bagel", cat: "bagel" },
-  { id: "bg-sesame", name: "Sesame bagel", cat: "bagel" },
-  { id: "bg-poppy", name: "Poppy bagel", cat: "bagel" },
-  { id: "bg-mini", name: "Mini bagels (mixed)", cat: "bagel" },
-  { id: "ch-plain", name: "Plain challah", cat: "challah" },
-  { id: "ch-sesame", name: "Sesame challah", cat: "challah" },
-  { id: "ch-raisin", name: "Raisin challah", cat: "challah" },
-  { id: "ch-mini", name: "Mini challah", cat: "challah" },
-  { id: "ot-pita", name: "Pita", cat: "other" },
-  { id: "ot-babka", name: "Babka", cat: "other" },
-  { id: "ot-scroll", name: "Cinnamon scroll", cat: "other" },
+// Real Jesse's lines + Woolworths / WW Metro product numbers (Simona, 14 Aug).
+const PRODUCTS: { id: string; name: string; code: string; cat: Cat; w: number }[] = [
+  { id: "sd-white", name: "White Sourdough 900g", code: "12140", cat: "sourdough", w: 0.32 },
+  { id: "sd-whole", name: "Wholemeal Sourdough 800g", code: "12148", cat: "sourdough", w: 0.22 },
+  { id: "sd-rye", name: "Rye Sourdough 900g", code: "12157", cat: "sourdough", w: 0.16 },
+  { id: "sd-spelt", name: "Spelt Sourdough 900g", code: "12128", cat: "sourdough", w: 0.12 },
+  { id: "sd-soy", name: "Soy & Linseed Sourdough 900g", code: "12178", cat: "sourdough", w: 0.1 },
+  { id: "sd-darkrye", name: "Dark Rye Seeded 800g", code: "113947", cat: "sourdough", w: 0.08 },
+  { id: "bg-sesame", name: "Bagels Sesame 550g", code: "875671", cat: "bagel", w: 0.3 },
+  { id: "bg-mixed", name: "Bagels Mixed Seed 550g", code: "877105", cat: "bagel", w: 0.28 },
+  { id: "bg-boiled", name: "Boiled Bagels 550g", code: "684707", cat: "bagel", w: 0.22 },
+  { id: "bg-poppy", name: "Bagels Poppyseed 550g", code: "877104", cat: "bagel", w: 0.2 },
+  { id: "mc-plain", name: "Mini Challah Rolls 400g", code: "684711", cat: "minichallah", w: 0.5 },
+  { id: "mc-sesame", name: "Mini Challah Rolls Sesame 400g", code: "877940", cat: "minichallah", w: 0.5 },
+  { id: "pt-pita", name: "Pita Bread 400g", code: "113124", cat: "pita", w: 1 },
 ];
 
-// Base basket = Medium, standard store. Scaled by size + skewed by type.
-const BASE: Record<string, number> = {
-  "sd-white": 14, "sd-whole": 9, "sd-spelt": 5, "sd-rye": 5,
-  "bg-plain": 7, "bg-sesame": 5, "bg-poppy": 4, "bg-mini": 6,
-  "ch-plain": 4, "ch-sesame": 3, "ch-raisin": 2, "ch-mini": 4,
-  "ot-pita": 3, "ot-babka": 2, "ot-scroll": 2,
+// Simona's baseline bundle — category totals per store size (14 Aug).
+const BUNDLE: Record<Size, Record<Cat, number>> = {
+  small: { sourdough: 30, bagel: 15, minichallah: 4, pita: 3 }, // 52
+  medium: { sourdough: 32, bagel: 25, minichallah: 8, pita: 5 }, // 70
+  large: { sourdough: 60, bagel: 40, minichallah: 10, pita: 8 }, // 118
 };
-const SIZE_F: Record<Size, number> = { small: 0.55, medium: 1, large: 1.5 };
-const CAP_DEFAULT: Record<Size, number> = { small: 60, medium: 110, large: 170 };
-const TYPE_F: Record<SType, Record<Cat, number>> = {
-  standard:  { sourdough: 1,    bagel: 1,    challah: 1,   other: 1 },
-  sourdough: { sourdough: 1.4,  bagel: 0.8,  challah: 0.9, other: 0.9 },
-  bagel:     { sourdough: 0.8,  bagel: 1.5,  challah: 0.9, other: 1 },
+const CAP_DEFAULT: Record<Size, number> = { small: 60, medium: 90, large: 140 };
+const SIZE_META: Record<Size, { label: string; shelf: string; seeded: number }> = {
+  small: { label: "Small", shelf: "50–60 shelf", seeded: 52 },
+  medium: { label: "Medium", shelf: "60–90 shelf", seeded: 70 },
+  large: { label: "Large", shelf: "82–140 shelf", seeded: 118 },
 };
 
-const CAT_LABEL: Record<Cat, string> = { sourdough: "Sourdough", bagel: "Bagels", challah: "Challah", other: "Pita & pastry" };
-const CAT_COLOR: Record<Cat, string> = { sourdough: "#b0741c", bagel: "#8a5aa0", challah: "#5f8f5a", other: "#4f7396" };
+const CAT_LABEL: Record<Cat, string> = { sourdough: "Sourdough", bagel: "Bagels", minichallah: "Mini challah", pita: "Pita" };
+const CAT_COLOR: Record<Cat, string> = { sourdough: "#b0741c", bagel: "#8a5aa0", minichallah: "#5f8f5a", pita: "#4f7396" };
+const CAT_ORDER: Cat[] = ["sourdough", "bagel", "minichallah", "pita"];
 
-const REGIONS = ["Eastern Suburbs", "Inner West", "North Shore", "Northern Beaches", "North West", "South", "South East", "Central Coast", "Canberra / ACT"];
+const REGIONS = [
+  "Eastern Suburbs", "Inner West", "North Shore", "Northern Beaches", "North West", "South", "South East", "Central Coast", "Canberra / ACT",
+  "Brisbane Central", "Brisbane North", "Gold Coast", "Northern NSW", "Sunshine Coast",
+];
 const RETAILERS: { id: string; label: string }[] = [
   { id: "woolworths", label: "Woolworths" }, { id: "coles", label: "Coles" },
   { id: "harris_farm", label: "Harris Farm" }, { id: "direct", label: "Direct / invoice" },
 ];
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function seed(size: Size, type: SType): Record<string, number> {
+// Largest-remainder allocation so category totals land exactly on Simona's numbers.
+function allocate(total: number, items: { id: string; w: number }[]): Record<string, number> {
+  const sumW = items.reduce((a, i) => a + i.w, 0) || 1;
+  const raw = items.map((i) => ({ id: i.id, x: (i.w / sumW) * total }));
   const out: Record<string, number> = {};
-  for (const p of PRODUCTS) {
-    const q = BASE[p.id] * SIZE_F[size] * TYPE_F[type][p.cat];
-    out[p.id] = Math.round(q);
+  let used = 0;
+  raw.forEach((r) => { const f = Math.floor(r.x); out[r.id] = f; used += f; });
+  const byFrac = [...raw].sort((a, b) => (b.x - Math.floor(b.x)) - (a.x - Math.floor(a.x)));
+  for (let i = 0; i < total - used; i++) out[byFrac[i % byFrac.length].id] += 1;
+  return out;
+}
+
+function catTotals(size: Size, type: SType): Record<Cat, number> {
+  const t = { ...BUNDLE[size] };
+  if (type === "sourdough") { const s = Math.round(t.bagel * 0.25); t.sourdough += s; t.bagel -= s; }
+  else if (type === "bagel") { const s = Math.round(t.sourdough * 0.18); t.bagel += s; t.sourdough -= s; }
+  return t;
+}
+
+function seed(size: Size, type: SType): Record<string, number> {
+  const totals = catTotals(size, type);
+  const out: Record<string, number> = {};
+  for (const cat of CAT_ORDER) {
+    const items = PRODUCTS.filter((p) => p.cat === cat).map((p) => ({ id: p.id, w: p.w }));
+    Object.assign(out, allocate(totals[cat], items));
   }
   return out;
 }
@@ -90,24 +111,22 @@ export default function NewStoreSetup() {
   const fill = Math.min(100, Math.round((total / cap) * 100));
   const over = total > cap;
   const byCat = useMemo(() => {
-    const m: Record<Cat, number> = { sourdough: 0, bagel: 0, challah: 0, other: 0 };
+    const m: Record<Cat, number> = { sourdough: 0, bagel: 0, minichallah: 0, pita: 0 };
     for (const p of PRODUCTS) m[p.cat] += basket[p.id] ?? 0;
     return m;
   }, [basket]);
 
-  const grouped = (["sourdough", "bagel", "challah", "other"] as Cat[]).map((c) => ({
-    cat: c, items: PRODUCTS.filter((p) => p.cat === c),
-  }));
-
+  const grouped = CAT_ORDER.map((c) => ({ cat: c, items: PRODUCTS.filter((p) => p.cat === c) }));
   const deliveryDays = DAYS.filter((d) => days[d]);
 
   return (
     <div className="nstore">
       <div className="panel intro">
         <div className="itxt">
-          <b>Enter once, set the ceiling, let it fill.</b> A new store has no sales history, so we seed a starting
-          basket from its size and type — then cap it at the shelf max and let the engine learn from real sales over
-          the first few weeks. No per-product guessing, and no override that gets forgotten.
+          <b>Enter once, set the ceiling, let it fill.</b> A new store has no sales history, so we seed
+          <b> Simona&apos;s baseline stock bundle</b> — sized to the store — then cap it at the shelf max and let the engine
+          take over as real sales come in. The bundle is her spec (active until data lands), on the real Jesse&apos;s lines
+          with their Woolworths product numbers. No per-product guessing, and no override that gets forgotten.
         </div>
       </div>
 
@@ -119,11 +138,11 @@ export default function NewStoreSetup() {
             <div className="fgrid">
               <label className="fld f-2">
                 <span>Store name</span>
-                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Woolworths Bondi Junction" />
+                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Woolworths Metro Bonner" />
               </label>
               <label className="fld">
                 <span>Store number</span>
-                <input value={storeNo} onChange={(e) => setStoreNo(e.target.value)} placeholder="e.g. 1462" />
+                <input value={storeNo} onChange={(e) => setStoreNo(e.target.value)} placeholder="e.g. 1457" />
               </label>
               <div className="fld f-3">
                 <span>Retailer</span>
@@ -160,20 +179,20 @@ export default function NewStoreSetup() {
           <div className="sec">
             <div className="sec-h"><span className="no">2</span>Size &amp; shelf capacity</div>
             <div className="fld">
-              <span>Store size</span>
+              <span>Store size — sets Simona&apos;s bundle</span>
               <div className="seg big">
                 {(["small", "medium", "large"] as Size[]).map((s) => (
                   <button key={s} className={size === s ? "on" : ""} onClick={() => pickSize(s)}>
-                    <b>{s[0].toUpperCase() + s.slice(1)}</b>
-                    <small>{s === "small" ? "~40 units" : s === "medium" ? "~75 units" : "~110+ units"}</small>
+                    <b>{SIZE_META[s].label}</b>
+                    <small>{SIZE_META[s].shelf} · ~{SIZE_META[s].seeded} seeded</small>
                   </button>
                 ))}
               </div>
             </div>
             <div className="fld" style={{ marginTop: 14 }}>
-              <span>Store type — sets the starting mix</span>
+              <span>Store type — skews the sourdough / bagel split</span>
               <div className="seg big">
-                {([["standard", "Standard", "Even spread"], ["sourdough", "Sourdough-led", "Bread-heavy"], ["bagel", "Bagel-led", "Bagel-heavy"]] as [SType, string, string][]).map(([t, l, d]) => (
+                {([["standard", "Standard", "Simona's baseline"], ["sourdough", "Sourdough-led", "Bread-heavy"], ["bagel", "Bagel-led", "Bagel-heavy"]] as [SType, string, string][]).map(([t, l, d]) => (
                   <button key={t} className={type === t ? "on" : ""} onClick={() => pickType(t)}>
                     <b>{l}</b><small>{d}</small>
                   </button>
@@ -192,15 +211,15 @@ export default function NewStoreSetup() {
 
           {/* 3. Starting basket */}
           <div className="sec">
-            <div className="sec-h"><span className="no">3</span>Starting basket
+            <div className="sec-h"><span className="no">3</span>Starting bundle
               <div className="seedsrc">
-                <button className={source === "profile" ? "on" : ""} onClick={() => setSource("profile")}>From size profile</button>
+                <button className={source === "profile" ? "on" : ""} onClick={() => setSource("profile")}>Simona&apos;s bundle</button>
                 <button className={source === "copy" ? "on" : ""} onClick={() => setSource("copy")}>Copy a similar store</button>
               </div>
             </div>
             {source === "copy" && (
               <div className="copynote">
-                Copies the basket of the closest same-size store on this run as the starting point — then you tweak. (Prototype uses the size profile below.)
+                Copies the basket of the closest same-size store on this run as the starting point — then you tweak. (Prototype uses Simona&apos;s bundle below.)
               </div>
             )}
             <div className="basket">
@@ -209,7 +228,7 @@ export default function NewStoreSetup() {
                   <div className="bgh"><i style={{ background: CAT_COLOR[g.cat] }} />{CAT_LABEL[g.cat]}<span className="bgt">{byCat[g.cat]}</span></div>
                   {g.items.map((p) => (
                     <div className="brow" key={p.id}>
-                      <span className="bn">{p.name}</span>
+                      <span className="bn">{p.name}<span className="pcode">#{p.code}</span></span>
                       <div className="bstep">
                         <button onClick={() => bump(p.id, -1)} aria-label="less">−</button>
                         <span className="bq">{basket[p.id] ?? 0}</span>
@@ -220,7 +239,7 @@ export default function NewStoreSetup() {
                 </div>
               ))}
             </div>
-            <button className="reseed" onClick={reseed}>↺ Reset to the {size} {type === "standard" ? "standard" : type + "-led"} profile</button>
+            <button className="reseed" onClick={reseed}>↺ Reset to Simona&apos;s {SIZE_META[size].label.toLowerCase()} bundle{type === "standard" ? "" : ` (${type}-led)`}</button>
           </div>
         </div>
 
@@ -235,7 +254,7 @@ export default function NewStoreSetup() {
               {RETAILERS.find((r) => r.id === retailer)?.label} · {region} · Run {run}
             </div>
             <div className="ch-meta2">
-              {size[0].toUpperCase() + size.slice(1)} · {type === "standard" ? "Standard" : type === "sourdough" ? "Sourdough-led" : "Bagel-led"}
+              {SIZE_META[size].label} · {type === "standard" ? "Standard" : type === "sourdough" ? "Sourdough-led" : "Bagel-led"}
               {deliveryDays.length > 0 && <> · {deliveryDays.join(" ")}</>}
             </div>
 
@@ -247,13 +266,13 @@ export default function NewStoreSetup() {
               <div className="bar"><span style={{ width: fill + "%", background: over ? "var(--red)" : "var(--crust)" }} /></div>
               <div className="m-note">
                 {over
-                  ? "Over the shelf max — trim the basket or raise the ceiling before go-live."
-                  : `Seeded at ${fill}% — room to grow as real sales come in.`}
+                  ? "Over the shelf max — trim the bundle or raise the ceiling before go-live."
+                  : `Simona's bundle at ${fill}% of shelf — room to grow as real sales come in.`}
               </div>
             </div>
 
             <div className="catsplit">
-              {(["sourdough", "bagel", "challah", "other"] as Cat[]).map((c) => (
+              {CAT_ORDER.map((c) => (
                 <div className="cs" key={c}><i style={{ background: CAT_COLOR[c] }} /><span>{CAT_LABEL[c]}</span><b>{byCat[c]}</b></div>
               ))}
             </div>
@@ -269,8 +288,9 @@ export default function NewStoreSetup() {
 
             <button className="create" disabled={!name || over}>Create store</button>
             <div className="learnnote">
-              First ~4 weeks the engine holds close to this basket while it learns the store&apos;s real demand — then it
-              takes over sizing every order, capped at the {cap}-unit shelf max.
+              First few weeks the engine holds close to Simona&apos;s bundle while it learns the store&apos;s real demand — then
+              it takes over sizing every order, capped at the {cap}-unit shelf max. Challah, babka and specialty lines add
+              on as the store picks them up.
             </div>
           </div>
         </div>
@@ -314,13 +334,13 @@ export default function NewStoreSetup() {
         .nstore .seedsrc button.on{background:var(--surface);color:var(--crust-deep)}
         .nstore .copynote{font-size:12.5px;color:var(--muted);background:var(--surface);border:1px solid var(--line2);border-radius:9px;padding:10px 12px;margin-bottom:12px;line-height:1.5}
         .nstore .basket{display:grid;grid-template-columns:1fr 1fr;gap:10px 22px}
-        .nstore .bgroup{}
         .nstore .bgh{display:flex;align-items:center;gap:7px;font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:6px 0;border-bottom:1px solid var(--line2);margin-bottom:4px}
         .nstore .bgh i{width:9px;height:9px;border-radius:3px}
         .nstore .bgh .bgt{margin-left:auto;color:var(--ink);font-size:13px;font-variant-numeric:tabular-nums}
         .nstore .brow{display:flex;align-items:center;gap:8px;padding:4px 0}
-        .nstore .bn{font-size:13px;color:var(--ink2)}
-        .nstore .bstep{margin-left:auto;display:flex;align-items:center;gap:1px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+        .nstore .bn{font-size:13px;color:var(--ink2);display:flex;flex-direction:column;line-height:1.25}
+        .nstore .pcode{font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums}
+        .nstore .bstep{margin-left:auto;display:flex;align-items:center;gap:1px;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:none}
         .nstore .bstep button{width:24px;height:26px;border:none;background:var(--card);cursor:pointer;font-size:14px;color:var(--ink2);font-family:inherit}
         .nstore .bstep button:hover{background:#f3ecdd}
         .nstore .bq{min-width:26px;text-align:center;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
