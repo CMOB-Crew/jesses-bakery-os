@@ -1,68 +1,67 @@
 "use client";
 import { useMemo, useState } from "react";
+import type { ArchivedStore } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
- * Store archive — Simona: inactive stores shouldn't be deleted, they
- * should be tagged and stay viewable. When a retailer asks to re-range
- * one, the full history is right there and it comes back in a click.
- * "Cold vs warm" — warm = strong history / likely to return; cold =
- * long dormant. Pairs with New store as the other end of the lifecycle.
- *
- * Front-end prototype; the archive state + history are the engine's.
+ * Store archive — inactive stores, kept viewable. Live from the store
+ * master (active = false). Warm/cold is derived from how recently the
+ * store last had sales (no archive-reason metadata in the schema yet, so
+ * recency is the honest signal). Pairs with New store as the lifecycle.
  * ------------------------------------------------------------------ */
 
-type Reason = "Deranged by retailer" | "Store closed" | "Paused — refit" | "Deranged — slow sales";
-type Arch = {
-  name: string; retailer: string; region: string; size: string;
-  reason: Reason; since: string; months: number; warm: boolean; peak: number; note: string;
-};
-
-const ARCHIVED: Arch[] = [
-  { name: "Coles Chatswood Chase", retailer: "Coles", region: "North Shore", size: "Large",
-    reason: "Deranged by retailer", since: "6 weeks ago", months: 1.5, warm: true, peak: 88,
-    note: "Strong history, deranged in a category reset. Retailer reviewing a spring re-range." },
-  { name: "Woolworths Metro Wynyard", retailer: "Woolworths", region: "Eastern Suburbs", size: "Small",
-    reason: "Paused — refit", since: "3 weeks ago", months: 0.75, warm: true, peak: 82,
-    note: "Store refit — expected to reopen in ~4 weeks. Hold the ranging, don't rebuild." },
-  { name: "Woolworths Neutral Bay", retailer: "Woolworths", region: "North Shore", size: "Medium",
-    reason: "Deranged by retailer", since: "10 weeks ago", months: 2.5, warm: true, peak: 85,
-    note: "Good sell-through history; a likely return when the retailer reopens the range." },
-  { name: "Harris Farm Bondi", retailer: "Harris Farm", region: "Eastern Suburbs", size: "Small",
-    reason: "Deranged — slow sales", since: "5 months ago", months: 5, warm: false, peak: 64,
-    note: "Never found its level — low sell-through throughout. Cold; reactivate only on a clear ask." },
-  { name: "Coles Town Hall", retailer: "Coles", region: "Inner West", size: "Medium",
-    reason: "Store closed", since: "8 months ago", months: 8, warm: false, peak: 79,
-    note: "Site permanently closed. Kept for history only." },
-  { name: "Coles Broadway", retailer: "Coles", region: "Inner West", size: "Medium",
-    reason: "Paused — refit", since: "7 months ago", months: 7, warm: false, peak: 71,
-    note: "Refit ran long — now cold. Confirm status with the retailer before re-ranging." },
-];
-
 type Filter = "all" | "warm" | "cold";
+const WARM_DAYS = 60;
 
-export default function StoreArchive() {
+function ago(d: number | null): string {
+  if (d === null) return "no recorded sales";
+  if (d <= 10) return "this week";
+  if (d < 60) return `${Math.round(d / 7)} weeks ago`;
+  if (d < 365) return `${Math.round(d / 30)} months ago`;
+  return `${(d / 365).toFixed(1)} years ago`;
+}
+const sizeLabel = (s: string | null) => (s ? s[0].toUpperCase() + s.slice(1) : "Unsized");
+
+export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
   const [filter, setFilter] = useState<Filter>("all");
-  const shown = ARCHIVED.filter((a) => filter === "all" || (filter === "warm" ? a.warm : !a.warm));
 
-  const warm = ARCHIVED.filter((a) => a.warm).length;
-  const cold = ARCHIVED.length - warm;
-  const oldest = useMemo(() => ARCHIVED.reduce((m, a) => (a.months > m.months ? a : m), ARCHIVED[0]), []);
+  const rows = useMemo(() => stores.map((s) => ({
+    ...s, warm: s.days_since !== null && s.days_since <= WARM_DAYS,
+  })), [stores]);
+
+  const warm = rows.filter((r) => r.warm).length;
+  const cold = rows.length - warm;
+  const oldest = rows.reduce((m, r) => Math.max(m, r.days_since ?? 0), 0);
+  const shown = rows.filter((r) => filter === "all" || (filter === "warm" ? r.warm : !r.warm));
+
+  if (!stores.length) {
+    return (
+      <div className="arch">
+        <div className="panel intro">
+          <div className="itxt">
+            Stores that go quiet aren&apos;t deleted — they&apos;re archived and kept fully viewable, so when a retailer asks
+            to re-range one its whole history is right here. Nothing archived right now; deactivated stores appear here
+            automatically.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="arch">
       <div className="panel intro">
         <div className="itxt">
           Stores that go quiet aren&apos;t deleted — they&apos;re <b>archived and kept fully viewable</b>. When a retailer
-          asks to re-range one, its whole history is right here and it comes back in a click. <b>Warm</b> = strong history,
-          likely to return; <b>cold</b> = long dormant. Nothing is ever lost, and nothing stale clutters the live network.
+          asks to re-range one, its whole history is right here and it comes back in a click. <b>Warm</b> = sold within the
+          last {WARM_DAYS} days, likely to return; <b>cold</b> = long dormant. Nothing lost, nothing stale in the live counts.
         </div>
       </div>
 
       <div className="strip">
-        <div className="tile"><div className="tn">{ARCHIVED.length}</div><div className="tl">Archived stores</div></div>
+        <div className="tile"><div className="tn">{rows.length}</div><div className="tl">Archived stores</div></div>
         <div className="tile"><div className="tn green">{warm}</div><div className="tl">Warm · re-range candidates</div></div>
         <div className="tile"><div className="tn dim">{cold}</div><div className="tl">Cold · long dormant</div></div>
-        <div className="tile"><div className="tn">{oldest.since.replace(" ago", "")}</div><div className="tl">Oldest in the archive</div></div>
+        <div className="tile"><div className="tn">{oldest ? ago(oldest).replace(" ago", "") : "—"}</div><div className="tl">Oldest in the archive</div></div>
       </div>
 
       <div className="bulk">
@@ -78,15 +77,20 @@ export default function StoreArchive() {
 
       <div className="list">
         {shown.map((a) => (
-          <div className={`ac${a.warm ? " warm" : ""}`} key={a.name}>
+          <div className={`ac${a.warm ? " warm" : ""}`} key={a.store_id}>
             <div className="ac-main">
               <div className="ac-top">
                 <span className="ac-name">{a.name}</span>
                 <span className={`ac-tag ${a.warm ? "warm" : "cold"}`}>{a.warm ? "● Warm" : "● Cold"}</span>
-                <span className="ac-reason">{a.reason}</span>
               </div>
-              <div className="ac-meta">{a.retailer} · {a.region} · {a.size} · archived {a.since} · peak sell-through {a.peak}%</div>
-              <div className="ac-note">{a.note}</div>
+              <div className="ac-meta">{a.retailer} · {a.region ?? "—"} · {sizeLabel(a.size)} · last active {ago(a.days_since)}</div>
+              <div className="ac-note">
+                {a.warm
+                  ? "Recent sales history — a strong re-range candidate when the retailer reopens the range."
+                  : a.days_since === null
+                  ? "No sales on record. Confirm status with the retailer before re-ranging."
+                  : "Long dormant. Kept for history; reactivate only on a clear ask."}
+              </div>
             </div>
             <div className="ac-act">
               <button className="hist">View history</button>
@@ -97,9 +101,8 @@ export default function StoreArchive() {
       </div>
 
       <div className="foot" style={{ marginTop: 16 }}>
-        Representative. Re-range opens the New store setup pre-filled from the store&apos;s own history, so a returning
-        store comes back at the right size and basket rather than from scratch. Archived stays out of the live network
-        counts but never leaves the record.
+        Live from the store master (active = false). Warm/cold is read from the last recorded sale; re-range opens New
+        store pre-filled from the store&apos;s history. Archived stays out of the live network counts but never leaves the record.
       </div>
 
       <style>{`
@@ -128,7 +131,6 @@ export default function StoreArchive() {
         .arch .ac-tag{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
         .arch .ac-tag.warm{background:var(--green-b);color:var(--green-t)}
         .arch .ac-tag.cold{background:var(--line2);color:var(--muted)}
-        .arch .ac-reason{font-size:12px;color:var(--amber-t);background:var(--amber-b);padding:3px 9px;border-radius:999px;font-weight:600}
         .arch .ac-meta{font-size:12.5px;color:var(--muted);margin-bottom:7px}
         .arch .ac-note{font-size:13.5px;color:var(--ink2);line-height:1.55}
         .arch .ac-act{display:flex;flex-direction:column;gap:8px;flex:none;width:118px}

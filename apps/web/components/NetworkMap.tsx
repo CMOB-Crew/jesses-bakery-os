@@ -1,110 +1,121 @@
 "use client";
 import { useState } from "react";
+import type { MapStore } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
- * Network map — the whole store network at a glance, laid out
- * geographically and coloured by status. Where the trouble clusters is
- * obvious in a second (Canberra runs hot). Self-contained schematic
- * (no map tiles) so it renders anywhere; the live app plots real
- * lat/long from Stores_Master. Front-end prototype.
+ * Network map — the whole active network at a glance. A readable region
+ * diagram (a far-flung run like Canberra would squash a true-scale GPS
+ * plot), populated entirely from live data: real region membership, real
+ * status, real counts and volumes. Same 🟢🟡🔴 logic as everywhere else.
+ * Regions are placed to read cleanly; the dots are the real network.
  * ------------------------------------------------------------------ */
 
 type Status = "green" | "amber" | "red";
-type Store = { id: string; name: string; retailer: string; region: string; status: Status; waste: number; sent: number; sold: number; x: number; y: number };
-
-const STORES: Store[] = [
-  // Eastern Suburbs (coast, east)
-  { id: "bondi-junction", name: "Woolworths Bondi Junction", retailer: "Woolworths", region: "Eastern Suburbs", status: "green", waste: 12.5, sent: 640, sold: 560, x: 800, y: 330 },
-  { id: "bondi-beach", name: "Woolworths Bondi Beach", retailer: "Woolworths", region: "Eastern Suburbs", status: "green", waste: 9.0, sent: 610, sold: 555, x: 862, y: 378 },
-  { id: "double-bay", name: "Coles Double Bay", retailer: "Coles", region: "Eastern Suburbs", status: "green", waste: 15.4, sent: 520, sold: 440, x: 812, y: 296 },
-  { id: "randwick", name: "Woolworths Randwick", retailer: "Woolworths", region: "Eastern Suburbs", status: "amber", waste: 21.0, sent: 600, sold: 474, x: 840, y: 440 },
-  // Inner West (centre)
-  { id: "ashfield", name: "Coles Ashfield", retailer: "Coles", region: "Inner West", status: "green", waste: 10.0, sent: 430, sold: 387, x: 560, y: 402 },
-  { id: "marrickville", name: "Coles Marrickville", retailer: "Coles", region: "Inner West", status: "green", waste: 17.1, sent: 410, sold: 340, x: 614, y: 452 },
-  { id: "leichhardt", name: "Harris Farm Leichhardt", retailer: "Harris Farm", region: "Inner West", status: "green", waste: 18.9, sent: 380, sold: 308, x: 540, y: 438 },
-  // North Shore (north-east)
-  { id: "chatswood", name: "Woolworths Chatswood", retailer: "Woolworths", region: "North Shore", status: "green", waste: 16.1, sent: 560, sold: 470, x: 760, y: 196 },
-  { id: "mosman", name: "Harris Farm Mosman", retailer: "Harris Farm", region: "North Shore", status: "amber", waste: 20.0, sent: 400, sold: 320, x: 838, y: 246 },
-  { id: "neutral-bay", name: "Woolworths Neutral Bay", retailer: "Woolworths", region: "North Shore", status: "green", waste: 16.7, sent: 360, sold: 300, x: 800, y: 288 },
-  // North West (inland)
-  { id: "rouse-hill", name: "Woolworths Rouse Hill", retailer: "Woolworths", region: "North West", status: "red", waste: 39.7, sent: 580, sold: 350, x: 330, y: 226 },
-  { id: "castle-hill", name: "Coles Castle Hill", retailer: "Coles", region: "North West", status: "green", waste: 18.2, sent: 440, sold: 360, x: 424, y: 292 },
-  // Canberra / ACT (detached, far south-west)
-  { id: "gungahlin", name: "Woolworths Gungahlin", retailer: "Woolworths", region: "Canberra / ACT", status: "red", waste: 37.5, sent: 480, sold: 300, x: 232, y: 500 },
-  { id: "belconnen", name: "Coles Belconnen", retailer: "Coles", region: "Canberra / ACT", status: "red", waste: 28.6, sent: 420, sold: 300, x: 188, y: 542 },
-  { id: "woden", name: "Woolworths Woden", retailer: "Woolworths", region: "Canberra / ACT", status: "red", waste: 34.8, sent: 460, sold: 300, x: 250, y: 574 },
-  { id: "tuggeranong", name: "Woolworths Tuggeranong", retailer: "Woolworths", region: "Canberra / ACT", status: "amber", waste: 26.0, sent: 400, sold: 296, x: 288, y: 596 },
-];
-
-const ZONES: { label: string; x: number; y: number; w: number; h: number; note?: string }[] = [
-  { label: "North West", x: 270, y: 168, w: 220, h: 168 },
-  { label: "North Shore", x: 700, y: 150, w: 210, h: 168 },
-  { label: "Inner West", x: 490, y: 356, w: 190, h: 150 },
-  { label: "Eastern Suburbs", x: 752, y: 268, w: 170, h: 218 },
-  { label: "Canberra · ACT", x: 130, y: 452, w: 230, h: 170, note: "~3 hrs south-west" },
-];
-
 const COLOR: Record<Status, string> = { green: "var(--green)", amber: "var(--amber)", red: "var(--red)" };
 const STLABEL: Record<Status, string> = { green: "On track", amber: "Watch", red: "Needs attention" };
 
-export default function NetworkMap() {
-  const [sel, setSel] = useState<Store | null>(STORES.find((s) => s.id === "gungahlin") ?? null);
+// Region frames, laid out to read like the Sydney basin + Canberra to the SW.
+const ZONES: Record<string, { x: number; y: number; w: number; h: number; note?: string }> = {
+  "North West": { x: 40, y: 150, w: 250, h: 190 },
+  "North Shore": { x: 470, y: 120, w: 250, h: 175 },
+  "Inner West": { x: 320, y: 330, w: 220, h: 170 },
+  "Eastern Suburbs": { x: 620, y: 320, w: 230, h: 210 },
+  "Canberra / ACT": { x: 40, y: 400, w: 250, h: 190, note: "~3 hrs south-west" },
+  "Central Coast": { x: 470, y: 320, w: 130, h: 130 },
+  "Northern Beaches": { x: 740, y: 120, w: 170, h: 175 },
+};
+const FALLBACK = { x: 620, y: 560, w: 290, h: 30 }; // any region without a frame
+
+export default function NetworkMap({ stores }: { stores: MapStore[] }) {
+  const worst = [...stores].filter((s) => s.status === "red").sort((a, b) => Number(b.waste_pct ?? 0) - Number(a.waste_pct ?? 0));
+  const [sel, setSel] = useState<MapStore | null>(worst[0] ?? stores[0] ?? null);
   const [hover, setHover] = useState<string | null>(null);
 
-  const counts = { green: 0, amber: 0, red: 0 } as Record<Status, number>;
-  STORES.forEach((s) => (counts[s.status] += 1));
-  const sent = STORES.reduce((a, s) => a + s.sent, 0);
-  const sold = STORES.reduce((a, s) => a + s.sold, 0);
-  const wastePct = Math.round((1000 * (sent - sold)) / sent) / 10;
-  const worst = [...STORES].filter((s) => s.status === "red").sort((a, b) => b.waste - a.waste);
-  const r = (s: Store) => 7 + (s.sent / 640) * 7;
+  if (!stores.length) {
+    return (
+      <div className="nmap">
+        <div className="panel intro">
+          <div className="itxt">The whole network at a glance, coloured by status. It reads from the live store list — stores appear here grouped by region as the network loads.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const counts: Record<Status, number> = { green: 0, amber: 0, red: 0 };
+  stores.forEach((s) => (counts[s.status] += 1));
+  const sent = stores.reduce((a, s) => a + Number(s.sent), 0);
+  const sold = stores.reduce((a, s) => a + Number(s.sold), 0);
+  const wastePct = sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : 0;
+  const maxSent = Math.max(...stores.map((s) => Number(s.sent)), 1);
+
+  // Group by region; unknown regions collapse into a fallback strip.
+  const byRegion = new Map<string, MapStore[]>();
+  for (const s of stores) {
+    const rn = s.region ?? "Other";
+    const key = ZONES[rn] ? rn : "Other";
+    if (!byRegion.has(key)) byRegion.set(key, []);
+    byRegion.get(key)!.push(s);
+  }
+
+  // Pack a region's stores into a grid inside its frame.
+  type Placed = { s: MapStore; x: number; y: number };
+  const placed: Placed[] = [];
+  const drawnZones: { key: string; z: { x: number; y: number; w: number; h: number; note?: string } }[] = [];
+  for (const [key, ss] of byRegion) {
+    const z = ZONES[key] ?? FALLBACK;
+    drawnZones.push({ key, z });
+    const n = ss.length;
+    const cols = Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n / cols);
+    const x0 = z.x + 20, y0 = z.y + 44, iw = z.w - 40, ih = Math.max(28, z.h - 58);
+    const cw = iw / cols, ch = ih / rows;
+    ss.forEach((s, i) => {
+      placed.push({ s, x: x0 + (i % cols) * cw + cw / 2, y: y0 + Math.floor(i / cols) * ch + ch / 2 });
+    });
+  }
+  const r = (s: MapStore) => 6 + (Number(s.sent) / maxSent) * 6;
+  const W = 940, H = 610;
 
   return (
     <div className="nmap">
       <div className="panel intro">
         <div className="itxt">
-          The whole network in one look, coloured by status. Trouble clusters jump out — <b>Canberra runs hot</b>, the
-          coast and inner-west sit green. Click any store for its read. Live, this plots real store coordinates; the
-          colours are the same R/A/G the rest of the system uses.
+          The whole active network in one look, grouped by region and coloured by this week&apos;s status. Trouble clusters
+          jump out — the coast and inner-west sit green while the far-flung runs run hot. Click any store for its read.
+          Real membership, status and volume; the layout reads as a diagram, not a to-scale map.
         </div>
       </div>
 
       <div className="grid2">
         <div className="mapcard">
-          <svg viewBox="0 0 1000 640" width="100%" role="img" aria-label="Store network map">
+          <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Store network map">
             <defs>
               <linearGradient id="water" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0" stopColor="#dfe9ea" stopOpacity="0" /><stop offset="1" stopColor="#cfe0e2" stopOpacity="0.7" />
+                <stop offset="0" stopColor="#dfe9ea" stopOpacity="0" /><stop offset="1" stopColor="#cfe0e2" stopOpacity="0.55" />
               </linearGradient>
             </defs>
-            {/* water / coast on the east */}
-            <path d="M905 60 C 930 180, 900 300, 940 420 C 965 500, 940 580, 960 620 L 1000 620 L 1000 60 Z" fill="url(#water)" />
-            <path d="M905 60 C 930 180, 900 300, 940 420 C 965 500, 940 580, 960 620" fill="none" stroke="#a9c3c4" strokeWidth="2" strokeDasharray="2 5" opacity="0.7" />
-            <text x={958} y={110} fontSize="12" fill="#7fa0a1" textAnchor="middle" transform="rotate(90 958 110)">Tasman Sea</text>
+            <rect x={W - 64} y={0} width={64} height={H} fill="url(#water)" />
+            <text x={W - 30} y={90} fontSize="12" fill="#7fa0a1" textAnchor="middle" transform={`rotate(90 ${W - 30} 90)`}>East / coast</text>
 
-            {/* region zones */}
-            {ZONES.map((z) => (
-              <g key={z.label}>
-                <rect x={z.x} y={z.y} width={z.w} height={z.h} rx="20" fill="#efe7d5" stroke="#e0d5bf" strokeWidth="1.5" />
-                <text x={z.x + 14} y={z.y + 24} fontSize="14" fontWeight="700" fill="#8a8071" style={{ letterSpacing: ".3px" }}>{z.label}</text>
-                {z.note && <text x={z.x + 14} y={z.y + 42} fontSize="11" fill="#a89e8d">{z.note}</text>}
+            {drawnZones.map(({ key, z }) => (
+              <g key={key}>
+                <rect x={z.x} y={z.y} width={z.w} height={z.h} rx="18" fill="#efe7d5" stroke="#e0d5bf" strokeWidth="1.5" />
+                <text x={z.x + 16} y={z.y + 26} fontSize="14" fontWeight="700" fill="#8a8071" style={{ letterSpacing: ".2px" }}>{key === "Other" ? "Other regions" : key}</text>
+                {z.note && <text x={z.x + 16} y={z.y + 43} fontSize="11" fill="#a89e8d">{z.note}</text>}
               </g>
             ))}
-            {/* a hint of separation for Canberra */}
-            <line x1={370} y1={470} x2={430} y2={430} stroke="#d8ccb6" strokeWidth="2" strokeDasharray="3 5" />
 
-            {/* store dots */}
-            {STORES.map((s) => {
-              const on = hover === s.id || sel?.id === s.id;
+            {placed.map(({ s, x, y }) => {
+              const on = hover === s.store_id || sel?.store_id === s.store_id;
               return (
-                <g key={s.id} style={{ cursor: "pointer" }}
-                   onMouseEnter={() => setHover(s.id)} onMouseLeave={() => setHover(null)} onClick={() => setSel(s)}>
-                  {on && <circle cx={s.x} cy={s.y} r={r(s) + 7} fill={COLOR[s.status]} opacity="0.16" />}
-                  <circle cx={s.x} cy={s.y} r={r(s)} fill={COLOR[s.status]} stroke="#fff" strokeWidth="2.5" />
+                <g key={s.store_id} style={{ cursor: "pointer" }}
+                   onMouseEnter={() => setHover(s.store_id)} onMouseLeave={() => setHover(null)} onClick={() => setSel(s)}>
+                  {on && <circle cx={x} cy={y} r={r(s) + 6} fill={COLOR[s.status]} opacity="0.16" />}
+                  <circle cx={x} cy={y} r={r(s)} fill={COLOR[s.status]} stroke="#fff" strokeWidth="2.4" />
                   {on && (
                     <g>
-                      <rect x={s.x + r(s) + 6} y={s.y - 15} width={s.name.length * 6.2 + 16} height="26" rx="6" fill="#211c16" />
-                      <text x={s.x + r(s) + 14} y={s.y + 3} fontSize="12.5" fill="#f3e9d6" fontWeight="600">{s.name}</text>
+                      <rect x={x + r(s) + 6} y={y - 15} width={s.name.length * 6.2 + 16} height="26" rx="6" fill="#211c16" />
+                      <text x={x + r(s) + 14} y={y + 3} fontSize="12.5" fill="#f3e9d6" fontWeight="600">{s.name}</text>
                     </g>
                   )}
                 </g>
@@ -128,15 +139,15 @@ export default function NetworkMap() {
               <span className="c amber">{counts.amber} watch</span>
               <span className="c red">{counts.red} attention</span>
             </div>
-            <div className="sc-meta">{STORES.length} stores · {sent.toLocaleString("en-AU")} sent · {sold.toLocaleString("en-AU")} sold / wk</div>
+            <div className="sc-meta">{stores.length} stores mapped · {sent.toLocaleString("en-AU")} sent · {sold.toLocaleString("en-AU")} sold / wk</div>
           </div>
 
           {sel && (
             <div className="panel detail">
               <div className="d-top"><span className="d-dot" style={{ background: COLOR[sel.status] }} /><span className="d-name">{sel.name}</span></div>
-              <div className="d-meta">{sel.retailer} · {sel.region}</div>
+              <div className="d-meta">{sel.retailer} · {sel.region ?? "—"}</div>
               <div className="d-stats">
-                <div className="ds"><div className="dn">{sel.waste}%</div><div className="dl">waste</div></div>
+                <div className="ds"><div className="dn">{sel.waste_pct ?? "—"}%</div><div className="dl">waste</div></div>
                 <div className="ds"><div className="dn">{sel.sent}</div><div className="dl">sent / wk</div></div>
                 <div className="ds"><div className="dn">{sel.sold}</div><div className="dl">sold / wk</div></div>
               </div>
@@ -144,23 +155,27 @@ export default function NetworkMap() {
             </div>
           )}
 
-          <div className="section-h" style={{ margin: "6px 0 8px" }}><span className="tick" />Needs attention</div>
-          <div className="panel worst" style={{ padding: 0 }}>
-            {worst.map((s, i) => (
-              <button className={`wrow${sel?.id === s.id ? " on" : ""}`} key={s.id} style={{ borderTop: i ? "1px solid var(--line2)" : undefined }}
-                      onClick={() => setSel(s)} onMouseEnter={() => setHover(s.id)} onMouseLeave={() => setHover(null)}>
-                <span className="w-dot" style={{ background: COLOR[s.status] }} />
-                <span className="w-name">{s.name}</span>
-                <span className="w-waste">{s.waste}%</span>
-              </button>
-            ))}
-          </div>
+          {worst.length > 0 && (
+            <>
+              <div className="section-h" style={{ margin: "6px 0 8px" }}><span className="tick" />Needs attention</div>
+              <div className="panel worst" style={{ padding: 0 }}>
+                {worst.slice(0, 6).map((s, i) => (
+                  <button className={`wrow${sel?.store_id === s.store_id ? " on" : ""}`} key={s.store_id} style={{ borderTop: i ? "1px solid var(--line2)" : undefined }}
+                          onClick={() => setSel(s)} onMouseEnter={() => setHover(s.store_id)} onMouseLeave={() => setHover(null)}>
+                    <span className="w-dot" style={{ background: COLOR[s.status] }} />
+                    <span className="w-name">{s.name}</span>
+                    <span className="w-waste">{s.waste_pct}%</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       <div className="foot" style={{ marginTop: 16 }}>
-        Representative layout. In the live app stores sit on their real coordinates from the store master, and the map
-        shares the same status logic as the dashboards, benchmarks and store profiles.
+        Live from the store master and the store-week view. Stores are grouped by their real region and coloured by the
+        same status logic as the dashboards, benchmarks and store profiles.
       </div>
 
       <style>{`

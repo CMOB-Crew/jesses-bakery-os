@@ -455,3 +455,52 @@ export async function getStockouts(): Promise<LostSales> {
     storesFlagged: losses.length, repeatCount: losses.filter((l) => l.repeat).length, hasData: losses.length > 0,
   };
 }
+
+// ---------------------------------------------------------------------
+// Network map — active stores with real coordinates + this-week status,
+// for the geographic view. Joins the store master (lat/lng) to the
+// store-week rollup. Stores without coordinates are simply not plotted.
+// ---------------------------------------------------------------------
+export type MapStore = {
+  store_id: string; name: string; retailer: string; region: string | null;
+  lat: number; lng: number; status: Status; sent: number; sold: number; waste_pct: number | null;
+};
+export async function getMapStores(): Promise<MapStore[]> {
+  try {
+    return await sql<MapStore[]>`
+      select v.store_id, v.name, v.retailer, v.region,
+             s.lat::float8 as lat, s.lng::float8 as lng, v.status,
+             v.total_sent as sent, v.total_sold as sold, v.waste_pct
+      from v_store_week v
+      join stores s on s.id = v.store_id
+      where s.lat is not null and s.lng is not null`;
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------
+// Archive — inactive stores, kept viewable. Warm/cold is derived from
+// how recently the store last had sales (no archive metadata in the
+// schema yet, so recency is the honest signal). Reason is a manual tag.
+// ---------------------------------------------------------------------
+export type ArchivedStore = {
+  store_id: string; name: string; retailer: string; region: string | null; size: string | null;
+  last_active: Date | null; days_since: number | null;
+};
+export async function getArchivedStores(): Promise<ArchivedStore[]> {
+  try {
+    return await sql<ArchivedStore[]>`
+      with last as (select store_id, max(sale_date) as last_sale from sales_daily group by store_id)
+      select s.id as store_id, s.name, s.retailer::text as retailer, reg.name as region,
+             s.size_category::text as size, last.last_sale as last_active,
+             (current_date - last.last_sale)::int as days_since
+      from stores s
+      left join regions reg on reg.id = s.region_id
+      left join last on last.store_id = s.id
+      where s.active = false
+      order by last.last_sale desc nulls last, s.name`;
+  } catch {
+    return [];
+  }
+}
