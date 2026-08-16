@@ -1,77 +1,42 @@
 "use client";
 import { useMemo, useState } from "react";
+import type { LostSales } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
- * Lost sales / stockouts — the availability mirror of waste. Waste is
- * baking too much; lost sales is selling out early and turning demand
- * away. The service dial trades between the two. Simona: "we definitely
- * need a lost-sales / stockout algorithm."
- *
- * Front-end prototype. The detection (received vs sold-through, sellout
- * timing) is Fred's engine; this is the view that surfaces each miss
- * with a one-tap fix, plus the bulk option she asked for. Examples are
- * representative of the pattern — they light up on live detection.
+ * Lost sales / stockouts — the availability mirror of waste, live from
+ * v_store_week.stockout_days. Reported waste doesn't exist (Waste_Qty is
+ * all-zero), so inferred sellouts are the only read on lost demand. Sized
+ * "lift" fixes come from the engine plan where a store is under-supplied.
  * ------------------------------------------------------------------ */
 
-type Conf = "high" | "medium";
-type Loss = {
-  id: string;
-  store: string;
-  retailer: string;
-  region: string;
-  product: string;
-  day: string;
-  pattern: string;
-  lostWk: number; // estimated lost units / week
-  current: number;
-  suggested: number;
-  conf: Conf;
-  cadence?: boolean; // structural — 2-deliveries/week risk
-};
+const CONF = { high: { label: "High confidence", c: "var(--green-t)", b: "var(--green-b)" }, medium: { label: "Worth a look", c: "var(--amber-t)", b: "var(--amber-b)" } };
 
-const LOSSES: Loss[] = [
-  { id: "l1", store: "Woolworths Bondi Junction", retailer: "Woolworths", region: "Eastern Suburbs",
-    product: "White sourdough", day: "Saturday", pattern: "Received 20, gone by ~11am every Saturday — steady walk-aways after.",
-    lostWk: 9, current: 20, suggested: 28, conf: "high" },
-  { id: "l2", store: "Harris Farm Mosman", retailer: "Harris Farm", region: "North Shore",
-    product: "Plain challah", day: "Friday", pattern: "Sells through by noon Fridays (Shabbat) — no stock for the afternoon rush.",
-    lostWk: 6, current: 8, suggested: 13, conf: "high" },
-  { id: "l3", store: "Coles Ashfield", retailer: "Coles", region: "Inner West",
-    product: "Sesame bagel", day: "Friday", pattern: "Out by ~2pm most Fridays; Fri is the peak day on this run.",
-    lostWk: 7, current: 16, suggested: 22, conf: "high" },
-  { id: "l4", store: "Coles Belconnen", retailer: "Coles", region: "Canberra / ACT",
-    product: "White sourdough", day: "Wednesday", pattern: "Only 2 drops/week (Mon & Thu). Repeat sellouts Wednesday before the Thursday delivery.",
-    lostWk: 12, current: 24, suggested: 32, conf: "medium", cadence: true },
-  { id: "l5", store: "Woolworths Tuggeranong", retailer: "Woolworths", region: "Canberra / ACT",
-    product: "Wholemeal sourdough", day: "Saturday", pattern: "Same 2/week cadence — weekend sourdough gone Saturday morning, dry until Monday.",
-    lostWk: 10, current: 18, suggested: 26, conf: "medium", cadence: true },
-  { id: "l6", store: "Coles Rouse Hill", retailer: "Coles", region: "North West",
-    product: "Mini bagels", day: "Midweek", pattern: "School-holiday lift not captured — selling out midday through the break.",
-    lostWk: 6, current: 14, suggested: 19, conf: "medium" },
-];
-
-const CONF_META: Record<Conf, { label: string; c: string; b: string }> = {
-  high: { label: "High confidence", c: "var(--green-t)", b: "var(--green-b)" },
-  medium: { label: "Worth a look", c: "var(--amber-t)", b: "var(--amber-b)" },
-};
-
-export default function LostSales() {
+export default function LostSales({ data }: { data: LostSales }) {
   const [resolved, setResolved] = useState<Record<string, "applied" | "dismissed">>({});
-  const open = LOSSES.filter((l) => !resolved[l.id]);
-
+  const open = data.losses.filter((l) => !resolved[l.id]);
   const totalLostWk = useMemo(() => open.reduce((a, l) => a + l.lostWk, 0), [open]);
   const storesFlagged = useMemo(() => new Set(open.map((l) => l.store)).size, [open]);
-  const cadenceCount = open.filter((l) => l.cadence).length;
+  const repeatCount = open.filter((l) => l.repeat).length;
   const highCount = open.filter((l) => l.conf === "high").length;
 
   function apply(id: string) { setResolved((r) => ({ ...r, [id]: "applied" })); }
   function dismiss(id: string) { setResolved((r) => ({ ...r, [id]: "dismissed" })); }
   function applyAllHigh() {
-    setResolved((r) => {
-      const n = { ...r };
-      for (const l of LOSSES) if (l.conf === "high" && !n[l.id]) n[l.id] = "applied";
-      return n;
-    });
+    setResolved((r) => { const n = { ...r }; for (const l of data.losses) if (l.conf === "high" && !n[l.id]) n[l.id] = "applied"; return n; });
+  }
+
+  if (!data.hasData) {
+    return (
+      <div className="losts">
+        <div className="panel intro">
+          <div className="itxt">
+            The mirror of waste — where stores <b>sell out early</b> and turn demand away. It reads from the on-hand ledger
+            (a stockout day = the shelf hit zero with nothing left to expire). No stockouts flagged this week; as the ledger
+            accumulates across Coles and Harris Farm, sellouts surface here with a sized fix.
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -80,73 +45,55 @@ export default function LostSales() {
         <div className="itxt">
           The mirror of waste. Waste is baking too much; <b>lost sales is selling out early</b> and turning demand away —
           invisible on the reports because retailers only send what <i>sold</i>, never what someone wanted and couldn&apos;t get.
-          The engine flags each likely sellout and sizes the fix. The service dial decides how hard we lean against it.
+          These come straight from the on-hand ledger: a stockout day is the shelf hitting zero before the next drop.
         </div>
       </div>
 
-      {/* Network strip */}
       <div className="strip">
-        <div className="tile">
-          <div className="tn">{totalLostWk}<span className="u"> units/wk</span></div>
-          <div className="tl">Estimated lost sales</div>
-        </div>
-        <div className="tile">
-          <div className="tn">{storesFlagged}</div>
-          <div className="tl">Stores flagged</div>
-        </div>
-        <div className="tile">
-          <div className="tn dim">$ —</div>
-          <div className="tl">Lost revenue / wk · lights up with the price feed</div>
-        </div>
-        <div className="tile">
-          <div className="tn amber">{cadenceCount}</div>
-          <div className="tl">Structural — 2-delivery-a-week runs</div>
-        </div>
+        <div className="tile"><div className="tn">{totalLostWk}<span className="u"> units/wk</span></div><div className="tl">Estimated lost sales</div></div>
+        <div className="tile"><div className="tn">{storesFlagged}</div><div className="tl">Stores flagged</div></div>
+        <div className="tile"><div className="tn dim">$ —</div><div className="tl">Lost revenue / wk · lights up with the price feed</div></div>
+        <div className="tile"><div className="tn amber">{repeatCount}</div><div className="tl">Repeat sellouts · 3+ days out</div></div>
       </div>
 
-      {/* Canberra structural banner */}
-      {cadenceCount > 0 && (
+      {repeatCount > 0 && (
         <div className="banner">
-          <div className="bh">Canberra runs on 2 deliveries a week</div>
+          <div className="bh">{repeatCount} store{repeatCount === 1 ? "" : "s"} running dry three or more days a week</div>
           <div className="bt">
-            With only Mon &amp; Thu drops, a good weekend empties the shelf days before the next delivery — the biggest
-            structural stockout risk in the network. Lifting the delivered quantity helps, but the real fix is a cadence
-            question: is a third Canberra run worth it? Flagged here so it&apos;s a decision, not a silent loss.
+            These aren&apos;t one-offs — the shelf is empty for days before the next delivery, so real demand is walking away
+            unseen. Lifting the delivered quantity helps, but where it&apos;s a low-cadence run (e.g. Canberra&apos;s two-a-week),
+            the real question is whether an extra run is worth it. Flagged so it&apos;s a decision, not a silent loss.
           </div>
         </div>
       )}
 
-      {/* Bulk action */}
       <div className="bulk">
         <div className="section-h"><span className="tick" />Sellouts to fix{open.length ? <span className="cnt">{open.length}</span> : null}</div>
-        {highCount > 0 && (
-          <button className="applyall" onClick={applyAllHigh}>Apply all {highCount} high-confidence fixes</button>
-        )}
+        {highCount > 0 && <button className="applyall" onClick={applyAllHigh}>Apply all {highCount} high-confidence fixes</button>}
       </div>
 
-      {/* Exception cards */}
       <div className="cards">
         {open.length === 0 && (
           <div className="allclear">
             <div className="ac-h">All caught up</div>
-            <div className="ac-t">Every flagged sellout has been actioned. New ones surface here as the engine detects them.</div>
+            <div className="ac-t">Every flagged sellout has been actioned. New ones surface here as the ledger detects them.</div>
           </div>
         )}
         {open.map((l) => (
           <div className={`lc${l.conf === "medium" ? " amber" : ""}`} key={l.id}>
             <div className="lc-top">
               <span className="lc-title">{l.store}</span>
-              <span className="lc-conf" style={{ background: CONF_META[l.conf].b, color: CONF_META[l.conf].c }}>{CONF_META[l.conf].label}</span>
+              <span className="lc-conf" style={{ background: CONF[l.conf].b, color: CONF[l.conf].c }}>{CONF[l.conf].label}</span>
               <span className="lc-risk">~{l.lostWk} units/wk lost</span>
             </div>
-            <div className="lc-sub">{l.product} · {l.day} · {l.retailer} · {l.region}</div>
+            <div className="lc-sub">{l.product} · {l.retailer} · {l.region}</div>
             <div className="lc-pattern">{l.pattern}</div>
             <div className="lc-fix">
               <span className="lbl">Suggested fix</span>
               <span className="fixline">
-                {l.day} {l.product.toLowerCase()} <b>{l.current} → {l.suggested}</b>
-                <span className="delta"> +{l.suggested - l.current}</span>
-                {l.cadence && <span className="orcad"> · or add a third weekly run</span>}
+                {l.current !== null && l.suggested !== null
+                  ? <>{l.product.toLowerCase()} <b>{l.current} → {l.suggested}</b><span className="delta"> +{l.suggested - l.current}</span></>
+                  : <>Lift the send on the peak days{l.repeat ? <span className="orcad"> · or review the run cadence</span> : null}</>}
               </span>
             </div>
             <div className="lc-btns">
@@ -157,19 +104,16 @@ export default function LostSales() {
         ))}
       </div>
 
-      {/* Applied log */}
       {Object.keys(resolved).length > 0 && (
         <div className="applied">
           <div className="section-h" style={{ marginTop: 8 }}><span className="tick" />Actioned this session</div>
           <div className="panel" style={{ padding: 0 }}>
-            {LOSSES.filter((l) => resolved[l.id]).map((l, i) => (
+            {data.losses.filter((l) => resolved[l.id]).map((l, i) => (
               <div className="arow" key={l.id} style={{ borderTop: i ? "1px solid var(--line2)" : undefined }}>
-                <span className="a-check" style={{ color: resolved[l.id] === "applied" ? "var(--green-t)" : "var(--muted)" }}>
-                  {resolved[l.id] === "applied" ? "✓" : "○"}
-                </span>
+                <span className="a-check" style={{ color: resolved[l.id] === "applied" ? "var(--green-t)" : "var(--muted)" }}>{resolved[l.id] === "applied" ? "✓" : "○"}</span>
                 <span className="a-store">{l.store}</span>
-                <span className="a-prod">{l.product} · {l.day}</span>
-                <span className="a-res">{resolved[l.id] === "applied" ? `${l.current} → ${l.suggested}` : "dismissed"}</span>
+                <span className="a-prod">{l.product}</span>
+                <span className="a-res">{resolved[l.id] === "applied" ? (l.current !== null ? `${l.current} → ${l.suggested}` : "lift") : "dismissed"}</span>
               </div>
             ))}
           </div>
@@ -177,8 +121,8 @@ export default function LostSales() {
       )}
 
       <div className="foot" style={{ marginTop: 16 }}>
-        Representative of the sellout patterns the engine surfaces from delivered-vs-sold and sellout timing. Figures fill
-        in from live detection; lost revenue turns on when the price feed lands (Invoice_Cost, per Fred).
+        Live from the on-hand ledger. Lost units are estimated from sell-through across the stockout days; the sized fix
+        comes from the engine plan where a store has one. Lost revenue turns on when the price feed lands (Invoice_Cost).
       </div>
 
       <style>{`

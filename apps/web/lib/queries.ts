@@ -415,3 +415,43 @@ export async function getOpportunities(): Promise<Opportunities> {
   const demandUnits = opps.filter((o) => o.lever === "demand").reduce((a, o) => a + o.gain, 0);
   return { opps, total: wasteUnits + demandUnits, wasteUnits, demandUnits, hasData: opps.length > 0 };
 }
+
+// ---------------------------------------------------------------------
+// Lost sales / stockouts — the availability mirror of waste, live from
+// v_store_week.stockout_days (a stockout day = shelf hit zero with
+// nothing left to expire). The sized "lift" fix comes from store_reco
+// where a store is under-supplied. Reported waste doesn't exist (Fred:
+// Waste_Qty all-zero), so this is the only read on lost demand until the
+// on-hand ledger fully populates across Coles + Harris.
+// ---------------------------------------------------------------------
+export type Stockout = {
+  id: string; store: string; retailer: string; region: string; product: string;
+  pattern: string; lostWk: number; current: number | null; suggested: number | null; conf: "high" | "medium"; repeat: boolean;
+};
+export type LostSales = { losses: Stockout[]; totalLostWk: number; storesFlagged: number; repeatCount: number; hasData: boolean };
+
+export async function getStockouts(): Promise<LostSales> {
+  const stores = await getStoreWeek();
+  const cand = stores.filter((s) => Number(s.stockout_days) > 0);
+  const losses: Stockout[] = [];
+  for (const s of cand) {
+    const days = Number(s.stockout_days);
+    const lostWk = Math.max(1, Math.round((Number(s.total_sold) / 7) * days * 0.5));
+    const recos = await getStoreRecos(s.store_id);
+    const under = recos.filter((r) => r.recommended > r.sent).sort((a, b) => (b.recommended - b.sent) - (a.recommended - a.sent))[0];
+    losses.push({
+      id: `so-${s.store_id}`, store: s.name, retailer: s.retailer, region: s.region ?? "—",
+      product: under ? titleCase(under.product_name) : "peak lines",
+      pattern: under
+        ? `Ran out on ${days} day${days === 1 ? "" : "s"} this week — ${titleCase(under.product_name)} short before the next drop.`
+        : `Ran out on ${days} day${days === 1 ? "" : "s"} this week — running dry before the next delivery.`,
+      lostWk, current: under ? under.sent : null, suggested: under ? under.recommended : null,
+      conf: days >= 3 ? "high" : "medium", repeat: days >= 3,
+    });
+  }
+  losses.sort((a, b) => b.lostWk - a.lostWk);
+  return {
+    losses, totalLostWk: losses.reduce((a, l) => a + l.lostWk, 0),
+    storesFlagged: losses.length, repeatCount: losses.filter((l) => l.repeat).length, hasData: losses.length > 0,
+  };
+}
