@@ -357,3 +357,61 @@ export async function getBenchmarks(): Promise<Benchmarks> {
     cohortCount: cohorts.length, hasData: cohorts.length > 0,
   };
 }
+
+// ---------------------------------------------------------------------
+// Opportunities — one ranked "where's the next dollar" list, derived
+// from real data: trim waste (over-delivering stores, sized from the
+// plan where present) and capture demand (stores with stockout days).
+// Range / rebalance need product-level gap analysis — surfaced as the
+// per-product data builds, not faked here.
+// ---------------------------------------------------------------------
+export type OppLever = "demand" | "waste" | "range" | "rebalance";
+export type Opp = {
+  id: string; lever: OppLever; store: string; region: string; product: string;
+  situation: string; move: string; gain: number; conf: "high" | "medium";
+};
+export type Opportunities = { opps: Opp[]; total: number; wasteUnits: number; demandUnits: number; hasData: boolean };
+
+export async function getOpportunities(): Promise<Opportunities> {
+  const stores = await getStoreWeek();
+  const opps: Opp[] = [];
+
+  // Trim waste — over-delivering stores, sized from store_reco where present.
+  const wasteCand = stores
+    .filter((s) => (s.status === "red" || s.status === "amber") && Number(s.total_sent) > Number(s.total_sold))
+    .sort((a, b) => Number(b.total_wasted) - Number(a.total_wasted))
+    .slice(0, 6);
+  for (const s of wasteCand) {
+    const recos = await getStoreRecos(s.store_id);
+    const top = recos.filter((r) => r.sent > r.recommended).sort((a, b) => (b.sent - b.recommended) - (a.sent - a.recommended))[0];
+    opps.push({
+      id: `w-${s.store_id}`, lever: "waste", store: s.name, region: s.region ?? "—",
+      product: top ? titleCase(top.product_name) : "across lines",
+      situation: `Sending ${s.total_sent}/wk where ${s.total_sold} sells — ${s.waste_pct ?? "—"}% waste.`,
+      move: top
+        ? `Trim ${titleCase(top.product_name)} ${top.sent} → ${top.recommended} to match real sell-through.`
+        : `Right-size the drops to recent same-weekday demand.`,
+      gain: Number(s.total_wasted), conf: s.status === "red" ? "high" : "medium",
+    });
+  }
+
+  // Capture demand — stores running out (stockout days = lost sales we can't see).
+  const demandCand = stores
+    .filter((s) => Number(s.stockout_days) > 0)
+    .sort((a, b) => Number(b.stockout_days) - Number(a.stockout_days))
+    .slice(0, 6);
+  for (const s of demandCand) {
+    const lost = Math.max(1, Math.round((Number(s.total_sold) / 7) * Number(s.stockout_days) * 0.5));
+    opps.push({
+      id: `d-${s.store_id}`, lever: "demand", store: s.name, region: s.region ?? "—", product: "peak lines",
+      situation: `${s.stockout_days} stockout day${Number(s.stockout_days) === 1 ? "" : "s"} this week — running out before the next drop.`,
+      move: `Lift the send on the peak days, or review the run cadence.`,
+      gain: lost, conf: "medium",
+    });
+  }
+
+  opps.sort((a, b) => b.gain - a.gain);
+  const wasteUnits = opps.filter((o) => o.lever === "waste").reduce((a, o) => a + o.gain, 0);
+  const demandUnits = opps.filter((o) => o.lever === "demand").reduce((a, o) => a + o.gain, 0);
+  return { opps, total: wasteUnits + demandUnits, wasteUnits, demandUnits, hasData: opps.length > 0 };
+}
