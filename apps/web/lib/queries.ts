@@ -504,3 +504,171 @@ export async function getArchivedStores(): Promise<ArchivedStore[]> {
     return [];
   }
 }
+
+// ---------------------------------------------------------------------
+// Forecast accuracy — a real backtest over the sales history. There are
+// no stored engine forecasts to grade yet, so we replay the honest
+// baseline the engine has to beat: a trailing-demand forecast (each
+// week predicted from the mean of the prior K weeks for that store /
+// product), scored against what actually sold. One metric everywhere:
+// "closeness" = 100 * (1 - min(1, |forecast - actual| / actual)), so
+// 100 = spot on, 0 = off by a full week or more. Bias is the mean
+// signed error (over = leans waste, under = leans stockout). Every
+// scored (store, week) pair is one real backtest snapshot — the count
+// is reported, not asserted. The most recent (as-of) week is dropped
+// per series because it is usually a partial week and would read as a
+// false under-forecast.
+// ---------------------------------------------------------------------
+export type FaccStore = { store_id: string; store: string; region: string | null; acc: number; bias: number; trend: number[] };
+export type FaccProduct = { name: string; acc: number; why: string };
+export type ForecastAccuracyData = {
+  weeks: number[];          // network weekly closeness, oldest -> newest (up to 8)
+  network: number;          // latest complete week's network closeness
+  improve: number;          // network vs ~4 weeks ago (points)
+  netBias: number;          // mean store bias, %
+  onTrack: number;          // % of stores at/above target
+  target: number;
+  lookback: number;         // K weeks used to form each forecast
+  snapshots: number;        // real count of scored (store, week) backtests
+  stores: FaccStore[];
+  hard: FaccProduct[];
+  easy: FaccProduct[];
+};
+
+type WkRow = { key: string; wk: string; sold: number };
+type Scored = { wk: string; closeness: number; err: number };
+
+// Backtest one oldest->newest weekly series. Drops the final (partial)
+// week, then for each week i >= K forecasts from the prior K weeks.
+function jbBacktest(series: { wk: string; sold: number }[], K: number): Scored[] {
+  const s = series.slice(0, Math.max(0, series.length - 1));
+  const out: Scored[] = [];
+  for (let i = K; i < s.length; i++) {
+    const actual = Number(s[i].sold);
+    if (actual <= 0) continue; // nothing to score against
+    let sum = 0;
+    for (let j = i - K; j < i; j++) sum += Number(s[j].sold);
+    const forecast = sum / K;
+    const err = (forecast - actual) / actual;
+    out.push({
+      wk: s[i].wk,
+      closeness: 100 * Math.max(0, 1 - Math.min(1, Math.abs(err))),
+      err: err * 100,
+    });
+  }
+  return out;
+}
+
+function jbGroupSeries(rows: WkRow[]): Map<string, { wk: string; sold: number }[]> {
+  const by = new Map<string, { wk: string; sold: number }[]>();
+  for (const r of rows) {
+    const arr = by.get(r.key) ?? [];
+    arr.push({ wk: r.wk, sold: Number(r.sold) });
+    by.set(r.key, arr);
+  }
+  return by;
+}
+
+export async function getForecastAccuracy(): Promise<ForecastAccuracyData | null> {
+  const K = 3, TARGET = 85, MIN_STORE_WEEKS = 3;
+  try {
+    const storeRows = await sql<{ key: string; store: string; region: string | null; wk: string; sold: number }[]>`
+      select s.store_id::text          as key,
+             st.name                    as store,
+             reg.name                   as region,
+             to_char(date_trunc('week', s.sale_date), 'YYYY-MM-DD') as wk,
+             sum(s.units_sold)::int     as sold
+      from sales_daily s
+      join stores st  on st.id = s.store_id
+      left join regions reg on reg.id = st.region_id
+      where st.active
+      group by s.store_id, st.name, reg.name, date_trunc('week', s.sale_date)
+      order by s.store_id, wk`;
+
+    if (!storeRows.length) return null;
+
+    const meta = new Map<string, { store: string; region: string | null }>();
+    for (const r of storeRows) if (!meta.has(r.key)) meta.set(r.key, { store: r.store, region: r.region });
+
+    const series = jbGroupSeries(storeRows.map((r) => ({ key: r.key, wk: r.wk, sold: r.sold })));
+
+    // Per-store scoring + network-by-week accumulation.
+    const netByWeek = new Map<string, number[]>();
+    const stores: FaccStore[] = [];
+    let snapshots = 0;
+    for (const [key, ser] of series) {
+      const scored = jbBacktest(ser, K);
+      if (scored.length < MIN_STORE_WEEKS) continue;
+      snapshots += scored.length;
+      for (const sc of scored) {
+        const arr = netByWeek.get(sc.wk) ?? [];
+        arr.push(sc.closeness);
+        netByWeek.set(sc.wk, arr);
+      }
+      const acc = Math.round(scored.reduce((a, b) => a + b.closeness, 0) / scored.length);
+      const bias = Math.round(scored.reduce((a, b) => a + b.err, 0) / scored.length);
+      const trend = scored.slice(-6).map((x) => Math.round(x.closeness));
+      const m = meta.get(key)!;
+      stores.push({ store_id: key, store: m.store, region: m.region, acc, bias, trend });
+    }
+
+    if (!stores.length) return null;
+
+    // Network weekly closeness series (oldest -> newest), last 8 complete weeks.
+    const weekKeys = [...netByWeek.keys()].sort();
+    const weekly = weekKeys.map((w) => {
+      const v = netByWeek.get(w)!;
+      return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+    });
+    const weeks = weekly.slice(-8);
+    const network = weeks[weeks.length - 1] ?? 0;
+    const improve = weeks.length >= 5 ? network - weeks[weeks.length - 5] : network - weeks[0];
+    const netBias = Math.round(stores.reduce((a, s) => a + s.bias, 0) / stores.length);
+    const onTrack = Math.round((stores.filter((s) => s.acc >= TARGET).length / stores.length) * 100);
+
+    stores.sort((a, b) => b.acc - a.acc);
+
+    // Product difficulty — same backtest per product, ranked by closeness.
+    let hard: FaccProduct[] = [], easy: FaccProduct[] = [];
+    try {
+      const prodRows = await sql<{ key: string; wk: string; sold: number }[]>`
+        select p.name                    as key,
+               to_char(date_trunc('week', s.sale_date), 'YYYY-MM-DD') as wk,
+               sum(s.units_sold)::int     as sold
+        from sales_daily s
+        join products p on p.id = s.product_id
+        group by p.name, date_trunc('week', s.sale_date)
+        order by p.name, wk`;
+      const pSeries = jbGroupSeries(prodRows);
+      const scoredProducts: { name: string; acc: number; cv: number; meanWk: number }[] = [];
+      for (const [name, ser] of pSeries) {
+        const s2 = ser.slice(0, Math.max(0, ser.length - 1));
+        const sc = jbBacktest(ser, K);
+        if (sc.length < 4) continue;
+        const vols = s2.map((x) => Number(x.sold));
+        const meanWk = vols.reduce((a, b) => a + b, 0) / vols.length;
+        if (meanWk < 20) continue; // ignore tiny SKUs — noise, not signal
+        const variance = vols.reduce((a, b) => a + (b - meanWk) ** 2, 0) / vols.length;
+        const cv = meanWk > 0 ? Math.sqrt(variance) / meanWk : 0;
+        const acc = Math.round(sc.reduce((a, b) => a + b.closeness, 0) / sc.length);
+        scoredProducts.push({ name, acc, cv, meanWk });
+      }
+      if (scoredProducts.length >= 2) {
+        const asc = [...scoredProducts].sort((a, b) => a.acc - b.acc);
+        const swing = (cv: number) => Math.round(cv * 100);
+        hard = asc.slice(0, 3).map((p) => ({
+          name: p.name, acc: p.acc,
+          why: `${swing(p.cv)}% week-to-week swing${p.meanWk < 60 ? " on thin volume" : ""} — a genuinely noisy pattern`,
+        }));
+        easy = asc.slice(-3).reverse().map((p) => ({
+          name: p.name, acc: p.acc,
+          why: `Low ${swing(p.cv)}% swing on steady volume — clean, repeatable shape`,
+        }));
+      }
+    } catch { /* products optional — leave hard/easy empty */ }
+
+    return { weeks, network, improve, netBias, onTrack, target: TARGET, lookback: K, snapshots, stores, hard, easy };
+  } catch {
+    return null; // no history yet / query failed — page shows an honest empty state
+  }
+}
