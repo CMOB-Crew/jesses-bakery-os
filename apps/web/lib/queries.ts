@@ -286,3 +286,74 @@ export async function getRecommendations(limit = 3): Promise<Recommendation[]> {
     })
   );
 }
+
+// ---------------------------------------------------------------------
+// Benchmarks — peer-relative store scoring, computed from v_store_week.
+// Simona's rule: never one absolute target. Each store vs its own week
+// and vs similar same-size stores in its region (the cohort). Sell-
+// through = sold / delivered. Cohorts need >= 2 stores to benchmark.
+// ---------------------------------------------------------------------
+export type BenchRow = {
+  store_id: string; name: string; region: string; size: string;
+  sell: number; cohort_median: number | null; vs_cohort: number | null; trend: number | null; status: Status;
+};
+export type BenchCohort = { key: string; region: string; size: string; median: number; count: number; stores: { name: string; sell: number; vs: number; status: Status }[] };
+export type Benchmarks = { cohorts: BenchCohort[]; rows: BenchRow[]; under: BenchRow[]; over: BenchRow[]; networkMedian: number | null; cohortCount: number; hasData: boolean };
+
+const jbMedian = (ns: number[]) => {
+  if (!ns.length) return 0;
+  const a = [...ns].sort((x, y) => x - y);
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+};
+
+export async function getBenchmarks(): Promise<Benchmarks> {
+  const sizeLabel = (s: string | null) => (s ? s[0].toUpperCase() + s.slice(1) : "Unsized");
+  const base = (await getStoreWeek())
+    .filter((s) => Number(s.total_sent) > 0)
+    .map((s) => {
+      const sent = Number(s.total_sent), sold = Number(s.total_sold), prev = Number(s.total_sold_prev);
+      return {
+        store_id: s.store_id, name: s.name, region: s.region ?? "Unassigned", size: sizeLabel(s.size_category),
+        sell: Math.round((1000 * sold) / sent) / 10, sold, prev, status: s.status as Status,
+      };
+    });
+
+  const groups = new Map<string, typeof base>();
+  for (const r of base) { const k = `${r.region} · ${r.size}`; if (!groups.has(k)) groups.set(k, []); groups.get(k)!.push(r); }
+  const med = new Map<string, number>();
+  for (const [k, rs] of groups) med.set(k, jbMedian(rs.map((r) => r.sell)));
+
+  const rows: BenchRow[] = base.map((r) => {
+    const k = `${r.region} · ${r.size}`;
+    const peer = groups.get(k)!.length >= 2;
+    const cm = med.get(k)!;
+    return {
+      store_id: r.store_id, name: r.name, region: r.region, size: r.size, sell: r.sell,
+      cohort_median: peer ? cm : null,
+      vs_cohort: peer ? Math.round((r.sell - cm) * 10) / 10 : null,
+      trend: r.prev > 0 ? Math.round((1000 * (r.sold - r.prev)) / r.prev) / 10 : null,
+      status: r.status,
+    };
+  });
+
+  const cohorts: BenchCohort[] = [...groups.entries()]
+    .filter(([, rs]) => rs.length >= 2)
+    .map(([key, rs]) => {
+      const cm = med.get(key)!;
+      const [region, size] = key.split(" · ");
+      return {
+        key, region, size, median: cm, count: rs.length,
+        stores: [...rs].sort((a, b) => b.sell - a.sell).map((r) => ({ name: r.name, sell: r.sell, vs: Math.round((r.sell - cm) * 10) / 10, status: r.status })),
+      };
+    })
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+
+  const under = rows.filter((r) => r.vs_cohort !== null && r.vs_cohort <= -3).sort((a, b) => a.vs_cohort! - b.vs_cohort!);
+  const over = rows.filter((r) => r.vs_cohort !== null && r.vs_cohort >= 3).sort((a, b) => b.vs_cohort! - a.vs_cohort!);
+  return {
+    cohorts, rows, under, over,
+    networkMedian: rows.length ? jbMedian(rows.map((r) => r.sell)) : null,
+    cohortCount: cohorts.length, hasData: cohorts.length > 0,
+  };
+}

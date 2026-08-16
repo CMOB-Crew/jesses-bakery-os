@@ -1,96 +1,64 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import type { Benchmarks } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
  * Store benchmarking — Simona's rule: never grade a store against one
- * absolute target. Each store is measured against (1) its own expected
- * performance and (2) similar same-size stores in its region. That's how
- * a small Canberra store and a big Bondi store are judged fairly — and
- * it's the fairness layer behind the R/A/G flags used everywhere.
- *
- * Metric shown: sell-through % (sold ÷ delivered). Front-end prototype;
- * cohorts and scoring are the engine's, this surfaces them.
+ * absolute target. Each store is scored against similar same-size stores
+ * in its region (the cohort) and against its own last week. Live data
+ * from v_store_week (sell-through = sold / delivered). This is the
+ * fairness layer behind the R/A/G flags.
  * ------------------------------------------------------------------ */
 
-type Store = { name: string; region: string; size: "Small" | "Medium" | "Large"; sell: number; expected: number };
+type Status = "green" | "amber" | "red";
+const status = (d: number) => (d >= 3 ? "green" : d <= -3 ? "red" : "amber") as Status;
 
-const STORES: Store[] = [
-  // Eastern Suburbs · Large
-  { name: "Woolworths Bondi Beach", region: "Eastern Suburbs", size: "Large", sell: 91, expected: 88 },
-  { name: "Woolworths Bondi Junction", region: "Eastern Suburbs", size: "Large", sell: 88, expected: 86 },
-  { name: "Coles Double Bay", region: "Eastern Suburbs", size: "Large", sell: 84, expected: 85 },
-  { name: "Woolworths Randwick", region: "Eastern Suburbs", size: "Large", sell: 79, expected: 86 },
-  // Inner West · Medium
-  { name: "Coles Ashfield", region: "Inner West", size: "Medium", sell: 90, expected: 85 },
-  { name: "Coles Marrickville", region: "Inner West", size: "Medium", sell: 83, expected: 84 },
-  { name: "Harris Farm Leichhardt", region: "Inner West", size: "Medium", sell: 81, expected: 83 },
-  // Canberra · Medium
-  { name: "Woolworths Woden", region: "Canberra / ACT", size: "Medium", sell: 76, expected: 78 },
-  { name: "Woolworths Tuggeranong", region: "Canberra / ACT", size: "Medium", sell: 74, expected: 77 },
-  { name: "Coles Belconnen", region: "Canberra / ACT", size: "Medium", sell: 72, expected: 78 },
-  { name: "Woolworths Gungahlin", region: "Canberra / ACT", size: "Medium", sell: 70, expected: 79 },
-];
+export default function StoreBenchmarks({ data }: { data: Benchmarks }) {
+  const [sel, setSel] = useState(data.cohorts[0]?.key ?? "");
+  const cohort = data.cohorts.find((c) => c.key === sel) ?? data.cohorts[0];
 
-function median(ns: number[]) {
-  const s = [...ns].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
+  if (!data.hasData || !cohort) {
+    return (
+      <div className="bench">
+        <div className="panel intro">
+          <div className="itxt">
+            We never grade a store against one number — each is measured against similar same-size stores in its region.
+            This lights up once at least two same-size stores in a region have a week of delivered-vs-sold, so the peer
+            cohorts are real. As the ledger fills across Coles and Harris Farm, the cohorts complete.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-export default function StoreBenchmarks() {
-  const cohorts = useMemo(() => {
-    const map = new Map<string, Store[]>();
-    for (const s of STORES) {
-      const key = `${s.region} · ${s.size}`;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(s);
-    }
-    return [...map.entries()].map(([key, stores]) => ({
-      key, stores: [...stores].sort((a, b) => b.sell - a.sell), med: median(stores.map((s) => s.sell)),
-    }));
-  }, []);
-
-  const [sel, setSel] = useState("Canberra / ACT · Medium");
-  const cohort = cohorts.find((c) => c.key === sel) ?? cohorts[0];
-
-  // Per-store deltas vs cohort median + own expected
-  const scored = STORES.map((s) => {
-    const med = cohorts.find((c) => c.key === `${s.region} · ${s.size}`)!.med;
-    return { ...s, med, vCohort: s.sell - med, vExpected: s.sell - s.expected };
-  });
-  const under = scored.filter((s) => s.vCohort <= -3).sort((a, b) => a.vCohort - b.vCohort);
-  const over = scored.filter((s) => s.vCohort >= 3).sort((a, b) => b.vCohort - a.vCohort);
-  const networkMed = median(STORES.map((s) => s.sell));
-
-  // Bar scale
-  const LO = 55, HI = 95;
-  const w = (v: number) => `${Math.max(2, ((v - LO) / (HI - LO)) * 100)}%`;
-  const status = (d: number) => (d >= 3 ? "green" : d <= -3 ? "red" : "amber");
+  const absRed = cohort.stores.filter((s) => s.sell < 85).length;
+  const best = cohort.stores[0];
+  const worst = cohort.stores[cohort.stores.length - 1];
+  const LO = 40, HI = 100;
+  const w = (v: number) => `${Math.min(100, Math.max(2, ((v - LO) / (HI - LO)) * 100))}%`;
 
   return (
     <div className="bench">
       <div className="panel intro">
         <div className="itxt">
-          We never grade a store against one number. Each is measured against its <b>own expected performance</b> and
-          against <b>similar same-size stores in its region</b> — so a small Canberra store and a big Bondi store are
-          judged fairly. This is the fairness layer behind every 🟢🟡🔴 flag in the system.
+          We never grade a store against one number. Each is measured against its <b>own last week</b> and against
+          <b> similar same-size stores in its region</b> — so a small Canberra store and a big Bondi store are judged
+          fairly. This is the fairness layer behind every 🟢🟡🔴 flag in the system.
         </div>
       </div>
 
-      {/* Strip */}
       <div className="strip">
-        <div className="tile"><div className="tn">{cohorts.length}</div><div className="tl">Peer cohorts · size × region</div></div>
-        <div className="tile"><div className="tn red">{under.length}</div><div className="tl">Below their peers · real underperformers</div></div>
-        <div className="tile"><div className="tn green">{over.length}</div><div className="tl">Above their peers · worth learning from</div></div>
-        <div className="tile"><div className="tn">{networkMed}<span className="u">%</span></div><div className="tl">Network median sell-through</div></div>
+        <div className="tile"><div className="tn">{data.cohortCount}</div><div className="tl">Peer cohorts · size × region</div></div>
+        <div className="tile"><div className="tn red">{data.under.length}</div><div className="tl">Below their peers · real underperformers</div></div>
+        <div className="tile"><div className="tn green">{data.over.length}</div><div className="tl">Above their peers · worth learning from</div></div>
+        <div className="tile"><div className="tn">{data.networkMedian ?? "—"}<span className="u">%</span></div><div className="tl">Network median sell-through</div></div>
       </div>
 
-      {/* Cohort explorer */}
       <div className="section-h" style={{ marginTop: 20, marginBottom: 10 }}><span className="tick" />Cohort explorer</div>
       <div className="cohortpick">
-        {cohorts.map((c) => (
+        {data.cohorts.map((c) => (
           <button key={c.key} className={c.key === sel ? "on" : ""} onClick={() => setSel(c.key)}>
-            {c.key}<small>{c.stores.length} stores</small>
+            {c.key}<small>{c.count} stores</small>
           </button>
         ))}
       </div>
@@ -98,17 +66,17 @@ export default function StoreBenchmarks() {
       <div className="panel cohortcard">
         <div className="cc-h">
           <div className="cc-title">{cohort.key}</div>
-          <div className="cc-med">Cohort median <b>{cohort.med}%</b></div>
+          <div className="cc-med">Cohort median <b>{cohort.median}%</b></div>
         </div>
         <div className="bars">
           {cohort.stores.map((s) => {
-            const d = s.sell - cohort.med;
+            const d = Math.round((s.sell - cohort.median) * 10) / 10;
             return (
               <div className="barrow" key={s.name}>
                 <div className="bl">{s.name}</div>
                 <div className="btrack">
                   <div className={`bfill ${status(d)}`} style={{ width: w(s.sell) }} />
-                  <div className="bmed" style={{ left: w(cohort.med) }} title="cohort median" />
+                  <div className="bmed" style={{ left: w(cohort.median) }} title="cohort median" />
                   <span className="bval">{s.sell}%</span>
                 </div>
                 <div className={`bd ${status(d)}`}>{d > 0 ? "+" : ""}{d} vs peers</div>
@@ -116,44 +84,45 @@ export default function StoreBenchmarks() {
             );
           })}
         </div>
-        {sel.startsWith("Canberra") && (
-          <div className="insight">
-            An absolute 85% target would flag all four of these red. Peer-relative, <b>Woden</b> is actually above its
-            cohort and doing fine <i>for Canberra</i> — the real problem is <b>Gungahlin</b>, below both its peers and its
-            own expected. That&apos;s the difference between punishing a hard region and finding the store that needs help.
-          </div>
-        )}
+        <div className="insight">
+          An absolute 85% target would flag <b>{absRed} of these {cohort.count}</b> red. Peer-relative, <b>{best.name}</b> leads
+          this cohort{worst.sell < best.sell ? <> and <b>{worst.name}</b> sits furthest below its peers — that&apos;s the store to look at, not the whole group.</> : <>.</>} That&apos;s
+          the difference between punishing a hard region and finding the store that needs help.
+        </div>
       </div>
 
-      {/* Outliers table */}
       <div className="section-h" style={{ marginTop: 22, marginBottom: 10 }}><span className="tick" />Outliers to act on</div>
-      <div className="tablewrap">
-        <table>
-          <thead>
-            <tr><th>Store</th><th>Cohort</th><th className="num">Sell-through</th><th className="num">vs peers</th><th className="num">vs own expected</th><th>Read</th></tr>
-          </thead>
-          <tbody>
-            {[...under, ...over].map((s) => (
-              <tr key={s.name}>
-                <td className="strong">{s.name}</td>
-                <td className="dim">{s.region} · {s.size}</td>
-                <td className="num">{s.sell}%</td>
-                <td className="num"><span className={`pill ${status(s.vCohort)}`}>{s.vCohort > 0 ? "+" : ""}{s.vCohort}</span></td>
-                <td className="num"><span className={`pill ${status(s.vExpected)}`}>{s.vExpected > 0 ? "+" : ""}{s.vExpected}</span></td>
-                <td className="read">
-                  {s.vCohort <= -3
-                    ? "Underperforming its peers — check range, delivery days and sellout timing."
-                    : "Beating its peers — a pattern worth copying to the cohort."}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {data.under.length + data.over.length === 0 ? (
+        <div className="panel"><div style={{ color: "var(--ink2)", fontSize: 13.5, lineHeight: 1.6 }}>Every store is within a few points of its cohort — no clear outliers this week.</div></div>
+      ) : (
+        <div className="tablewrap">
+          <table>
+            <thead>
+              <tr><th>Store</th><th>Cohort</th><th className="num">Sell-through</th><th className="num">vs peers</th><th className="num">vs last week</th><th>Read</th></tr>
+            </thead>
+            <tbody>
+              {[...data.under, ...data.over].map((s) => (
+                <tr key={s.store_id}>
+                  <td className="strong">{s.name}</td>
+                  <td className="dim">{s.region} · {s.size}</td>
+                  <td className="num">{s.sell}%</td>
+                  <td className="num"><span className={`pill ${status(s.vs_cohort ?? 0)}`}>{(s.vs_cohort ?? 0) > 0 ? "+" : ""}{s.vs_cohort}</span></td>
+                  <td className="num">{s.trend === null ? <span className="dim">—</span> : <span className={`pill ${status(s.trend)}`}>{s.trend > 0 ? "+" : ""}{s.trend}%</span>}</td>
+                  <td className="read">
+                    {(s.vs_cohort ?? 0) <= -3
+                      ? "Underperforming its peers — check range, delivery days and sellout timing."
+                      : "Beating its peers — a pattern worth copying to the cohort."}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="foot" style={{ marginTop: 16 }}>
-        Representative. Sell-through is sold ÷ delivered; cohorts are size × region. Every store is scored against its
-        cohort median and its own baseline — never one network target — and that score drives the R/A/G flags across the app.
+        Live from the store-week view. Sell-through is sold ÷ delivered; cohorts are size × region and need at least two
+        stores to benchmark. Every store is scored against its cohort median and its own last week — never one network target.
       </div>
 
       <style>{`
