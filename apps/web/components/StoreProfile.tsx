@@ -13,6 +13,7 @@ const SCORE = {
   green: { dot: "🟢", label: "High performer", cls: "g" },
   amber: { dot: "🟡", label: "Opportunity", cls: "a" },
   red: { dot: "🔴", label: "Underperformer", cls: "r" },
+  nodata: { dot: "◦", label: "No data yet", cls: "nd" },
 } as const;
 
 // Simona's "most important screen": the store profile as the single source of
@@ -48,7 +49,14 @@ export default function StoreProfile({
   const cap = store.shelf_max == null ? null : Number(store.shelf_max);
   const sellThrough = sentWk > 0 ? Math.round((1000 * soldWk) / sentWk) / 10 : null;
   const growth = soldPrev > 0 ? Math.round((1000 * (soldWk - soldPrev)) / soldPrev) / 10 : null;
-  const score = SCORE[store.status];
+  // No loaded feed yet (nothing delivered or sold) — this store is NOT a "high
+  // performer", it simply has no data. Same neutral rule as the dashboards.
+  const hasData = sentWk > 0 || soldWk > 0;
+  const score = hasData ? SCORE[store.status] : SCORE.nodata;
+  // A shelf cap below what the store actually sells in a week is impossible to
+  // hit — it's stale/wrong data on file, not a real limit. Flag it, don't scream
+  // "over cap". (Matches the quality-bar "stale shelf-max detection".)
+  const capStale = cap != null && soldWk > 0 && cap < soldWk;
 
   const rows: Row[] = useMemo(
     () => recos.map((r) => ({ name: r.product_name, sold: Number(r.sold) || 0, now: Number(r.sent) || 0, rec: Number(r.recommended) || 0 })),
@@ -73,21 +81,22 @@ export default function StoreProfile({
   const rangedRows = rows.filter((r) => isRanged(r.name));
   const rangedCount = rangedRows.length;
   const capTotal = rangedRows.reduce((a, r) => a + eff(r), 0);
-  const overCap = cap != null && capTotal > cap;
+  // Only a real over-cap violation when the cap on file is plausible. A stale
+  // (too-low) cap is a data problem, not an over-supply the user should action.
+  const overCap = cap != null && !capStale && capTotal > cap;
 
   function toggleRanged(name: string) {
     setRanged((s) => ({ ...s, [name]: !isRanged(name) }));
   }
 
-  const metrics: { k: string; v: string; cls?: string; soft?: boolean }[] = [
-    { k: "Weekly sales", v: "$ —", soft: true },
+  // Real metrics only — the dollar/accuracy figures move to a single "unlocks
+  // with the cost feed" line below rather than sitting as dead "$ —" tiles.
+  const metrics: { k: string; v: string; cls?: string }[] = [
     { k: "Sell-through", v: sellThrough == null ? "—" : `${sellThrough}%`, cls: sellThrough != null && sellThrough >= 85 ? "g" : undefined },
     { k: "Units sold · wk", v: nf(soldWk) },
     { k: "Waste", v: wastePct == null ? "—" : `${wastePct}%`, cls: wastePct != null && wastePct <= 20 ? "g" : wastePct != null && wastePct > 25 ? "r" : "a" },
-    { k: "Est. waste $", v: "$ —", soft: true },
     { k: "Stockout days", v: stockouts ? `${stockouts}` : "0", cls: stockouts ? "a" : undefined },
     { k: "Sales growth", v: growth == null ? "—" : `${growth >= 0 ? "▲" : "▼"} ${Math.abs(growth)}%`, cls: growth == null ? undefined : growth >= 0 ? "g" : "r" },
-    { k: "Forecast accuracy", v: "—", soft: true },
   ];
 
   return (
@@ -97,7 +106,9 @@ export default function StoreProfile({
           <div className="nm">{store.name}</div>
           <div className="sub">
             {store.size_category ? <span className="chip">{store.size_category}</span> : null}
-            {cap != null ? <span className="chip">shelf cap {nf(cap)}</span> : <span className="chip soft">cap not set</span>}
+            {cap == null ? <span className="chip soft">cap not set</span>
+              : capStale ? <span className="chip warn">shelf cap {nf(cap)} · check</span>
+              : <span className="chip">shelf cap {nf(cap)}</span>}
             {store.region ? <span className="reg">{store.region}</span> : null}
             <span className="rtl">{store.retailer}</span>
           </div>
@@ -106,7 +117,9 @@ export default function StoreProfile({
           <span className="sd">{score.dot}</span>
           <span className="st">{score.label}
             <small>
-              {peer && peer.count > 0 && peer.betterPct != null
+              {!hasData
+                ? "Awaiting this store's retailer feed"
+                : peer && peer.count > 0 && peer.betterPct != null
                 ? `Waste beats ${peer.betterPct}% of ${peer.basis}`
                 : "vs same-size stores"}
             </small>
@@ -117,7 +130,7 @@ export default function StoreProfile({
       <div className="mgrid">
         {metrics.map((m) => (
           <div className="m" key={m.k}>
-            <div className={`mv ${m.cls ?? ""} ${m.soft ? "soft" : ""}`}>{m.v}</div>
+            <div className={`mv ${m.cls ?? ""}`}>{m.v}</div>
             <div className="ml">{m.k}</div>
           </div>
         ))}
@@ -151,7 +164,13 @@ export default function StoreProfile({
         </div>
       )}
 
-      <div className="softnote">$ sales, waste value, profit and forecast accuracy light up once the cost feed is wired in — the numbers already sit in the retailer data.</div>
+      <div className="mlocked">
+        <span className="lk">🔒 Unlocks with the cost feed</span>
+        <span className="lkm">Weekly sales</span>
+        <span className="lkm">Estimated waste $</span>
+        <span className="lkm">Forecast accuracy</span>
+        <span className="lknote">the per-unit figures already sit in the retailer data</span>
+      </div>
 
       {daily.length > 0 && (
         <div className="chartcard">
@@ -184,6 +203,8 @@ export default function StoreProfile({
         <div className="ph-cap">
           {cap == null ? (
             <span className="soft">shelf cap not set for this store</span>
+          ) : capStale ? (
+            <span className="stale">shelf cap on file is {nf(cap)}, but this store sells {nf(soldWk)}/wk — likely stale, please verify</span>
           ) : (
             <span className={overCap ? "over" : "ok"}>
               {overCap ? "⚠ " : ""}{nf(capTotal)} / {nf(cap)} units{overCap ? " — over shelf cap" : ""}
@@ -191,6 +212,12 @@ export default function StoreProfile({
           )}
         </div>
       </div>
+
+      {capStale && (
+        <div className="stalewarn">
+          <b>The shelf cap on file ({nf(cap!)}) looks out of date.</b> This store has sold {nf(soldWk)} units this week, so a cap of {nf(cap!)} can&apos;t be its real shelf limit — it&apos;s almost certainly a stale figure. We&apos;re not enforcing it until it&apos;s confirmed; update it in the store record when you can.
+        </div>
+      )}
 
       {overCap && (
         <div className="capwarn">
@@ -277,11 +304,20 @@ export default function StoreProfile({
       .sprof .rtl{margin-left:auto;color:var(--faint);text-transform:capitalize}
       .sprof .scorebadge{display:flex;align-items:center;gap:10px;border-radius:12px;padding:10px 14px;border:1px solid var(--line)}
       .sprof .scorebadge.g{background:var(--green-b)}.sprof .scorebadge.a{background:var(--amber-b)}.sprof .scorebadge.r{background:var(--red-b)}
+      .sprof .scorebadge.nd{background:var(--line2)}
+      .sprof .scorebadge.nd .st{color:var(--muted)}
+      .sprof .scorebadge.nd .sd{color:var(--muted)}
       .sprof .scorebadge .sd{font-size:16px}
       .sprof .scorebadge .st{font-weight:700;font-size:13.5px;line-height:1.2;color:var(--ink)}
       .sprof .scorebadge .st small{display:block;font-weight:500;font-size:10.5px;color:var(--ink2);opacity:.75;margin-top:2px}
-      .sprof .mgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
-      @media(max-width:760px){.sprof .mgrid{grid-template-columns:repeat(2,1fr)}}
+      .sprof .mgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
+      @media(max-width:900px){.sprof .mgrid{grid-template-columns:repeat(3,1fr)}}
+      @media(max-width:560px){.sprof .mgrid{grid-template-columns:repeat(2,1fr)}}
+      .sprof .mlocked{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:12px 2px 18px}
+      .sprof .mlocked .lk{font-size:11.5px;font-weight:700;color:var(--muted);letter-spacing:.2px}
+      .sprof .mlocked .lkm{font-size:11.5px;color:var(--faint);border:1px dashed var(--line2);border-radius:6px;padding:2px 8px}
+      .sprof .mlocked .lknote{font-size:11px;color:var(--faint);font-style:italic}
+      .sprof .chip.warn{background:var(--amber-b);color:var(--amber-t)}
       .sprof .m{background:var(--card);padding:13px 15px}
       .sprof .mv{font-family:var(--serif);font-size:22px;font-weight:600;letter-spacing:-.4px;font-variant-numeric:tabular-nums;line-height:1}
       .sprof .mv.g{color:var(--green-t)}.sprof .mv.a{color:var(--amber-t)}.sprof .mv.r{color:var(--red-t)}
@@ -314,8 +350,11 @@ export default function StoreProfile({
       .sprof .ph-t .cnt{background:#efe6d3;color:var(--ink2);border-radius:999px;font-size:11px;letter-spacing:0;padding:2px 9px;font-weight:700}
       .sprof .ph-cap{font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums}
       .sprof .ph-cap .ok{color:var(--green-t)}.sprof .ph-cap .over{color:var(--red-t)}.sprof .ph-cap .soft{color:var(--faint);font-weight:500}
+      .sprof .ph-cap .stale{color:var(--amber-t);font-weight:600}
       .sprof .capwarn{background:var(--red-b);border:1px solid #eab9a8;color:var(--red-t);border-radius:11px;padding:11px 15px;font-size:13px;line-height:1.5;margin-bottom:14px}
       .sprof .capwarn b{color:var(--red-t)}
+      .sprof .stalewarn{background:var(--amber-b);border:1px solid #e6d3a8;color:var(--amber-t);border-radius:11px;padding:11px 15px;font-size:13px;line-height:1.5;margin-bottom:14px}
+      .sprof .stalewarn b{color:var(--amber-t)}
       .sprof .sheet{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
       .sprof .grid{display:grid;grid-template-columns:78px minmax(160px,1fr) 74px 74px 120px 92px;align-items:center}
       .sprof .colhead{background:var(--surface);border-bottom:1px solid var(--line)}
