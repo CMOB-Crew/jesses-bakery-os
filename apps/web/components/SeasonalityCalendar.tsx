@@ -32,6 +32,8 @@ type Evt = {
 };
 
 // Seeded from the 12 Aug production session + Questions-for-Simona.
+// Calendar dates verified 17 Aug against Hebcal (Jewish calendar) and the
+// NSW school-term / public-holiday schedule.
 const SEED: Evt[] = [
   { id: "rosh", kind: "jewish", name: "Rosh Hashanah", scope: "Large challah · ~6 Jewish-demographic stores",
     start: "2026-09-11", end: "2026-09-13", uplift: 12,
@@ -39,6 +41,9 @@ const SEED: Evt[] = [
   { id: "yom", kind: "jewish", name: "Yom Kippur", scope: "Jewish-demographic stores",
     start: "2026-09-20", end: "2026-09-21", uplift: -8,
     note: "Fast day dips demand, then a break-fast bread/bagel lift the evening after. Confirm timing with Simona." },
+  { id: "sukkot", kind: "jewish", name: "Sukkot → Simchat Torah", scope: "Challah · ~6 Jewish-demographic stores",
+    start: "2026-09-25", end: "2026-10-04", uplift: 8,
+    note: "Eight days of festive meals — a sustained challah lift at Jewish-demographic stores (Fri 25 Sep and Fri 2 Oct Shabbats are the peaks). Overlaps the spring school holidays, so at these stores challah rises while general supermarket bread falls — a clear per-store split." },
   { id: "sch-spring", kind: "school", name: "Spring school holidays", scope: "Network — coastal/holiday runs flip positive",
     start: "2026-09-28", end: "2026-10-09", uplift: -30,
     note: "Supermarket bread drops ~30% (straight to the bin on the legacy system). Exception: Central Coast & coastal runs INCREASE — this is per-store, not one number." },
