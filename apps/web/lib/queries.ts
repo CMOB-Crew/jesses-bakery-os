@@ -595,9 +595,131 @@ export async function getArchivedStores(): Promise<ArchivedStore[]> {
       left join regions reg on reg.id = s.region_id
       left join last on last.store_id = s.id
       where s.active = false
+        -- Exclude upcoming rollouts (added, planned go-live, not yet live).
+        -- They belong on the Launches page, not in the dormant Archive.
+        and not (s.go_live_at is not null and s.onboarded_at is null)
       order by last.last_sale desc nulls last, s.name`;
   } catch {
     return [];
+  }
+}
+
+// ---------------------------------------------------------------------
+// Launches -- new-store rollouts, tracked from before they go live.
+//   * pipeline: added and inactive, with a planned go-live (go_live_at) and no
+//     onboarded_at yet -- the "so I never forget a rollout" list.
+//   * live: onboarded within the last 6 weeks and active -- tracked with the
+//     metric Simona asked for (units per store per day) until they graduate.
+// Both come straight from the store master, so a launch appears automatically
+// the moment it is added or flipped live. Per-day precision arrives with Fred's
+// daily feed; until then units/day is the weekly total spread over 7 days (~).
+// ---------------------------------------------------------------------
+const LAUNCH_WINDOW_DAYS = 42; // a store counts as a "new launch" for 6 weeks
+
+export type PipelineStore = {
+  store_id: string; name: string; retailer: string; region: string | null;
+  size: string | null; supplier_code: string | null; go_live_at: Date | null;
+  days_to_live: number | null;
+};
+export type LiveLaunch = {
+  store_id: string; name: string; retailer: string; region: string | null;
+  size: string | null; onboarded_at: Date | null; days_live: number | null;
+  total_sent: number; total_sold: number; total_sold_prev: number;
+  stockout_days: number; waste_pct: number | null; status: Status;
+  units_per_day: number | null;
+};
+export type LaunchCohort = {
+  key: string; label: string; region: string | null; go_live_at: Date | null;
+  stores: PipelineStore[];
+};
+export type Launches = {
+  pipeline: PipelineStore[]; cohorts: LaunchCohort[]; live: LiveLaunch[];
+  pipelineCount: number; liveCount: number;
+};
+const EMPTY_LAUNCHES: Launches = { pipeline: [], cohorts: [], live: [], pipelineCount: 0, liveCount: 0 };
+
+export async function getLaunches(): Promise<Launches> {
+  try {
+    const pipeRows = await sql<{
+      store_id: string; name: string; retailer: string; region: string | null;
+      size: string | null; supplier_code: string | null; go_live_at: Date | null;
+      days_to_live: number | null;
+    }[]>`
+      select s.id as store_id, s.name, s.retailer::text as retailer,
+             reg.name as region, s.size_category::text as size,
+             s.supplier_code, s.go_live_at,
+             (s.go_live_at - current_date)::int as days_to_live
+      from stores s
+      left join regions reg on reg.id = s.region_id
+      where s.active = false
+        and s.go_live_at is not null
+        and s.onboarded_at is null
+      order by s.go_live_at asc nulls last, reg.name, s.name`;
+
+    const liveRows = await sql<{
+      store_id: string; name: string; retailer: string; region: string | null;
+      size: string | null; onboarded_at: Date | null; days_live: number | null;
+      total_sent: number; total_sold: number; total_sold_prev: number;
+      stockout_days: number; waste_pct: number | null; status: Status;
+    }[]>`
+      select v.store_id, v.name, v.retailer::text as retailer, v.region,
+             v.size_category::text as size, s.onboarded_at,
+             (current_date - s.onboarded_at)::int as days_live,
+             v.total_sent, v.total_sold, v.total_sold_prev,
+             v.stockout_days, v.waste_pct, v.status
+      from v_store_week v
+      join stores s on s.id = v.store_id
+      where s.onboarded_at is not null
+        and s.onboarded_at >= current_date - ${LAUNCH_WINDOW_DAYS}
+      order by s.onboarded_at desc, v.name`;
+
+    const pipeline: PipelineStore[] = pipeRows.map((r) => ({
+      store_id: r.store_id, name: r.name, retailer: r.retailer, region: r.region,
+      size: r.size, supplier_code: r.supplier_code, go_live_at: r.go_live_at,
+      days_to_live: r.days_to_live == null ? null : Number(r.days_to_live),
+    }));
+
+    // Group the pipeline into rollout cohorts (same region + planned go-live) so
+    // "5 Woolworths Metro stores launching in Canberra" reads as one rollout.
+    const cohortMap = new Map<string, LaunchCohort>();
+    for (const p of pipeline) {
+      const dateKey = p.go_live_at ? new Date(p.go_live_at).toISOString().slice(0, 10) : "tbd";
+      const key = `${p.region ?? "Unassigned"}|${dateKey}`;
+      let c = cohortMap.get(key);
+      if (!c) {
+        c = { key, label: p.region ?? "Unassigned", region: p.region, go_live_at: p.go_live_at, stores: [] };
+        cohortMap.set(key, c);
+      }
+      c.stores.push(p);
+    }
+    const cohorts = [...cohortMap.values()].sort((a, b) => {
+      const ta = a.go_live_at ? new Date(a.go_live_at).getTime() : Infinity;
+      const tb = b.go_live_at ? new Date(b.go_live_at).getTime() : Infinity;
+      return ta - tb;
+    });
+
+    const live: LiveLaunch[] = liveRows.map((r) => {
+      const sold = Number(r.total_sold);
+      const days = r.days_live == null ? null : Math.max(1, Math.min(LAUNCH_WINDOW_DAYS, Number(r.days_live)));
+      // Units per store per day = this week's units spread over the days observed
+      // (capped at 7, the sold window). ~ until the daily feed lands.
+      const denom = days == null ? 7 : Math.min(7, days);
+      return {
+        store_id: r.store_id, name: r.name, retailer: r.retailer, region: r.region,
+        size: r.size, onboarded_at: r.onboarded_at,
+        days_live: r.days_live == null ? null : Number(r.days_live),
+        total_sent: Number(r.total_sent), total_sold: sold,
+        total_sold_prev: Number(r.total_sold_prev),
+        stockout_days: Number(r.stockout_days),
+        waste_pct: r.waste_pct == null ? null : Number(r.waste_pct),
+        status: r.status,
+        units_per_day: sold > 0 ? Math.round((10 * sold) / denom) / 10 : null,
+      };
+    });
+
+    return { pipeline, cohorts, live, pipelineCount: pipeline.length, liveCount: live.length };
+  } catch {
+    return EMPTY_LAUNCHES;
   }
 }
 
