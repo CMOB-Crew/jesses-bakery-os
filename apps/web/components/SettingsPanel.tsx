@@ -4,6 +4,10 @@ import { useMemo, useRef, useState } from "react";
 import type { EngineScenario } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
+// Null-safe first word. Guards prerender: if the engine_projection feed is slow
+// or a row lands without a label during a Netlify build, this returns "" instead
+// of throwing on undefined.split() and failing the whole build.
+const firstWord = (s?: string | null) => (s ? String(s).split(" ")[0] : "");
 
 const CORE_BASKET = [
   "Sourdough – White", "Sourdough – Wholemeal", "Sourdough – Soy & Linseed", "Sourdough – Spelt", "Sourdough – Rye",
@@ -62,7 +66,7 @@ export default function SettingsPanel({ scenarios }: { scenarios: EngineScenario
       <div className="sec"><span className="tick" />Service level</div>
       <div className="card">
         <div className="row-top">
-          <div className="desc">The one dial that trades waste against selling out. {eng ? <>At <b>{eng.label.split(" ")[0]}</b> the network runs <b>{eng.waste_pct}%</b> waste for <b>{eng.lost_sales_pct ?? "—"}%</b> lost sales, saving <b>{nf(Number(eng.units_saved_wk) || 0)}</b> loaves a week.</> : null}</div>
+          <div className="desc">The one dial that trades waste against selling out. {eng ? <>At <b>{firstWord(eng.label)}</b> the network runs <b>{eng.waste_pct}%</b> waste for <b>{eng.lost_sales_pct ?? "—"}%</b> lost sales, saving <b>{nf(Number(eng.units_saved_wk) || 0)}</b> loaves a week.</> : null}</div>
           <div className="scope">
             {(["network", "store", "product"] as const).map((sc) => (
               <button key={sc} type="button" className={scope === sc ? "on" : ""} onClick={() => setScope(sc)}>{sc === "network" ? "Network" : sc === "store" ? "Per store" : "Per product"}</button>
@@ -71,8 +75,8 @@ export default function SettingsPanel({ scenarios }: { scenarios: EngineScenario
         </div>
         <div className="dial">
           {engines.map((e) => (
-            <button key={e.scenario} type="button" className={`dbtn ${e.scenario === sel ? "on" : ""}`} onClick={() => { setSel(e.scenario); ping(`Service level set to ${e.label.split(" ")[0]} (${scope}) — applies to the plan next phase`); }}>
-              <span className="dl">{e.label.split(" ")[0]}{e.scenario === "balanced" && <small>default</small>}</span>
+            <button key={e.scenario} type="button" className={`dbtn ${e.scenario === sel ? "on" : ""}`} onClick={() => { setSel(e.scenario); ping(`Service level set to ${firstWord(e.label)} (${scope}) — applies to the plan next phase`); }}>
+              <span className="dl">{firstWord(e.label)}{e.scenario === "balanced" && <small>default</small>}</span>
               <span className="dv">{e.waste_pct}% <i>waste</i></span>
               <span className="dv2">{e.lost_sales_pct ?? "—"}% lost · {nf(Number(e.units_saved_wk) || 0)}/wk</span>
             </button>
