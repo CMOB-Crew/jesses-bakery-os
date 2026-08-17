@@ -2,7 +2,7 @@ import { getEngineProjection } from "@/lib/queries";
 import SettingsPanel from "@/components/SettingsPanel";
 
 export const metadata = { title: "Settings · Jesse's Bakery OS" };
-export const revalidate = 120;
+export const dynamic = "force-dynamic"; // render per request; keep off the flaky build-time prerender path
 
 export default async function SettingsPage() {
   const scenarios = await getEngineProjection();

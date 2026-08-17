@@ -2,7 +2,7 @@ import { getProductionPlan, getWeekdayShape } from "@/lib/queries";
 import ProductionBoard from "@/components/ProductionBoard";
 
 export const metadata = { title: "Production · Jesse's Bakery OS" };
-export const revalidate = 120; // cache ~2 min
+export const dynamic = "force-dynamic"; // render per request; keep off the flaky build-time prerender path
 
 export default async function ProductionPage() {
   const [lines, shape] = await Promise.all([getProductionPlan(), getWeekdayShape()]);

@@ -7,7 +7,11 @@ import AskBar from "@/components/AskBar";
 import EnginePanel from "@/components/EnginePanel";
 import TodayDashboard from "@/components/TodayDashboard";
 
-export const revalidate = 120; // cache pages ~2 min so navigation is instant (prefetchable)
+// Render per request rather than prerendering at build. This is the heaviest
+// page (network + regions + engine + store week), and baking it at build time is
+// what made deploys flaky when the build-time Supabase was slow. The runtime DB
+// is fast and readers are guarded, so dynamic is both reliable and correct here.
+export const dynamic = "force-dynamic";
 
 function fmtDate(d: Date) {
   return new Intl.DateTimeFormat("en-AU", { weekday: "short", day: "numeric", month: "short" }).format(new Date(d));
