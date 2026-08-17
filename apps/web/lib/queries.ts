@@ -162,6 +162,45 @@ export async function getProductionPlan(): Promise<ProductionLine[]> {
   }
 }
 
+// Product performance directory — the per-product lens on the whole network,
+// aggregated from the engine ledger (store_reco). Delivered/sold/recommended
+// summed across every store that ranges the product. Sell-through = sold /
+// delivered; implied waste = delivered - sold (the same inferred method the
+// store view uses). `change` is the engine's net order move (recommended -
+// current send) across the network. This is the product-side mirror of the
+// Stores directory: which lines waste most, which are being under-ordered,
+// and how widely each is ranged.
+export type ProductPerf = {
+  product_id: string; name: string; category: string;
+  stores: number; sent: number; sold: number; recommended: number;
+  sell_through: number | null; waste_pct: number | null; change: number;
+};
+export async function getProducts(): Promise<ProductPerf[]> {
+  try {
+    const rows = await sql<{ product_id: string; name: string; category: string; stores: number; sent: number; sold: number; recommended: number }[]>`
+      select p.id as product_id, p.name, p.category::text as category,
+             count(distinct r.store_id)::int as stores,
+             sum(r.sent)::int as sent, sum(r.sold)::int as sold,
+             sum(r.recommended)::int as recommended
+      from store_reco r join products p on p.id = r.product_id
+      where p.active
+      group by p.id, p.name, p.category
+      order by sum(r.sent - r.sold) desc`;
+    return rows.map((r) => {
+      const sent = Number(r.sent), sold = Number(r.sold);
+      return {
+        product_id: r.product_id, name: r.name, category: r.category,
+        stores: Number(r.stores), sent, sold, recommended: Number(r.recommended),
+        sell_through: sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null,
+        waste_pct: sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null,
+        change: Number(r.recommended) - sent,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 export type FeedStatus = { source: string; status: string; as_of: Date; detail: string | null };
 export async function getFeedStatus(): Promise<FeedStatus[]> {
   try {
