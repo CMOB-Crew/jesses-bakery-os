@@ -1,7 +1,10 @@
 "use client";
 import Link from "next/link";
-import type { Launches, LaunchCohort, LiveLaunch } from "@/lib/queries";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import type { Launches, LaunchCohort, LiveLaunch, PipelineStore } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
+import { markStoreLive } from "@/app/launches/actions";
 
 /* ------------------------------------------------------------------ *
  * Launches — new-store rollouts, tracked from before they go live so a
@@ -124,7 +127,15 @@ export default function LaunchesView({ launches }: { launches: Launches }) {
         .lau .sr-name{font-weight:600;font-size:14.5px;min-width:0}
         .lau .sr-meta{font-size:12px;color:var(--muted);margin-top:2px}
         .lau .sr-code{font-size:12px;color:var(--ink2);background:var(--line2);border-radius:6px;padding:2px 8px;font-variant-numeric:tabular-nums;white-space:nowrap}
-        .lau .sr-pill{margin-left:auto;font-size:11px;font-weight:700;color:var(--muted);background:var(--line2);border-radius:999px;padding:4px 11px;white-space:nowrap}
+        .lau .sr-pill{font-size:11px;font-weight:700;color:var(--muted);background:var(--line2);border-radius:999px;padding:4px 11px;white-space:nowrap}
+        .lau .sr-act{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+        .lau .sr-live{border:1px solid var(--line);background:var(--card);color:var(--crust-deep,var(--espresso));border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit}
+        .lau .sr-live:hover{background:#f6f0e6}
+        .lau .sr-date{border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;font-family:inherit;background:var(--surface,var(--card));color:var(--ink)}
+        .lau .sr-go{border:none;background:var(--green,#557a4f);color:#fff;border-radius:8px;padding:7px 12px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit}
+        .lau .sr-go:disabled{opacity:.6;cursor:default}
+        .lau .sr-cancel{border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:8px;padding:7px 11px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit}
+        .lau .sr-err{font-size:11.5px;color:var(--red-t,#a4372a);width:100%;text-align:right}
 
         .lau .live{display:flex;flex-direction:column;gap:12px}
         .lau .lr{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:15px 18px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
@@ -170,10 +181,44 @@ function Cohort({ c }: { c: LaunchCohort }) {
               <div className="sr-meta">{retailerLabel(s.retailer)} · {sizeLabel(s.size)}</div>
             </div>
             {s.supplier_code ? <span className="sr-code">{retailerLabel(s.retailer)} loc #{s.supplier_code}</span> : null}
-            <span className="sr-pill">Awaiting supply</span>
+            <PipelineRowActions store={s} />
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function PipelineRowActions({ store }: { store: PipelineStore }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [confirming, setConfirming] = useState(false);
+  const [date, setDate] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  function go() {
+    setErr(null);
+    start(async () => {
+      const res = await markStoreLive(store.store_id, date || undefined);
+      if (res.ok) { setConfirming(false); router.refresh(); }
+      else setErr(res.error);
+    });
+  }
+
+  if (!confirming) {
+    return (
+      <div className="sr-act">
+        <span className="sr-pill">Awaiting supply</span>
+        <button className="sr-live" onClick={() => setConfirming(true)}>Mark live</button>
+      </div>
+    );
+  }
+  return (
+    <div className="sr-act">
+      <input type="date" className="sr-date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Go-live date (defaults to today)" />
+      <button className="sr-go" onClick={go} disabled={pending}>{pending ? "Saving…" : "Confirm live"}</button>
+      <button className="sr-cancel" onClick={() => { setConfirming(false); setErr(null); }} disabled={pending}>Cancel</button>
+      {err ? <span className="sr-err">{err}</span> : null}
     </div>
   );
 }

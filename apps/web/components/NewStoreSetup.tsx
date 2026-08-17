@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { createStore } from "@/app/new-store/actions";
 
 /* ------------------------------------------------------------------ *
  * New-store setup — Simona's SOP: "enter once, set the ceiling, let it
@@ -131,6 +132,23 @@ export default function NewStoreSetup() {
   const [cap, setCap] = useState(CAP_DEFAULT.small);
   const [service, setService] = useState<"lean" | "balanced" | "generous">("balanced");
   const [source, setSource] = useState<"profile" | "copy">("profile");
+  const [timing, setTiming] = useState<"upcoming" | "live">("upcoming");
+  const [goLiveDate, setGoLiveDate] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  async function submit() {
+    setSaving(true);
+    setSaved(null);
+    const res = await createStore({
+      name, retailer, region, storeNo, size, cap, timing,
+      goLiveDate: goLiveDate || undefined,
+    });
+    setSaving(false);
+    setSaved(res.ok
+      ? { ok: true, msg: timing === "live" ? "Store created and marked live." : "Store created — it's tracked under Coming up." }
+      : { ok: false, msg: res.error });
+  }
 
   const { excluded, reasons } = useMemo(() => rangingFor(region, retailer, name), [region, retailer, name]);
   const excludedKey = useMemo(() => [...excluded].sort().join(","), [excluded]);
@@ -343,7 +361,37 @@ export default function NewStoreSetup() {
               </div>
             </div>
 
-            <button className="create" disabled={!name || over}>Create store</button>
+            <div className="fld" style={{ marginTop: 18 }}>
+              <span>Launch timing</span>
+              <div className="seg">
+                {([["upcoming", "Upcoming launch"], ["live", "Go live now"]] as [typeof timing, string][]).map(([t, l]) => (
+                  <button key={t} className={timing === t ? "on" : ""} onClick={() => { setTiming(t); setSaved(null); }}>{l}</button>
+                ))}
+              </div>
+            </div>
+            {timing === "upcoming" ? (
+              <div className="fld" style={{ marginTop: 10 }}>
+                <span>Planned go-live date</span>
+                <input type="date" value={goLiveDate} onChange={(e) => { setGoLiveDate(e.target.value); setSaved(null); }} />
+                <div className="timingnote">Tracked in Launches under Coming up until it goes live — never lost in the archive.</div>
+              </div>
+            ) : (
+              <div className="timingnote" style={{ marginTop: 10 }}>Marks the store active from today and starts its 6-week launch tracking. Set a date below to backdate it.
+                <input type="date" value={goLiveDate} onChange={(e) => setGoLiveDate(e.target.value)} style={{ marginTop: 8 }} />
+              </div>
+            )}
+            <button
+              className="create"
+              disabled={!name || over || saving || (timing === "upcoming" && !goLiveDate)}
+              onClick={submit}
+            >
+              {saving ? "Saving…" : timing === "live" ? "Create & go live" : "Create store"}
+            </button>
+            {saved && (
+              <div className={`savemsg ${saved.ok ? "ok" : "err"}`}>
+                {saved.msg}{saved.ok && <> <a href="/launches">Open Launches →</a></>}
+              </div>
+            )}
             <div className="learnnote">
               First few weeks the engine holds close to Simona&apos;s bundle while it learns the store&apos;s real demand — then
               it takes over sizing every order, capped at the {cap}-unit shelf max. Challah, babka and specialty lines add
@@ -432,6 +480,11 @@ export default function NewStoreSetup() {
         .nstore .create:hover{background:#3a2c22}
         .nstore .create:disabled{opacity:.45;cursor:not-allowed}
         .nstore .learnnote{font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.55}
+        .nstore .timingnote{font-size:11.5px;color:var(--muted);line-height:1.5}
+        .nstore .savemsg{margin-top:12px;font-size:12.5px;font-weight:600;border-radius:9px;padding:10px 12px;line-height:1.45}
+        .nstore .savemsg.ok{background:var(--green-b);color:var(--green-t);border:1px solid var(--green)}
+        .nstore .savemsg.err{background:var(--red-b,#f7e4e0);color:var(--red-t,#a4372a);border:1px solid var(--red,#c0563f)}
+        .nstore .savemsg a{color:inherit;text-decoration:underline}
 
         @media (max-width:1080px){ .nstore .grid2{grid-template-columns:1fr} .nstore .rail{position:static} }
       `}</style>
