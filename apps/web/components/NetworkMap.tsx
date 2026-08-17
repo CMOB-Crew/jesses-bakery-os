@@ -14,18 +14,6 @@ type Status = "green" | "amber" | "red";
 const COLOR: Record<Status, string> = { green: "var(--green)", amber: "var(--amber)", red: "var(--red)" };
 const STLABEL: Record<Status, string> = { green: "On track", amber: "Watch", red: "Needs attention" };
 
-// Region frames, laid out to read like the Sydney basin + Canberra to the SW.
-const ZONES: Record<string, { x: number; y: number; w: number; h: number; note?: string }> = {
-  "North West": { x: 40, y: 150, w: 250, h: 190 },
-  "North Shore": { x: 470, y: 120, w: 250, h: 175 },
-  "Inner West": { x: 320, y: 330, w: 220, h: 170 },
-  "Eastern Suburbs": { x: 620, y: 320, w: 230, h: 210 },
-  "Canberra / ACT": { x: 40, y: 400, w: 250, h: 190, note: "~3 hrs south-west" },
-  "Central Coast": { x: 470, y: 320, w: 130, h: 130 },
-  "Northern Beaches": { x: 740, y: 120, w: 170, h: 175 },
-};
-const FALLBACK = { x: 620, y: 560, w: 290, h: 30 }; // any region without a frame
-
 export default function NetworkMap({ stores }: { stores: MapStore[] }) {
   const worst = [...stores].filter((s) => s.status === "red").sort((a, b) => Number(b.waste_pct ?? 0) - Number(a.waste_pct ?? 0));
   const [sel, setSel] = useState<MapStore | null>(worst[0] ?? stores[0] ?? null);
@@ -48,74 +36,85 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
   const wastePct = sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : 0;
   const maxSent = Math.max(...stores.map((s) => Number(s.sent)), 1);
 
-  // Group by region; unknown regions collapse into a fallback strip.
+  // Group by the store's REAL region — no hardcoded region names, so the
+  // diagram works whatever the regions are actually called.
   const byRegion = new Map<string, MapStore[]>();
   for (const s of stores) {
-    const rn = s.region ?? "Other";
-    const key = ZONES[rn] ? rn : "Other";
-    if (!byRegion.has(key)) byRegion.set(key, []);
-    byRegion.get(key)!.push(s);
+    const rn = (s.region ?? "").trim() || "Unassigned";
+    if (!byRegion.has(rn)) byRegion.set(rn, []);
+    byRegion.get(rn)!.push(s);
   }
+  // Biggest regions first (most red, then most stores) so trouble reads top-left.
+  const regionList = [...byRegion.entries()].sort((a, b) => {
+    const redA = a[1].filter((s) => s.status === "red").length;
+    const redB = b[1].filter((s) => s.status === "red").length;
+    return redB - redA || b[1].length - a[1].length || a[0].localeCompare(b[0]);
+  });
 
-  // Pack a region's stores into a grid inside its frame.
-  type Placed = { s: MapStore; x: number; y: number };
+  // Lay the regions out as a responsive grid of frames that fills the canvas.
+  const W = 940;
+  const PAD = 14, GAP = 12, HEAD = 40;
+  const n = regionList.length;
+  const cols = Math.min(4, Math.max(1, Math.round(Math.sqrt(n))));
+  const rowsN = Math.ceil(n / cols);
+  const cellW = (W - PAD * 2 - GAP * (cols - 1)) / cols;
+  const cellH = 168; // fixed frame height; canvas grows with row count
+  const H = PAD * 2 + rowsN * cellH + (rowsN - 1) * GAP;
+
+  // Pack each region's dots into a grid inside its frame; radius is capped to
+  // the packing cell so dense regions don't overlap.
+  type Placed = { s: MapStore; x: number; y: number; maxR: number };
   const placed: Placed[] = [];
-  const drawnZones: { key: string; z: { x: number; y: number; w: number; h: number; note?: string } }[] = [];
-  for (const [key, ss] of byRegion) {
-    const z = ZONES[key] ?? FALLBACK;
-    drawnZones.push({ key, z });
-    const n = ss.length;
-    const cols = Math.ceil(Math.sqrt(n));
-    const rows = Math.ceil(n / cols);
-    const x0 = z.x + 20, y0 = z.y + 44, iw = z.w - 40, ih = Math.max(28, z.h - 58);
-    const cw = iw / cols, ch = ih / rows;
+  const drawnZones: { key: string; count: number; x: number; y: number; w: number; h: number }[] = [];
+  regionList.forEach(([key, ss], idx) => {
+    const c = idx % cols, rrow = Math.floor(idx / cols);
+    const x = PAD + c * (cellW + GAP);
+    const y = PAD + rrow * (cellH + GAP);
+    drawnZones.push({ key, count: ss.length, x, y, w: cellW, h: cellH });
+    const gcols = Math.ceil(Math.sqrt(ss.length));
+    const grows = Math.ceil(ss.length / gcols);
+    const x0 = x + 16, y0 = y + HEAD, iw = cellW - 32, ih = Math.max(20, cellH - HEAD - 12);
+    const cw = iw / gcols, ch = ih / grows;
+    const maxR = Math.max(2.6, Math.min(9, Math.min(cw, ch) / 2 - 1.5));
     ss.forEach((s, i) => {
-      placed.push({ s, x: x0 + (i % cols) * cw + cw / 2, y: y0 + Math.floor(i / cols) * ch + ch / 2 });
+      placed.push({ s, x: x0 + (i % gcols) * cw + cw / 2, y: y0 + Math.floor(i / gcols) * ch + ch / 2, maxR });
     });
-  }
-  const r = (s: MapStore) => 6 + (Number(s.sent) / maxSent) * 6;
-  const W = 940, H = 610;
+  });
+  const rOf = (s: MapStore, maxR: number) => Math.min(maxR, 4 + (Number(s.sent) / maxSent) * 5);
 
   return (
     <div className="nmap">
       <div className="panel intro">
         <div className="itxt">
-          The whole active network in one look, grouped by region and coloured by this week&apos;s status. Trouble clusters
-          jump out — the coast and inner-west sit green while the far-flung runs run hot. Click any store for its read.
-          Real membership, status and volume; the layout reads as a diagram, not a to-scale map.
+          The whole active network in one look, grouped by its real region and coloured by this week&apos;s status.
+          Trouble clusters jump out — the regions with the most red sit top-left. Click any store for its read. Real
+          membership, status and volume; the layout reads as a diagram, not a to-scale map.
         </div>
       </div>
 
       <div className="grid2">
         <div className="mapcard">
           <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Store network map">
-            <defs>
-              <linearGradient id="water" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0" stopColor="#dfe9ea" stopOpacity="0" /><stop offset="1" stopColor="#cfe0e2" stopOpacity="0.55" />
-              </linearGradient>
-            </defs>
-            <rect x={W - 64} y={0} width={64} height={H} fill="url(#water)" />
-            <text x={W - 30} y={90} fontSize="12" fill="#7fa0a1" textAnchor="middle" transform={`rotate(90 ${W - 30} 90)`}>East / coast</text>
-
-            {drawnZones.map(({ key, z }) => (
+            {drawnZones.map(({ key, count, x, y, w, h }) => (
               <g key={key}>
-                <rect x={z.x} y={z.y} width={z.w} height={z.h} rx="18" fill="#efe7d5" stroke="#e0d5bf" strokeWidth="1.5" />
-                <text x={z.x + 16} y={z.y + 26} fontSize="14" fontWeight="700" fill="#8a8071" style={{ letterSpacing: ".2px" }}>{key === "Other" ? "Other regions" : key}</text>
-                {z.note && <text x={z.x + 16} y={z.y + 43} fontSize="11" fill="#a89e8d">{z.note}</text>}
+                <rect x={x} y={y} width={w} height={h} rx="16" fill="#efe7d5" stroke="#e0d5bf" strokeWidth="1.5" />
+                <text x={x + 15} y={y + 24} fontSize="13.5" fontWeight="700" fill="#8a8071" style={{ letterSpacing: ".2px" }}>{key}</text>
+                <text x={x + w - 15} y={y + 24} fontSize="12" fontWeight="600" fill="#a89e8d" textAnchor="end">{count}</text>
               </g>
             ))}
 
-            {placed.map(({ s, x, y }) => {
+            {placed.map(({ s, x, y, maxR }) => {
               const on = hover === s.store_id || sel?.store_id === s.store_id;
+              const rr = rOf(s, maxR);
               return (
                 <g key={s.store_id} style={{ cursor: "pointer" }}
                    onMouseEnter={() => setHover(s.store_id)} onMouseLeave={() => setHover(null)} onClick={() => setSel(s)}>
-                  {on && <circle cx={x} cy={y} r={r(s) + 6} fill={COLOR[s.status]} opacity="0.16" />}
-                  <circle cx={x} cy={y} r={r(s)} fill={COLOR[s.status]} stroke="#fff" strokeWidth="2.4" />
+                  {on && <circle cx={x} cy={y} r={rr + 5} fill={COLOR[s.status]} opacity="0.16" />}
+                  <circle cx={x} cy={y} r={rr} fill={COLOR[s.status]} stroke="#fff" strokeWidth="1.8" />
                   {on && (
                     <g>
-                      <rect x={x + r(s) + 6} y={y - 15} width={s.name.length * 6.2 + 16} height="26" rx="6" fill="#211c16" />
-                      <text x={x + r(s) + 14} y={y + 3} fontSize="12.5" fill="#f3e9d6" fontWeight="600">{s.name}</text>
+                      <rect x={x + rr + 6} y={y - 15} width={s.name.length * 6.2 + 16} height="26" rx="6" fill="#211c16" />
+                      <text x={x + rr + 14} y={y + 3} fontSize="12.5" fill="#f3e9d6" fontWeight="600">{s.name}</text>
                     </g>
                   )}
                 </g>
