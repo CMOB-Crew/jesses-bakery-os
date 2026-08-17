@@ -343,7 +343,7 @@ export type BenchRow = {
   store_id: string; name: string; region: string; size: string;
   sell: number; cohort_median: number | null; vs_cohort: number | null; trend: number | null; status: Status;
 };
-export type BenchCohort = { key: string; region: string; size: string; median: number; count: number; stores: { name: string; sell: number; vs: number; status: Status }[] };
+export type BenchCohort = { key: string; region: string; size: string; median: number; count: number; stores: { store_id: string; name: string; sell: number; vs: number; status: Status }[] };
 export type Benchmarks = { cohorts: BenchCohort[]; rows: BenchRow[]; under: BenchRow[]; over: BenchRow[]; networkMedian: number | null; cohortCount: number; hasData: boolean };
 
 const jbMedian = (ns: number[]) => {
@@ -390,7 +390,7 @@ export async function getBenchmarks(): Promise<Benchmarks> {
       const [region, size] = key.split(" · ");
       return {
         key, region, size, median: cm, count: rs.length,
-        stores: [...rs].sort((a, b) => b.sell - a.sell).map((r) => ({ name: r.name, sell: r.sell, vs: Math.round((r.sell - cm) * 10) / 10, status: r.status })),
+        stores: [...rs].sort((a, b) => b.sell - a.sell).map((r) => ({ store_id: r.store_id, name: r.name, sell: r.sell, vs: Math.round((r.sell - cm) * 10) / 10, status: r.status })),
       };
     })
     .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));

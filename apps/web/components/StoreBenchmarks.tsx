@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import type { Benchmarks } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -72,8 +73,8 @@ export default function StoreBenchmarks({ data }: { data: Benchmarks }) {
           {cohort.stores.map((s) => {
             const d = Math.round((s.sell - cohort.median) * 10) / 10;
             return (
-              <div className="barrow" key={s.name}>
-                <div className="bl">{s.name}</div>
+              <div className="barrow" key={s.store_id}>
+                <div className="bl"><Link href={`/store/${s.store_id}`}>{s.name}</Link></div>
                 <div className="btrack">
                   <div className={`bfill ${status(d)}`} style={{ width: w(s.sell) }} />
                   <div className="bmed" style={{ left: w(cohort.median) }} title="cohort median" />
@@ -103,7 +104,7 @@ export default function StoreBenchmarks({ data }: { data: Benchmarks }) {
             <tbody>
               {[...data.under, ...data.over].map((s) => (
                 <tr key={s.store_id}>
-                  <td className="strong">{s.name}</td>
+                  <td className="strong"><Link href={`/store/${s.store_id}`}>{s.name}</Link></td>
                   <td className="dim">{s.region} · {s.size}</td>
                   <td className="num">{s.sell}%</td>
                   <td className="num"><span className={`pill ${status(s.vs_cohort ?? 0)}`}>{(s.vs_cohort ?? 0) > 0 ? "+" : ""}{s.vs_cohort}</span></td>
@@ -150,6 +151,8 @@ export default function StoreBenchmarks({ data }: { data: Benchmarks }) {
         .bench .bars{display:flex;flex-direction:column;gap:12px}
         .bench .barrow{display:grid;grid-template-columns:190px 1fr 110px;align-items:center;gap:14px}
         .bench .bl{font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .bench .bl a{color:inherit;text-decoration:none} .bench .bl a:hover{color:var(--crust-deep);text-decoration:underline}
+        .bench td.strong a{color:inherit;text-decoration:none} .bench td.strong a:hover{color:var(--crust-deep);text-decoration:underline}
         .bench .btrack{position:relative;height:26px;background:var(--surface);border:1px solid var(--line2);border-radius:7px;overflow:hidden}
         .bench .bfill{position:absolute;left:0;top:0;bottom:0;border-radius:6px 0 0 6px;opacity:.9}
         .bench .bfill.green{background:var(--green)} .bench .bfill.amber{background:var(--amber)} .bench .bfill.red{background:var(--red)}
