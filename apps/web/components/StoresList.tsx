@@ -28,7 +28,7 @@ const SORTS: { k: SortKey; label: string }[] = [
 const retailerLabel = (r: string) =>
   r === "harris_farm" ? "Harris Farm" : r ? r[0].toUpperCase() + r.slice(1) : "—";
 
-export default function StoresList({ stores }: { stores: StoreWeek[] }) {
+export default function StoresList({ stores, showRegion = true }: { stores: StoreWeek[]; showRegion?: boolean }) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<"all" | Status>("all");
   const [region, setRegion] = useState("all");
@@ -103,12 +103,14 @@ export default function StoresList({ stores }: { stores: StoreWeek[] }) {
           />
           {q && <button className="clr" onClick={() => setQ("")} aria-label="clear">×</button>}
         </div>
-        <select value={region} onChange={(e) => setRegion(e.target.value)} aria-label="Filter by region">
-          <option value="all">All regions</option>
-          {regions.map((r) => (
-            <option key={r} value={r}>{r}</option>
-          ))}
-        </select>
+        {showRegion && (
+          <select value={region} onChange={(e) => setRegion(e.target.value)} aria-label="Filter by region">
+            <option value="all">All regions</option>
+            {regions.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+        )}
         <select value={retailer} onChange={(e) => setRetailer(e.target.value)} aria-label="Filter by retailer">
           <option value="all">All retailers</option>
           {retailers.map((r) => (
@@ -139,7 +141,7 @@ export default function StoresList({ stores }: { stores: StoreWeek[] }) {
           <table>
             <thead>
               <tr>
-                <th>Store</th><th>Region</th><th>Retailer</th><th>Status</th>
+                <th>Store</th>{showRegion && <th>Region</th>}<th>Retailer</th><th>Status</th>
                 <th className="num">Waste %</th><th className="num">Stockouts</th><th className="num">Sold (wk)</th>
               </tr>
             </thead>
@@ -147,7 +149,7 @@ export default function StoresList({ stores }: { stores: StoreWeek[] }) {
               {rows.map((s) => (
                 <tr key={s.store_id} className="clk">
                   <td className="strong"><Link href={`/store/${s.store_id}`}>{s.name}</Link></td>
-                  <td style={{ color: "var(--ink2)" }}>{s.region ?? "—"}</td>
+                  {showRegion && <td style={{ color: "var(--ink2)" }}>{s.region ?? "—"}</td>}
                   <td style={{ color: "var(--ink2)" }}>{retailerLabel(s.retailer)}</td>
                   <td><StatusTag status={s.status} /></td>
                   <td className="num">{s.waste_pct == null ? "—" : `${s.waste_pct}%`}</td>
