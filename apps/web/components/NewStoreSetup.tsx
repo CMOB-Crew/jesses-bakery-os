@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 /* ------------------------------------------------------------------ *
  * New-store setup — Simona's SOP: "enter once, set the ceiling, let it
@@ -58,6 +58,36 @@ const RETAILERS: { id: string; label: string }[] = [
 ];
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+// Ranging exclusions (Simona, 14 Aug). A store doesn't stock every line — a
+// product it doesn't range shouldn't be seeded into its bundle. Keyed off
+// region + retailer, plus the Mascot DC store rule. Excluded SKUs drop out and
+// the category total redistributes across the lines that ARE ranged, so e.g.
+// ACT still gets its full sourdough count, just none of it rye / dark rye.
+type RangeRule = { label: string; match: (region: string, retailer: string, name: string) => boolean; exclude: string[] };
+const RANGING: RangeRule[] = [
+  {
+    label: "Woolworths ACT doesn't range rye, dark rye or mini challah",
+    match: (region, retailer) => retailer === "woolworths" && region === "Canberra / ACT",
+    exclude: ["sd-rye", "sd-darkrye", "mc-plain", "mc-sesame"],
+  },
+  {
+    label: "Woolworths Mascot DC doesn't range sesame mini challah, dark rye, spelt or pita",
+    match: (_region, retailer, name) => retailer === "woolworths" && /mascot/i.test(name),
+    exclude: ["mc-sesame", "sd-darkrye", "sd-spelt", "pt-pita"],
+  },
+];
+function rangingFor(region: string, retailer: string, name: string): { excluded: Set<string>; reasons: string[] } {
+  const excluded = new Set<string>();
+  const reasons: string[] = [];
+  for (const rule of RANGING) {
+    if (rule.match(region, retailer, name)) {
+      rule.exclude.forEach((id) => excluded.add(id));
+      reasons.push(rule.label);
+    }
+  }
+  return { excluded, reasons };
+}
+
 // Largest-remainder allocation so category totals land exactly on Simona's numbers.
 function allocate(total: number, items: { id: string; w: number }[]): Record<string, number> {
   const sumW = items.reduce((a, i) => a + i.w, 0) || 1;
@@ -77,13 +107,15 @@ function catTotals(size: Size, type: SType): Record<Cat, number> {
   return t;
 }
 
-function seed(size: Size, type: SType): Record<string, number> {
+function seed(size: Size, type: SType, excluded: Set<string> = new Set()): Record<string, number> {
   const totals = catTotals(size, type);
   const out: Record<string, number> = {};
   for (const cat of CAT_ORDER) {
-    const items = PRODUCTS.filter((p) => p.cat === cat).map((p) => ({ id: p.id, w: p.w }));
-    Object.assign(out, allocate(totals[cat], items));
+    const items = PRODUCTS.filter((p) => p.cat === cat && !excluded.has(p.id)).map((p) => ({ id: p.id, w: p.w }));
+    if (items.length) Object.assign(out, allocate(totals[cat], items));
   }
+  // Excluded lines pinned to 0 so the grid can show them as "not ranged here".
+  for (const p of PRODUCTS) if (excluded.has(p.id)) out[p.id] = 0;
   return out;
 }
 
@@ -99,12 +131,24 @@ export default function NewStoreSetup() {
   const [cap, setCap] = useState(CAP_DEFAULT.small);
   const [service, setService] = useState<"lean" | "balanced" | "generous">("balanced");
   const [source, setSource] = useState<"profile" | "copy">("profile");
+
+  const { excluded, reasons } = useMemo(() => rangingFor(region, retailer, name), [region, retailer, name]);
+  const excludedKey = useMemo(() => [...excluded].sort().join(","), [excluded]);
   const [basket, setBasket] = useState<Record<string, number>>(() => seed("small", "standard"));
 
-  function pickSize(s: Size) { setSize(s); setCap(CAP_DEFAULT[s]); setBasket(seed(s, type)); }
-  function pickType(t: SType) { setType(t); setBasket(seed(size, t)); }
-  function bump(id: string, d: number) { setBasket((b) => ({ ...b, [id]: Math.max(0, (b[id] ?? 0) + d) })); }
-  function reseed() { setBasket(seed(size, type)); }
+  // Reseed when the store context that defines the bundle changes — size, type,
+  // or the ranging set. Manual (+/-) edits don't touch these deps, so they
+  // survive; changing region/retailer/size/type intentionally starts fresh.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reseed the bundle on a store-context change; manual basket edits reset by design here
+    setBasket(seed(size, type, rangingFor(region, retailer, name).excluded));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- region/retailer/name feed excludedKey; depending on the key avoids a reseed on every name keystroke
+  }, [size, type, excludedKey]);
+
+  function pickSize(s: Size) { setSize(s); setCap(CAP_DEFAULT[s]); }
+  function pickType(t: SType) { setType(t); }
+  function bump(id: string, d: number) { if (excluded.has(id)) return; setBasket((b) => ({ ...b, [id]: Math.max(0, (b[id] ?? 0) + d) })); }
+  function reseed() { setBasket(seed(size, type, excluded)); }
   function toggleDay(d: string) { setDays((x) => ({ ...x, [d]: !x[d] })); }
 
   const total = useMemo(() => Object.values(basket).reduce((a, b) => a + b, 0), [basket]);
@@ -222,19 +266,32 @@ export default function NewStoreSetup() {
                 Copies the basket of the closest same-size store on this run as the starting point — then you tweak. (Prototype uses Simona&apos;s bundle below.)
               </div>
             )}
+            {reasons.length > 0 && (
+              <div className="rangenote">
+                <b>Ranging applied.</b> {reasons.join("; ")}. Those lines are left out of the bundle and their
+                units redistribute across what this store does range.
+              </div>
+            )}
             <div className="basket">
               {grouped.map((g) => (
                 <div className="bgroup" key={g.cat}>
                   <div className="bgh"><i style={{ background: CAT_COLOR[g.cat] }} />{CAT_LABEL[g.cat]}<span className="bgt">{byCat[g.cat]}</span></div>
                   {g.items.map((p) => (
-                    <div className="brow" key={p.id}>
-                      <span className="bn">{p.name}<span className="pcode">#{p.code}</span></span>
-                      <div className="bstep">
-                        <button onClick={() => bump(p.id, -1)} aria-label="less">−</button>
-                        <span className="bq">{basket[p.id] ?? 0}</span>
-                        <button onClick={() => bump(p.id, +1)} aria-label="more">+</button>
+                    excluded.has(p.id) ? (
+                      <div className="brow off" key={p.id}>
+                        <span className="bn">{p.name}<span className="pcode">#{p.code}</span></span>
+                        <span className="notranged">Not ranged here</span>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="brow" key={p.id}>
+                        <span className="bn">{p.name}<span className="pcode">#{p.code}</span></span>
+                        <div className="bstep">
+                          <button onClick={() => bump(p.id, -1)} aria-label="less">−</button>
+                          <span className="bq">{basket[p.id] ?? 0}</span>
+                          <button onClick={() => bump(p.id, +1)} aria-label="more">+</button>
+                        </div>
+                      </div>
+                    )
                   ))}
                 </div>
               ))}
@@ -337,7 +394,11 @@ export default function NewStoreSetup() {
         .nstore .bgh{display:flex;align-items:center;gap:7px;font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:6px 0;border-bottom:1px solid var(--line2);margin-bottom:4px}
         .nstore .bgh i{width:9px;height:9px;border-radius:3px}
         .nstore .bgh .bgt{margin-left:auto;color:var(--ink);font-size:13px;font-variant-numeric:tabular-nums}
+        .nstore .rangenote{font-size:12.5px;color:var(--ink2);background:var(--amber-b);border:1px solid var(--amber);border-radius:9px;padding:10px 12px;margin-bottom:12px;line-height:1.5}
+        .nstore .rangenote b{color:var(--amber-t);font-weight:700}
         .nstore .brow{display:flex;align-items:center;gap:8px;padding:4px 0}
+        .nstore .brow.off .bn{opacity:.55}
+        .nstore .notranged{margin-left:auto;font-size:11px;font-weight:600;color:var(--muted);background:var(--line2);border-radius:999px;padding:3px 10px;white-space:nowrap}
         .nstore .bn{font-size:13px;color:var(--ink2);display:flex;flex-direction:column;line-height:1.25}
         .nstore .pcode{font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums}
         .nstore .bstep{margin-left:auto;display:flex;align-items:center;gap:1px;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:none}
