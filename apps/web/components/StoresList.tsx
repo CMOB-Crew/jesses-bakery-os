@@ -27,6 +27,13 @@ const SORTS: { k: SortKey; label: string }[] = [
 
 const retailerLabel = (r: string) =>
   r === "harris_farm" ? "Harris Farm" : r ? r[0].toUpperCase() + r.slice(1) : "—";
+const STATUS_LABEL: Record<Status, string> = { red: "Needs attention", amber: "Watch", green: "On track" };
+
+// CSV-escape a cell (quote when it contains a comma, quote, or newline).
+const csvCell = (v: string | number | null) => {
+  const s = v == null ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
 
 export default function StoresList({ stores, showRegion = true }: { stores: StoreWeek[]; showRegion?: boolean }) {
   const [q, setQ] = useState("");
@@ -77,6 +84,33 @@ export default function StoresList({ stores, showRegion = true }: { stores: Stor
   }, [stores, q, status, region, retailer, sort]);
 
   const filtered = q || status !== "all" || region !== "all" || retailer !== "all";
+
+  // Export exactly what's on screen (current filter + sort) as CSV — Simona
+  // works from spreadsheets, so the filtered view goes straight to one.
+  function downloadCsv() {
+    const header = ["Store", ...(showRegion ? ["Region"] : []), "Retailer", "Status", "Waste %", "Stockout days", "Sold (wk)"];
+    const body = rows.map((s) =>
+      [
+        s.name,
+        ...(showRegion ? [s.region ?? ""] : []),
+        retailerLabel(s.retailer),
+        STATUS_LABEL[s.status],
+        s.waste_pct == null ? "" : Number(s.waste_pct),
+        num(s.stockout_days),
+        num(s.total_sold),
+      ].map(csvCell).join(","),
+    );
+    const csv = [header.map(csvCell).join(","), ...body].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `jesses-bakery-stores-${rows.length}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="slist">
@@ -134,6 +168,9 @@ export default function StoresList({ stores, showRegion = true }: { stores: Stor
             Clear filters
           </button>
         )}
+        <button className="csvbtn" onClick={downloadCsv} disabled={rows.length === 0} title="Download the current view as CSV">
+          ↧ Download CSV
+        </button>
       </div>
 
       {rows.length ? (
@@ -188,6 +225,9 @@ export default function StoresList({ stores, showRegion = true }: { stores: Stor
 
         .slist .cntline{font-size:12.5px;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:12px}
         .slist .cntline b{color:var(--ink)}
+        .slist .csvbtn{margin-left:auto;border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
+        .slist .csvbtn:hover{background:#f6f0e6;color:var(--ink)}
+        .slist .csvbtn:disabled{opacity:.5;cursor:default}
         .slist .reset{border:none;background:none;color:var(--crust-deep);font-weight:600;font-size:12.5px;cursor:pointer;font-family:inherit;text-decoration:underline}
         .slist .nomatch{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px 20px;text-align:center;color:var(--ink2);font-size:14px}
       `}</style>
