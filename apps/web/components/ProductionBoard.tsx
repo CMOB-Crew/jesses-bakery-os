@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { ProductionLine } from "@/lib/queries";
+import type { ProductionLine, WeekdayShape } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 const titleCase = (t: string) => t.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -19,10 +19,9 @@ const catColor = (c: string) => CAT_COLOR[c] ?? "var(--crust)";
 
 const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DOWSHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-// Typical demand curve across the week — quieter Mon/Tue, heavy Fri/Sat/Sun.
-// Interim split until the daily plan is wired; the weekly totals are exact.
-const DOWMULT = [0.85, 0.85, 0.95, 1, 1.3, 1.55, 1.4];
-const DSUM = DOWMULT.reduce((a, b) => a + b, 0);
+// Fallback demand curve (Mon..Sun) — quieter Mon/Tue, heavy Fri/Sat/Sun.
+// Used only until there's a measured weekday shape; weekly totals stay exact.
+const SEED_DOWMULT = [0.85, 0.85, 0.95, 1, 1.3, 1.55, 1.4];
 
 type Day = "week" | number;
 
@@ -30,7 +29,16 @@ type Day = "week" | number;
 // works down it by bread type, nudging any Engine-plan number (−/+ appear on
 // hover), resetting or undoing, and ticking each line to confirm. Flip to a
 // single day to hand the floor exactly what to make that day. Totals recalc live.
-export default function ProductionBoard({ lines: raw }: { lines: ProductionLine[] }) {
+export default function ProductionBoard({ lines: raw, shape = null }: { lines: ProductionLine[]; shape?: WeekdayShape | null }) {
+  // Day-split curve (Mon..Sun) — measured from real sell-through when we have
+  // it (reindexed from the Sun..Sat shape), else the seed. Same shape the
+  // Deliveries board and Seasonality calendar use — the factory bakes to the
+  // real weekend curve.
+  const DOWMULT = useMemo(
+    () => (shape?.shape ? [1, 2, 3, 4, 5, 6, 0].map((i) => shape.shape[i]) : SEED_DOWMULT),
+    [shape],
+  );
+  const DSUM = DOWMULT.reduce((a, b) => a + b, 0);
   // Coerce every numeric field up front — Postgres returns decimals as strings,
   // and even ::int sums are cheap to harden. Keeps arithmetic + toLocaleString safe.
   const lines = useMemo(
@@ -183,6 +191,12 @@ export default function ProductionBoard({ lines: raw }: { lines: ProductionLine[
             </button>
           ))}
         </div>
+        {shape && (
+          <span className="daymeas">
+            Day bakes measured from real sales — weekends run <b>{shape.weekendLift > 0 ? "+" : ""}{shape.weekendLift}%</b>,
+            so the floor makes more heading into Sat/Sun and less on quiet weekdays.
+          </span>
+        )}
       </div>
 
       <div className="hero">
@@ -320,9 +334,9 @@ export default function ProductionBoard({ lines: raw }: { lines: ProductionLine[
 
       <div className="foot">
         {isWeek ? (
-          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Editing, reset &amp; undo are live;</b> printing &amp; lock land next phase. Daily splits are modelled from typical day-of-week demand until the daily plan is wired — the weekly totals are exact.</>
+          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Editing, reset &amp; undo are live;</b> printing &amp; lock land next phase. Daily splits are {shape ? "sized from the measured weekday shape" : "modelled from typical day-of-week demand"} until the daily plan is wired — the weekly totals are exact.</>
         ) : (
-          <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Tick each line as it&apos;s baked, or print for the bench. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is modelled from typical demand until the daily plan is wired.</>
+          <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Tick each line as it&apos;s baked, or print for the bench. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is {shape ? "sized from the measured weekday shape" : "modelled from typical demand"} until the daily plan is wired.</>
         )}
       </div>
 
@@ -343,6 +357,8 @@ export default function ProductionBoard({ lines: raw }: { lines: ProductionLine[
       .pcalm{display:block;padding-bottom:72px}
       .pcalm .dayrow{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
       .pcalm .dayrow .lbl{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.2px}
+      .pcalm .daymeas{flex-basis:100%;font-size:12px;color:var(--muted);line-height:1.5}
+      .pcalm .daymeas b{color:var(--ink);font-weight:700}
       .pcalm .dayselect{display:flex;gap:4px;background:#ece3d1;border-radius:11px;padding:4px;flex-wrap:wrap}
       .pcalm .daypill{border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;color:var(--muted);padding:8px 14px;border-radius:8px;cursor:pointer;transition:.14s}
       .pcalm .daypill:hover{color:var(--ink2)}

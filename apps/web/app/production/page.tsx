@@ -1,11 +1,11 @@
-import { getProductionPlan } from "@/lib/queries";
+import { getProductionPlan, getWeekdayShape } from "@/lib/queries";
 import ProductionBoard from "@/components/ProductionBoard";
 
 export const metadata = { title: "Production · Jesse's Bakery OS" };
 export const revalidate = 120; // cache ~2 min
 
 export default async function ProductionPage() {
-  const lines = await getProductionPlan();
+  const [lines, shape] = await Promise.all([getProductionPlan(), getWeekdayShape()]);
 
   return (
     <>
@@ -17,7 +17,7 @@ export default async function ProductionPage() {
       </div>
 
       {lines.length ? (
-        <ProductionBoard lines={lines} />
+        <ProductionBoard lines={lines} shape={shape} />
       ) : (
         // Empty until the plan is loaded — keep it honest, don't show a blank grid.
         <div className="panel">
