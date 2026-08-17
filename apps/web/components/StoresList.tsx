@@ -15,7 +15,16 @@ import type { StoreWeek, Status } from "@/lib/queries";
 
 const nf = (n: number) => (Number(n) || 0).toLocaleString("en-AU");
 const num = (v: unknown) => Number(v) || 0;
-const ORDER: Record<Status, number> = { red: 0, amber: 1, green: 2 };
+
+// A store with nothing delivered AND nothing sold this week has no loaded data
+// (Coles/Harris feeds aren't live yet). It is NOT "on track" — surface it as a
+// neutral "No data" state, never green, and keep it out of the on-track count.
+const hasData = (s: StoreWeek) => Number(s.total_sent) > 0 || Number(s.total_sold) > 0;
+type Eff = Status | "nodata";
+const effOf = (s: StoreWeek): Eff => (hasData(s) ? s.status : "nodata");
+const EFF_ORDER: Record<Eff, number> = { red: 0, amber: 1, green: 2, nodata: 3 };
+const EFF_LABEL: Record<Eff, string> = { red: "Needs attention", amber: "Watch", green: "On track", nodata: "No data" };
+
 type SortKey = "status" | "waste" | "sold" | "stockouts" | "name";
 const SORTS: { k: SortKey; label: string }[] = [
   { k: "status", label: "Worst first" },
@@ -27,7 +36,6 @@ const SORTS: { k: SortKey; label: string }[] = [
 
 const retailerLabel = (r: string) =>
   r === "harris_farm" ? "Harris Farm" : r ? r[0].toUpperCase() + r.slice(1) : "—";
-const STATUS_LABEL: Record<Status, string> = { red: "Needs attention", amber: "Watch", green: "On track" };
 
 // Named drill-down views — each predicate matches an Overview "Needs attention"
 // / "Opportunities" tally EXACTLY, so clicking a number on the dashboard lands
@@ -57,7 +65,7 @@ const csvCell = (v: string | number | null) => {
 
 export default function StoresList({ stores, showRegion = true, initialView }: { stores: StoreWeek[]; showRegion?: boolean; initialView?: string }) {
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<"all" | Status>("all");
+  const [status, setStatus] = useState<"all" | Eff>("all");
   const [region, setRegion] = useState("all");
   const [retailer, setRetailer] = useState("all");
   const [sort, setSort] = useState<SortKey>("status");
@@ -73,17 +81,20 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
     [stores],
   );
   const counts = useMemo(() => {
-    const c: Record<Status, number> = { red: 0, amber: 0, green: 0 };
-    for (const s of stores) c[s.status] = (c[s.status] ?? 0) + 1;
+    const c: Record<Eff, number> = { red: 0, amber: 0, green: 0, nodata: 0 };
+    for (const s of stores) c[effOf(s)] += 1;
     return c;
   }, [stores]);
+  // The whole Stockouts column is empty until the daily feed lands — hide it
+  // (and its sort) rather than show 265 dashes; it returns automatically.
+  const anyStockouts = useMemo(() => stores.some((s) => num(s.stockout_days) > 0), [stores]);
 
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase();
     const list = stores.filter(
       (s) =>
         (!activeView || activeView.test(s)) &&
-        (status === "all" || s.status === status) &&
+        (status === "all" || effOf(s) === status) &&
         (region === "all" || s.region === region) &&
         (retailer === "all" || s.retailer === retailer) &&
         (!term ||
@@ -101,7 +112,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
         case "name":
           return a.name.localeCompare(b.name);
         default:
-          return ORDER[a.status] - ORDER[b.status] || num(b.total_wasted) - num(a.total_wasted);
+          return EFF_ORDER[effOf(a)] - EFF_ORDER[effOf(b)] || num(b.total_wasted) - num(a.total_wasted) || num(b.total_sold) - num(a.total_sold);
       }
     });
   }, [stores, q, status, region, retailer, sort, activeView]);
@@ -117,7 +128,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
         s.name,
         ...(showRegion ? [s.region ?? ""] : []),
         retailerLabel(s.retailer),
-        STATUS_LABEL[s.status],
+        EFF_LABEL[effOf(s)],
         s.waste_pct == null ? "" : Number(s.waste_pct),
         num(s.stockout_days),
         num(s.total_sold),
@@ -146,12 +157,12 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
         </div>
       )}
       <div className="chips">
-        {(["all", "red", "amber", "green"] as const).map((k) => (
+        {(["all", "red", "amber", "green", "nodata"] as const).map((k) => (
           <button key={k} className={`chip ${k} ${status === k ? "on" : ""}`} onClick={() => setStatus(k)}>
             {k === "all" ? (
               <>All <b>{stores.length}</b></>
             ) : (
-              <><span className="dot" /> {k[0].toUpperCase() + k.slice(1)} <b>{counts[k]}</b></>
+              <><span className="dot" /> {k === "nodata" ? "No data" : k[0].toUpperCase() + k.slice(1)} <b>{counts[k]}</b></>
             )}
           </button>
         ))}
@@ -183,7 +194,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
           ))}
         </select>
         <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="Sort by">
-          {SORTS.map((s) => (
+          {SORTS.filter((s) => s.k !== "stockouts" || anyStockouts).map((s) => (
             <option key={s.k} value={s.k}>Sort: {s.label}</option>
           ))}
         </select>
@@ -210,7 +221,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
             <thead>
               <tr>
                 <th>Store</th>{showRegion && <th>Region</th>}<th>Retailer</th><th>Status</th>
-                <th className="num">Waste %</th><th className="num">Stockouts</th><th className="num">Sold (wk)</th>
+                <th className="num">Waste %</th>{anyStockouts && <th className="num">Stockouts</th>}<th className="num">Sold (wk)</th>
               </tr>
             </thead>
             <tbody>
@@ -219,9 +230,9 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
                   <td className="strong"><Link href={`/store/${s.store_id}`}>{s.name}</Link></td>
                   {showRegion && <td style={{ color: "var(--ink2)" }}>{s.region ?? "—"}</td>}
                   <td style={{ color: "var(--ink2)" }}>{retailerLabel(s.retailer)}</td>
-                  <td><StatusTag status={s.status} /></td>
+                  <td><StatusTag status={effOf(s)} /></td>
                   <td className="num">{s.waste_pct == null ? "—" : `${s.waste_pct}%`}</td>
-                  <td className="num">{num(s.stockout_days) || "—"}</td>
+                  {anyStockouts && <td className="num">{num(s.stockout_days) || "—"}</td>}
                   <td className="num">{nf(num(s.total_sold))}</td>
                 </tr>
               ))}
@@ -245,6 +256,8 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
         .slist .chip b{color:var(--ink);font-variant-numeric:tabular-nums}
         .slist .chip .dot{width:8px;height:8px;border-radius:50%}
         .slist .chip.red .dot{background:var(--red)} .slist .chip.amber .dot{background:var(--amber)} .slist .chip.green .dot{background:var(--green)}
+        .slist .chip.nodata .dot{background:var(--muted)}
+        .slist .chip.nodata.on{background:var(--muted);border-color:var(--muted);color:#fff}
         .slist .chip.on{border-color:var(--espresso);background:var(--espresso);color:#f7efdd}
         .slist .chip.on b{color:#fff}
         .slist .chip.red.on{background:var(--red);border-color:var(--red);color:#fff}

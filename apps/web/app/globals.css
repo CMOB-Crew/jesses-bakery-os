@@ -140,6 +140,7 @@ a{color:inherit;text-decoration:none}
 .tag.red{background:var(--red-b);color:var(--red-t)}
 .tag.amber{background:var(--amber-b);color:var(--amber-t)}
 .tag.green{background:var(--green-b);color:var(--green-t)}
+.tag.nodata{background:var(--line2);color:var(--muted)}
 
 /* ---- ask bar ---- */
 .ask{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:14px 16px;margin-bottom:18px}
