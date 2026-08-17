@@ -710,3 +710,39 @@ export async function getWeekdayShape(): Promise<WeekdayShape | null> {
     return null;
   }
 }
+
+// ---------------------------------------------------------------------
+// Seasonality events — the calendar the engine plans against, read from
+// the shared events table (migration 008) so the UI, the engine and
+// Simona's edits share one source. `kind` is the calendar's visual
+// category (ui_kind). Returns [] when the table is empty or absent, and
+// the calendar falls back to its built-in seed.
+// ---------------------------------------------------------------------
+export type SeasonEvent = { id: string; kind: string; name: string; scope: string; start: string; end: string; uplift: number; note: string };
+export async function getSeasonalEvents(): Promise<SeasonEvent[]> {
+  try {
+    const rows = await sql<{ id: string; ui_kind: string | null; name: string; scope: string | null; start: string; end: string; uplift: number | null; note: string | null }[]>`
+      select id::text                              as id,
+             coalesce(ui_kind, 'custom')           as ui_kind,
+             name,
+             scope,
+             to_char(start_date, 'YYYY-MM-DD')     as start,
+             to_char(end_date,   'YYYY-MM-DD')     as end,
+             uplift_pct                            as uplift,
+             note
+      from events
+      order by start_date, name`;
+    return rows.map((r) => ({
+      id: r.id,
+      kind: r.ui_kind ?? "custom",
+      name: r.name,
+      scope: r.scope ?? "",
+      start: r.start,
+      end: r.end,
+      uplift: Number(r.uplift ?? 0),
+      note: r.note ?? "",
+    }));
+  } catch {
+    return []; // events table not seeded yet — calendar uses its seed
+  }
+}

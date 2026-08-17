@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import type { WeekdayShape } from "@/lib/queries";
+import type { WeekdayShape, SeasonEvent } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
  * Seasonality calendar — the events calendar the engine plans against.
@@ -76,16 +76,29 @@ function ymd(y: number, m: number, d: number) {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-export default function SeasonalityCalendar({ live }: { live: WeekdayShape | null }) {
+export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: WeekdayShape | null; liveEvents?: SeasonEvent[] }) {
   // Weekday shape: measured from real sell-through when we have it, else the seed.
   const BASE = live?.shape ?? SEED_BASE;
+  // Event set: from the shared events table when it's seeded, else the built-in
+  // seed. Normalise the DB kind to a known calendar category (fallback custom).
+  const base: Evt[] = useMemo(
+    () =>
+      liveEvents.length
+        ? liveEvents.map((e) => ({
+            id: e.id,
+            kind: (e.kind in KIND_META ? e.kind : "custom") as Kind,
+            name: e.name, scope: e.scope, start: e.start, end: e.end, uplift: e.uplift, note: e.note,
+          }))
+        : SEED,
+    [liveEvents],
+  );
   // Default to Sept 2026 — the High-Holiday planning window Simona flagged.
   const [year, setYear] = useState(2026);
   const [month, setMonth] = useState(8); // 0-indexed → September
   const [sel, setSel] = useState<string | null>("2026-09-11");
   const [today, setToday] = useState<string>(""); // set after mount (SSR-safe)
   const [uplifts, setUplifts] = useState<Record<string, number>>(
-    () => Object.fromEntries(SEED.map((e) => [e.id, e.uplift]))
+    () => Object.fromEntries(base.map((e) => [e.id, e.uplift]))
   );
 
   useEffect(() => {
@@ -96,7 +109,7 @@ export default function SeasonalityCalendar({ live }: { live: WeekdayShape | nul
     setToday(ymd(n.getFullYear(), n.getMonth(), n.getDate()));
   }, []);
 
-  const events = useMemo(() => SEED.map((e) => ({ ...e, uplift: uplifts[e.id] ?? e.uplift })), [uplifts]);
+  const events = useMemo(() => base.map((e) => ({ ...e, uplift: uplifts[e.id] ?? e.uplift })), [base, uplifts]);
 
   function eventsOn(key: string) {
     return events.filter((e) => key >= e.start && key <= e.end);
