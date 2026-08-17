@@ -5,6 +5,10 @@ import Link from "next/link";
 import type { DeliveryLine, DeliveryDetailLine, WeekdayShape } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
+const csvCell = (v: string | number) => {
+  const s = v == null ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
 
 const DOWSHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -80,6 +84,35 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null }: { 
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2600);
+  }
+  // Export the run sheet as it stands — current view (whole week or one day),
+  // adjustments included, in the region order shown. Real CSV, no dependency.
+  function exportRunSheet() {
+    const header = ["Region", "Store", "Sending now", "Final delivery", "Change", "Approved"];
+    const body: string[] = [];
+    for (const g of groups) {
+      for (const l of g.rows) {
+        const sendNow = dv(l.sent);
+        const finalD = dv(v(l.store_id));
+        body.push(
+          [g.region, l.name, sendNow, finalD, finalD - sendNow, approved[l.store_id] ? "Yes" : ""]
+            .map(csvCell)
+            .join(","),
+        );
+      }
+    }
+    const scope = isWeek ? "week" : DOWSHORT[day as number];
+    const csv = [header.map(csvCell).join(","), ...body].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `jesses-delivery-run-sheet-${scope}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast(`Run sheet exported — ${lines.length} stores (${isWeek ? "whole week" : dayName})`);
   }
   function setEngine(id: string, val: number, record = true) {
     const next = Math.max(0, Math.floor(Number(val) || 0));
@@ -326,7 +359,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null }: { 
       <div className="actionbar">
         <div className="prog"><b>{apprCount}</b> of {total} approved · trimming <span className="tr">{nf(Math.max(0, trim))}</span> loaves {isWeek ? "this week" : dayShort}</div>
         <div className="sp">
-          <button type="button" className="btn" onClick={() => showToast("Run sheet exported (CSV) — auto-send to the bakery lands next phase")}>↓ Export run sheet</button>
+          <button type="button" className="btn" onClick={exportRunSheet}>↓ Export run sheet</button>
           <button type="button" className="btn primary" onClick={() => { setApproved(Object.fromEntries(lines.map((l) => [l.store_id, true]))); showToast(`All ${total} orders approved ✓ — sending to the bakery is the next build phase`); }}>✓ Approve all</button>
         </div>
       </div>
