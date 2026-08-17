@@ -20,14 +20,24 @@ const SCORE = {
 // temporary (date-ranged, auto-resetting) or permanent adjustments — with the
 // shelf cap enforced. Editing is live here; persisting to the backend profile
 // is the next build phase (flagged honestly in the UI).
+export type PeerStat = {
+  basis: string;      // e.g. "medium stores" / "SOUTH EAST stores" / "all stores"
+  count: number;      // peers compared against (excludes this store)
+  medWaste: number | null;
+  medSellThrough: number | null;
+  betterPct: number | null; // % of peers this store beats on waste (lower = better)
+};
+
 export default function StoreProfile({
   store,
   recos,
   daily,
+  peer,
 }: {
   store: StoreWeek;
   recos: StoreReco[];
   daily: DailyBar[];
+  peer?: PeerStat;
 }) {
   // Coerce every DB number up front (waste_pct/shelf_max arrive as strings).
   const wastePct = store.waste_pct == null ? null : Number(store.waste_pct);
@@ -94,7 +104,13 @@ export default function StoreProfile({
         </div>
         <div className={`scorebadge ${score.cls}`}>
           <span className="sd">{score.dot}</span>
-          <span className="st">{score.label}<small>vs same-size stores · provisional</small></span>
+          <span className="st">{score.label}
+            <small>
+              {peer && peer.count > 0 && peer.betterPct != null
+                ? `Waste beats ${peer.betterPct}% of ${peer.basis}`
+                : "vs same-size stores"}
+            </small>
+          </span>
         </div>
       </div>
 
@@ -106,6 +122,35 @@ export default function StoreProfile({
           </div>
         ))}
       </div>
+
+      {peer && peer.count > 0 && (
+        <div className="peerbar">
+          <span className="pb-h">vs {peer.count} {peer.basis}</span>
+          {peer.medWaste != null && (
+            <span className="pb-i">
+              Waste <b>{wastePct == null ? "—" : `${wastePct}%`}</b>
+              <span className="pb-m">median {peer.medWaste}%</span>
+              {wastePct != null && (
+                <span className={`pb-d ${wastePct <= peer.medWaste ? "good" : "bad"}`}>
+                  {wastePct <= peer.medWaste ? "▼" : "▲"} {Math.abs(Math.round((wastePct - peer.medWaste) * 10) / 10)} pts
+                </span>
+              )}
+            </span>
+          )}
+          {peer.medSellThrough != null && (
+            <span className="pb-i">
+              Sell-through <b>{sellThrough == null ? "—" : `${sellThrough}%`}</b>
+              <span className="pb-m">median {peer.medSellThrough}%</span>
+              {sellThrough != null && (
+                <span className={`pb-d ${sellThrough >= peer.medSellThrough ? "good" : "bad"}`}>
+                  {sellThrough >= peer.medSellThrough ? "▲" : "▼"} {Math.abs(Math.round((sellThrough - peer.medSellThrough) * 10) / 10)} pts
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="softnote">$ sales, waste value, profit and forecast accuracy light up once the cost feed is wired in — the numbers already sit in the retailer data.</div>
 
       {daily.length > 0 && (
@@ -242,6 +287,13 @@ export default function StoreProfile({
       .sprof .mv.g{color:var(--green-t)}.sprof .mv.a{color:var(--amber-t)}.sprof .mv.r{color:var(--red-t)}
       .sprof .mv.soft{color:var(--faint);font-weight:500}
       .sprof .ml{font-size:11px;color:var(--muted);margin-top:6px}
+      .sprof .peerbar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-top:12px}
+      .sprof .peerbar .pb-h{font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:700}
+      .sprof .peerbar .pb-i{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--ink2)}
+      .sprof .peerbar .pb-i b{font-family:var(--serif);font-size:16px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+      .sprof .peerbar .pb-m{font-size:12px;color:var(--muted)}
+      .sprof .peerbar .pb-d{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+      .sprof .peerbar .pb-d.good{color:var(--green-t)} .sprof .peerbar .pb-d.bad{color:var(--red-t)}
       .sprof .softnote{font-size:11.5px;color:var(--faint);line-height:1.5;margin:8px 2px 18px}
       .sprof .chartcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:16px 18px;margin-bottom:16px}
       .sprof .cc-h{font-size:12.5px;color:var(--ink2);font-weight:600;margin-bottom:10px}
