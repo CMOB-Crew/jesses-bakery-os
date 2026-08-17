@@ -31,33 +31,59 @@ export type RegionWeek = {
   total_sent: number; total_sold: number; total_wasted: number; waste_pct: number | null;
 };
 
+// Every reader below is wrapped so a transient DB blip (notably Supabase being
+// briefly unreachable during a Netlify build's prerender) degrades to an empty
+// default instead of throwing and failing the whole build. ISR then fills real
+// data on the next request. Guarded readers keep the page from ever going blank
+// AND keep deploys reliable.
 export async function getAsOf(): Promise<Date> {
-  const [row] = await sql<{ as_of: Date }[]>`select as_of from v_asof`;
-  return row.as_of;
+  try {
+    const [row] = await sql<{ as_of: Date }[]>`select as_of from v_asof`;
+    return row?.as_of ?? new Date();
+  } catch {
+    return new Date();
+  }
 }
 
+const EMPTY_NETWORK: NetworkWeek = { stores: 0, red: 0, amber: 0, green: 0, total_sent: 0, total_sold: 0, total_wasted: 0, waste_pct: null };
 export async function getNetwork(): Promise<NetworkWeek> {
-  const [row] = await sql<NetworkWeek[]>`select * from v_network_week`;
-  return row;
+  try {
+    const [row] = await sql<NetworkWeek[]>`select * from v_network_week`;
+    return row ?? EMPTY_NETWORK;
+  } catch {
+    return EMPTY_NETWORK;
+  }
 }
 
 export async function getStoreWeek(): Promise<StoreWeek[]> {
-  return sql<StoreWeek[]>`select * from v_store_week`;
+  try {
+    return await sql<StoreWeek[]>`select * from v_store_week`;
+  } catch {
+    return [];
+  }
 }
 
 export async function getRegions(): Promise<RegionWeek[]> {
-  return sql<RegionWeek[]>`
-    select * from v_region_week
-    order by red * 10 + amber desc, waste_pct desc nulls last`;
+  try {
+    return await sql<RegionWeek[]>`
+      select * from v_region_week
+      order by red * 10 + amber desc, waste_pct desc nulls last`;
+  } catch {
+    return [];
+  }
 }
 
 // 6-week network waste trend, oldest -> newest, as a % series for the chart.
 export async function getWasteTrend(): Promise<number[]> {
-  const rows = await sql<{ wk: number; sent: number; wasted: number }[]>`
-    select wk, sent, wasted from v_waste_trend order by wk desc`;
-  return rows.map((r) =>
-    r.sent > 0 ? Math.round((1000 * r.wasted) / r.sent) / 10 : 0
-  );
+  try {
+    const rows = await sql<{ wk: number; sent: number; wasted: number }[]>`
+      select wk, sent, wasted from v_waste_trend order by wk desc`;
+    return rows.map((r) =>
+      r.sent > 0 ? Math.round((1000 * r.wasted) / r.sent) / 10 : 0
+    );
+  } catch {
+    return [];
+  }
 }
 
 // Engine projection — the real "32% -> X%" waste model (Woolworths mature feed).
@@ -138,9 +164,13 @@ export async function getProductionPlan(): Promise<ProductionLine[]> {
 
 export type FeedStatus = { source: string; status: string; as_of: Date; detail: string | null };
 export async function getFeedStatus(): Promise<FeedStatus[]> {
-  return sql<FeedStatus[]>`
-    select distinct on (source) source, status, as_of, detail
-    from feed_status_log order by source, checked_at desc`;
+  try {
+    return await sql<FeedStatus[]>`
+      select distinct on (source) source, status, as_of, detail
+      from feed_status_log order by source, checked_at desc`;
+  } catch {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -160,15 +190,23 @@ export type Recommendation = {
 
 // Stores in a region, worst-first (for the region drill-down).
 export async function getRegionStores(region: string): Promise<StoreWeek[]> {
-  return sql<StoreWeek[]>`
-    select * from v_store_week where region = ${region}
-    order by (case status when 'red' then 0 when 'amber' then 1 else 2 end),
-             total_wasted desc`;
+  try {
+    return await sql<StoreWeek[]>`
+      select * from v_store_week where region = ${region}
+      order by (case status when 'red' then 0 when 'amber' then 1 else 2 end),
+               total_wasted desc`;
+  } catch {
+    return [];
+  }
 }
 
 export async function getStoreById(id: string): Promise<StoreWeek | null> {
-  const rows = await sql<StoreWeek[]>`select * from v_store_week where store_id = ${id}`;
-  return rows[0] ?? null;
+  try {
+    const rows = await sql<StoreWeek[]>`select * from v_store_week where store_id = ${id}`;
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // Per-product engine order recommendation for a store — the "does Simona's job"
@@ -189,9 +227,13 @@ export async function getStoreRecos(id: string): Promise<StoreReco[]> {
 
 export type DailyBar = { sale_date: Date; dow: string; sold: number; sent: number };
 export async function getStoreDaily(id: string): Promise<DailyBar[]> {
-  return sql<DailyBar[]>`
-    select sale_date, dow, sold, sent from v_store_daily
-    where store_id = ${id} order by sale_date`;
+  try {
+    return await sql<DailyBar[]>`
+      select sale_date, dow, sold, sent from v_store_daily
+      where store_id = ${id} order by sale_date`;
+  } catch {
+    return [];
+  }
 }
 
 export type ProductRow = {
@@ -201,7 +243,8 @@ export type ProductRow = {
 // Per-product week for a store. `suggested` comes from the forecasting
 // service's replenishment_plans when present (the real engine output).
 export async function getStoreProducts(id: string): Promise<ProductRow[]> {
-  return sql<ProductRow[]>`
+  try {
+    return await sql<ProductRow[]>`
     with a as (select as_of from v_asof),
     sold as (
       select product_id, sum(units_sold)::int s from sales_daily, a
@@ -232,6 +275,9 @@ export async function getStoreProducts(id: string): Promise<ProductRow[]> {
     left join plan on plan.product_id = p.id
     where p.active and (sold.s is not null or sent.s is not null)
     order by wasted desc, p.name`;
+  } catch {
+    return [];
+  }
 }
 
 const titleCase = (t: string) => t.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
