@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import Link from "next/link";
 import type { MapStore } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -23,6 +24,10 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
   const worst = [...stores].filter((s) => s.status === "red").sort((a, b) => Number(b.waste_pct ?? 0) - Number(a.waste_pct ?? 0));
   const [sel, setSel] = useState<MapStore | null>(worst[0] ?? stores[0] ?? null);
   const [hover, setHover] = useState<string | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  // A cursor-following HTML tooltip (positioned over the map, above the SVG) so
+  // the store name is always readable and never clips at a frame/canvas edge.
+  const [tip, setTip] = useState<{ name: string; kind: Kind; x: number; y: number } | null>(null);
 
   if (!stores.length) {
     return (
@@ -39,7 +44,6 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
   const sent = stores.reduce((a, s) => a + Number(s.sent), 0);
   const sold = stores.reduce((a, s) => a + Number(s.sold), 0);
   const wastePct = sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : 0;
-  const maxSent = Math.max(...stores.map((s) => Number(s.sent)), 1);
 
   // Group by the store's REAL region — no hardcoded region names, so the
   // diagram works whatever the regions are actually called.
@@ -85,20 +89,23 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
       placed.push({ s, x: x0 + (i % gcols) * cw + cw / 2, y: y0 + Math.floor(i / gcols) * ch + ch / 2, maxR });
     });
   });
-  const rOf = (s: MapStore, maxR: number) => Math.min(maxR, 4 + (Number(s.sent) / maxSent) * 5);
+  // Uniform dots — status is the signal, not size. (Volume-scaled dots made one
+  // huge store like Jesse's Cafe dominate a whole region and read as an anomaly.)
+  const rOf = (maxR: number) => Math.min(6, maxR);
 
   return (
     <div className="nmap">
       <div className="panel intro">
         <div className="itxt">
-          The whole active network in one look, grouped by its real region and coloured by this week&apos;s status.
-          Trouble clusters jump out — the regions with the most red sit top-left. Click any store for its read. Real
-          membership, status and volume; the layout reads as a diagram, not a to-scale map.
+          Every store is a dot, grouped by its region and coloured by status — <b>red</b> needs attention today, amber is
+          watch, green is on track, grey has no feed loaded yet. Regions with the most red sit top-left, so trouble jumps
+          out. <b>Hover a dot to see the store; click it to open the full read.</b> It&apos;s a diagram for spotting
+          patterns, not a to-scale map.
         </div>
       </div>
 
       <div className="grid2">
-        <div className="mapcard">
+        <div className="mapcard" ref={wrapRef}>
           <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Store network map">
             {drawnZones.map(({ key, count, x, y, w, h }) => (
               <g key={key}>
@@ -110,18 +117,20 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
 
             {placed.map(({ s, x, y, maxR }) => {
               const on = hover === s.store_id || sel?.store_id === s.store_id;
-              const rr = rOf(s, maxR);
+              const rr = rOf(maxR);
+              const nd = effOf(s) === "nodata";
               return (
                 <g key={s.store_id} style={{ cursor: "pointer" }}
-                   onMouseEnter={() => setHover(s.store_id)} onMouseLeave={() => setHover(null)} onClick={() => setSel(s)}>
-                  {on && <circle cx={x} cy={y} r={rr + 5} fill={COLOR[effOf(s)]} opacity="0.16" />}
-                  <circle cx={x} cy={y} r={rr} fill={COLOR[effOf(s)]} stroke="#fff" strokeWidth="1.8" />
-                  {on && (
-                    <g>
-                      <rect x={x + rr + 6} y={y - 15} width={s.name.length * 6.6 + 18} height="26" rx="6" fill="#211c16" />
-                      <text x={x + rr + 14} y={y + 3} fontSize="12.5" fill="#f3e9d6" fontWeight="600">{s.name}</text>
-                    </g>
-                  )}
+                   onMouseEnter={() => setHover(s.store_id)}
+                   onMouseMove={(e) => {
+                     const r = wrapRef.current?.getBoundingClientRect();
+                     if (r) setTip({ name: s.name, kind: effOf(s), x: Math.min(Math.max(e.clientX - r.left, 90), r.width - 90), y: e.clientY - r.top });
+                   }}
+                   onMouseLeave={() => { setHover(null); setTip(null); }}
+                   onClick={() => setSel(s)}>
+                  {on && <circle cx={x} cy={y} r={rr + 5} fill={COLOR[effOf(s)]} opacity="0.2" />}
+                  {/* No-data dots are dimmed so the actionable red/amber/green pop. */}
+                  <circle cx={x} cy={y} r={on ? rr + 1 : rr} fill={COLOR[effOf(s)]} stroke="#fff" strokeWidth="1.6" opacity={nd && !on ? 0.4 : 1} />
                 </g>
               );
             })}
@@ -130,8 +139,13 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
             {(["green", "amber", "red", "nodata"] as Kind[]).filter((st) => st !== "nodata" || counts.nodata > 0).map((st) => (
               <span className="lg" key={st}><i style={{ background: COLOR[st] }} />{STLABEL[st]} · {counts[st]}</span>
             ))}
-            <span className="lg dim">dot size = weekly volume</span>
+            <span className="lg dim">hover a store for its name · click to open</span>
           </div>
+          {tip && (
+            <div className="maptip" style={{ left: tip.x, top: tip.y }}>
+              <span className="mt-dot" style={{ background: COLOR[tip.kind] }} />{tip.name}
+            </div>
+          )}
         </div>
 
         <div className="rail">
@@ -156,7 +170,10 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
                 <div className="ds"><div className="dn">{sel.sent}</div><div className="dl">sent / wk</div></div>
                 <div className="ds"><div className="dn">{sel.sold}</div><div className="dl">sold / wk</div></div>
               </div>
-              <div className={`d-status ${effOf(sel)}`}>{STLABEL[effOf(sel)]}</div>
+              <div className="d-foot">
+                <span className={`d-status ${effOf(sel)}`}>{STLABEL[effOf(sel)]}</span>
+                <Link href={`/store/${sel.store_id}`} className="d-open">Open store →</Link>
+              </div>
             </div>
           )}
 
@@ -188,7 +205,13 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
         .nmap .intro .itxt{font-size:14.5px;line-height:1.65;color:var(--ink2)}
         .nmap .intro b{color:var(--ink);font-weight:600}
         .nmap .grid2{display:grid;grid-template-columns:1.7fr 1fr;gap:18px;align-items:start}
-        .nmap .mapcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:14px}
+        .nmap .mapcard{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:14px}
+        .nmap .maptip{position:absolute;transform:translate(-50%,calc(-100% - 14px));background:#211c16;color:#f3e9d6;font-size:12.5px;font-weight:600;padding:6px 11px;border-radius:8px;white-space:nowrap;pointer-events:none;z-index:6;display:flex;align-items:center;gap:8px;box-shadow:0 6px 18px rgba(33,28,22,.28)}
+        .nmap .maptip .mt-dot{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 0 1.5px rgba(255,255,255,.5)}
+        .nmap .d-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}
+        .nmap .d-foot .d-status{margin:0}
+        .nmap .d-open{font-size:12.5px;font-weight:600;color:var(--crust-deep);text-decoration:none;white-space:nowrap}
+        .nmap .d-open:hover{text-decoration:underline}
         .nmap svg{display:block;border-radius:10px;background:linear-gradient(135deg,#f7f2e8,#f2ece0)}
         .nmap .maplegend{display:flex;gap:16px;flex-wrap:wrap;padding:12px 6px 4px}
         .nmap .lg{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink2);font-weight:600}
