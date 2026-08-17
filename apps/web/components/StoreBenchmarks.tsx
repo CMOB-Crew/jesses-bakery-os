@@ -23,9 +23,10 @@ export default function StoreBenchmarks({ data }: { data: Benchmarks }) {
       <div className="bench">
         <div className="panel intro">
           <div className="itxt">
-            We never grade a store against one number — each is measured against similar same-size stores in its region.
-            This lights up once at least two same-size stores in a region have a week of delivered-vs-sold, so the peer
-            cohorts are real. As the ledger fills across Coles and Harris Farm, the cohorts complete.
+            We never grade a store against one number — each is measured against similar stores on the same feed in its
+            region (retail scan vs direct invoice), so a Woolworths shelf is never judged against a cafe that invoices
+            exactly what it sells. This lights up once at least two comparable stores share a cohort. As the ledger fills
+            across Coles and Harris Farm, the cohorts complete.
           </div>
         </div>
       </div>
@@ -43,13 +44,14 @@ export default function StoreBenchmarks({ data }: { data: Benchmarks }) {
       <div className="panel intro">
         <div className="itxt">
           We never grade a store against one number. Each is measured against its <b>own last week</b> and against
-          <b> similar same-size stores in its region</b> — so a small Canberra store and a big Bondi store are judged
-          fairly. This is the fairness layer behind every 🟢🟡🔴 flag in the system.
+          <b> similar stores on the same feed in its region</b> — retail-scan stores against retail, direct-invoice
+          against invoice — so a Woolworths shelf is never held to a cafe&apos;s 100%. This is the fairness layer behind
+          every 🟢🟡🔴 flag in the system.
         </div>
       </div>
 
       <div className="strip">
-        <div className="tile"><div className="tn">{data.cohortCount}</div><div className="tl">Peer cohorts · size × region</div></div>
+        <div className="tile"><div className="tn">{data.cohortCount}</div><div className="tl">Peer cohorts · region × channel × size</div></div>
         <div className="tile"><div className="tn red">{data.under.length}</div><div className="tl">Below their peers · real underperformers</div></div>
         <div className="tile"><div className="tn green">{data.over.length}</div><div className="tl">Above their peers · worth learning from</div></div>
         <div className="tile"><div className="tn">{data.networkMedian ?? "—"}<span className="u">%</span></div><div className="tl">Network median sell-through</div></div>
@@ -105,7 +107,7 @@ export default function StoreBenchmarks({ data }: { data: Benchmarks }) {
               {[...data.under, ...data.over].map((s) => (
                 <tr key={s.store_id}>
                   <td className="strong"><Link href={`/store/${s.store_id}`}>{s.name}</Link></td>
-                  <td className="dim">{s.region} · {s.size}</td>
+                  <td className="dim">{s.region} · {s.channel} · {s.size}</td>
                   <td className="num">{s.sell}%</td>
                   <td className="num"><span className={`pill ${status(s.vs_cohort ?? 0)}`}>{(s.vs_cohort ?? 0) > 0 ? "+" : ""}{s.vs_cohort}</span></td>
                   <td className="num">{s.trend === null ? <span className="dim">—</span> : <span className={`pill ${status(s.trend)}`}>{s.trend > 0 ? "+" : ""}{s.trend}%</span>}</td>
@@ -122,8 +124,9 @@ export default function StoreBenchmarks({ data }: { data: Benchmarks }) {
       )}
 
       <div className="foot" style={{ marginTop: 16 }}>
-        Live from the store-week view. Sell-through is sold ÷ delivered; cohorts are size × region and need at least two
-        stores to benchmark. Every store is scored against its cohort median and its own last week — never one network target.
+        Live from the store-week view. Sell-through is sold ÷ delivered; cohorts are region × channel (retail scan vs
+        direct invoice) × size and need at least two stores to benchmark. Every store is scored against its cohort median
+        and its own last week — never one network target.
       </div>
 
       <style>{`

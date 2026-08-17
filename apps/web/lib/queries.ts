@@ -340,10 +340,10 @@ export async function getRecommendations(limit = 3): Promise<Recommendation[]> {
 // through = sold / delivered. Cohorts need >= 2 stores to benchmark.
 // ---------------------------------------------------------------------
 export type BenchRow = {
-  store_id: string; name: string; region: string; size: string;
+  store_id: string; name: string; region: string; size: string; channel: string;
   sell: number; cohort_median: number | null; vs_cohort: number | null; trend: number | null; status: Status;
 };
-export type BenchCohort = { key: string; region: string; size: string; median: number; count: number; stores: { store_id: string; name: string; sell: number; vs: number; status: Status }[] };
+export type BenchCohort = { key: string; region: string; size: string; channel: string; median: number; count: number; stores: { store_id: string; name: string; sell: number; vs: number; status: Status }[] };
 export type Benchmarks = { cohorts: BenchCohort[]; rows: BenchRow[]; under: BenchRow[]; over: BenchRow[]; networkMedian: number | null; cohortCount: number; hasData: boolean };
 
 const jbMedian = (ns: number[]) => {
@@ -355,27 +355,36 @@ const jbMedian = (ns: number[]) => {
 
 export async function getBenchmarks(): Promise<Benchmarks> {
   const sizeLabel = (s: string | null) => (s ? s[0].toUpperCase() + s.slice(1) : "Unsized");
+  // Channel splits the cohorts so we compare like with like. Direct-invoice
+  // stores (cafes, schools, hospitals) invoice exactly what they sell, so their
+  // sell-through is structurally ~100% and can't be compared to a retail shelf.
+  // Grouping them together would pin a retail store's cohort median at 100% and
+  // flag it red for a gap it can never close. Retail = Woolworths/Coles/Harris
+  // Farm scan feeds (real sell-through); Invoice = everything on direct invoice.
+  const channelOf = (retailer: string) => (retailer === "invoice" ? "Invoice" : "Retail");
   const base = (await getStoreWeek())
     .filter((s) => Number(s.total_sent) > 0)
     .map((s) => {
       const sent = Number(s.total_sent), sold = Number(s.total_sold), prev = Number(s.total_sold_prev);
       return {
         store_id: s.store_id, name: s.name, region: s.region ?? "Unassigned", size: sizeLabel(s.size_category),
+        channel: channelOf(s.retailer),
         sell: Math.round((1000 * sold) / sent) / 10, sold, prev, status: s.status as Status,
       };
     });
 
+  const keyOf = (r: typeof base[number]) => `${r.region} · ${r.size} · ${r.channel}`;
   const groups = new Map<string, typeof base>();
-  for (const r of base) { const k = `${r.region} · ${r.size}`; if (!groups.has(k)) groups.set(k, []); groups.get(k)!.push(r); }
+  for (const r of base) { const k = keyOf(r); if (!groups.has(k)) groups.set(k, []); groups.get(k)!.push(r); }
   const med = new Map<string, number>();
   for (const [k, rs] of groups) med.set(k, jbMedian(rs.map((r) => r.sell)));
 
   const rows: BenchRow[] = base.map((r) => {
-    const k = `${r.region} · ${r.size}`;
+    const k = keyOf(r);
     const peer = groups.get(k)!.length >= 2;
     const cm = med.get(k)!;
     return {
-      store_id: r.store_id, name: r.name, region: r.region, size: r.size, sell: r.sell,
+      store_id: r.store_id, name: r.name, region: r.region, size: r.size, channel: r.channel, sell: r.sell,
       cohort_median: peer ? cm : null,
       vs_cohort: peer ? Math.round((r.sell - cm) * 10) / 10 : null,
       trend: r.prev > 0 ? Math.round((1000 * (r.sold - r.prev)) / r.prev) / 10 : null,
@@ -387,9 +396,9 @@ export async function getBenchmarks(): Promise<Benchmarks> {
     .filter(([, rs]) => rs.length >= 2)
     .map(([key, rs]) => {
       const cm = med.get(key)!;
-      const [region, size] = key.split(" · ");
+      const [region, size, channel] = key.split(" · ");
       return {
-        key, region, size, median: cm, count: rs.length,
+        key, region, size, channel, median: cm, count: rs.length,
         stores: [...rs].sort((a, b) => b.sell - a.sell).map((r) => ({ store_id: r.store_id, name: r.name, sell: r.sell, vs: Math.round((r.sell - cm) * 10) / 10, status: r.status })),
       };
     })
