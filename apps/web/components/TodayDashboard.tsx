@@ -26,16 +26,24 @@ export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWee
   const netSellThrough = netSent > 0 ? Math.round((1000 * netSold) / netSent) / 10 : null;
   const netWaste = net.waste_pct == null ? null : Number(net.waste_pct);
 
-  // ---- needs attention ----
-  const likelyStockouts = rows.filter((r) => r.stockouts > 0).length;
-  const excessiveWaste = rows.filter((r) => r.waste != null && r.waste > 25).length;
-  const abnormalDeclines = rows.filter((r) => r.growth != null && r.growth < -10).length;
-  const allocationOpps = rows.filter((r) => r.sent - r.sold > Math.max(20, r.sold * 0.2)).length;
-
-  // ---- opportunities ----
-  const couldIncrease = rows.filter((r) => r.stockouts > 0).length;
-  const couldExpandRange = rows.filter((r) => r.sellThrough != null && r.sellThrough >= 95 && (r.waste == null || r.waste < 12)).length;
-  const outperforming = rows.filter((r) => r.s.status === "green" && r.sellThrough != null && r.sellThrough >= 92).length;
+  // ---- Today's action list (Simona's format: issue -> action) ----
+  const highWastage = rows.filter((r) => r.waste != null && r.waste > 25).length;
+  const stockOuts = rows.filter((r) => r.stockouts > 0).length;
+  const salesDecline = rows.filter((r) => r.growth != null && r.growth < -10).length;
+  const strongSellers = rows.filter((r) => r.sellThrough != null && r.sellThrough >= 95 && (r.waste == null || r.waste < 12)).length;
+  // "Need attention today" = any store hit by one of the three problem signals
+  // (union, so a store counts once even if it trips two).
+  const needAttention = rows.filter(
+    (r) => (r.waste != null && r.waste > 25) || r.stockouts > 0 || (r.growth != null && r.growth < -10),
+  ).length;
+  // dataPending: the sales-trend signals stay at 0 until the daily history loads
+  // — flag that rather than implying "all clear".
+  const actions = [
+    { key: "waste", tone: "red", n: highWastage, issue: "high wastage", action: "Reduce production", href: "/stores?view=waste25", pending: false },
+    { key: "stock", tone: "amber", n: stockOuts, issue: "repeated stock-outs", action: "Increase allocation", href: "/stores?view=stockouts", pending: true },
+    { key: "decline", tone: "blue", n: salesDecline, issue: "sudden sales decline", action: "Investigate", href: "/stores?view=declines", pending: true },
+    { key: "growth", tone: "green", n: strongSellers, issue: "strong sellers", action: "Consider expanding range", href: "/stores?view=expandrange", pending: false },
+  ] as const;
 
   // ---- best performers: high sell-through, low waste ----
   // Retail-scan stores only. Direct-invoice stores (cafes/schools) invoice
@@ -71,20 +79,27 @@ export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWee
         <span className="lknote">the per-unit figures already sit in the retailer data</span>
       </div>
 
-      <div className="t-cols">
-        <div className="t-card attn">
-          <div className="t-ch"><span className="ic">⚠</span> Needs attention</div>
-          <StatLine n={likelyStockouts} label="likely stockouts" tone="r" href="/stores?view=stockouts" />
-          <StatLine n={excessiveWaste} label="excessive waste (>25%)" tone="r" href="/stores?view=waste25" />
-          <StatLine n={abnormalDeclines} label="abnormal sales declines" tone="a" href="/stores?view=declines" />
-          <StatLine n={allocationOpps} label="allocation opportunities" tone="a" href="/stores?view=overdeliver" />
+      <div className="t-actions">
+        <div className="ta-h">
+          <span className="ta-t">📋 Today&apos;s action list</span>
+          <span className="ta-c"><b>{needAttention}</b> {needAttention === 1 ? "store needs" : "stores need"} attention</span>
         </div>
-        <div className="t-card opp">
-          <div className="t-ch"><span className="ic">📈</span> Opportunities</div>
-          <StatLine n={couldIncrease} label="stores could increase supply" tone="g" href="/stores?view=stockouts" />
-          <StatLine n={couldExpandRange} label="stores could expand range" tone="g" href="/stores?view=expandrange" />
-          <StatLine n={outperforming} label="outperforming comparable stores" tone="g" href="/stores?view=outperform" />
-        </div>
+        {actions.map((a) => {
+          const inner = (
+            <>
+              <span className={`ta-dot ${a.tone}`} />
+              <span className="ta-n">{a.n}</span>
+              <span className="ta-issue">{a.n === 1 ? "store" : "stores"} — {a.issue}</span>
+              <span className="ta-sep">→</span>
+              <span className="ta-do">{a.action}</span>
+            </>
+          );
+          return a.n > 0 ? (
+            <Link key={a.key} href={a.href} className="ta-row lk">{inner}<span className="ta-go">›</span></Link>
+          ) : (
+            <div key={a.key} className="ta-row off">{inner}<span className="ta-note">{a.pending ? "fills as the sales history loads" : "none flagged"}</span></div>
+          );
+        })}
       </div>
 
       <div className="t-cols">
@@ -131,6 +146,29 @@ export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWee
       .today .t-locked .lkm{font-size:11.5px;color:var(--faint);border:1px dashed var(--line2);border-radius:6px;padding:2px 8px}
       .today .t-locked .lknote{font-size:11px;color:var(--faint);font-style:italic}
       @media(max-width:520px){.today .t-locked .lknote{width:100%}}
+
+      .today .t-actions{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden;margin-bottom:16px}
+      .today .ta-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line2)}
+      .today .ta-t{font-family:var(--serif);font-size:16px;font-weight:600}
+      .today .ta-c{font-size:12.5px;color:var(--muted)}
+      .today .ta-c b{color:var(--ink);font-variant-numeric:tabular-nums}
+      .today .ta-row{display:flex;align-items:center;gap:11px;padding:12px 16px;border-bottom:1px solid var(--line2);font-size:13.5px}
+      .today .ta-row:last-child{border-bottom:none}
+      .today .ta-dot{width:11px;height:11px;border-radius:50%;flex:none}
+      .today .ta-dot.red{background:var(--red)}.today .ta-dot.amber{background:var(--amber)}.today .ta-dot.green{background:var(--green)}.today .ta-dot.blue{background:#4b7fc0}
+      .today .ta-n{font-family:var(--serif);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;min-width:30px;text-align:right}
+      .today .ta-issue{color:var(--ink);font-weight:600}
+      .today .ta-sep{color:var(--faint);font-weight:700}
+      .today .ta-do{color:var(--ink2)}
+      .today a.ta-row{text-decoration:none;color:inherit;transition:background .12s}
+      .today a.ta-row.lk:hover{background:#faf6ee}
+      .today .ta-go{margin-left:auto;color:var(--faint);font-weight:700;font-size:16px}
+      .today a.ta-row.lk:hover .ta-go{color:var(--crust-deep)}
+      .today .ta-row.off{opacity:.7}
+      .today .ta-row.off .ta-n{color:var(--faint)}
+      .today .ta-note{margin-left:auto;font-size:11.5px;color:var(--faint);font-style:italic}
+      @media(max-width:560px){.today .ta-do{display:none}.today .ta-sep{display:none}}
+
       .today .t-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
       @media(max-width:820px){.today .t-cols{grid-template-columns:1fr}}
       .today .t-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:16px 18px}
@@ -166,22 +204,3 @@ export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWee
   );
 }
 
-function StatLine({ n, label, tone, href }: { n: number; label: string; tone: "r" | "a" | "g"; href?: string }) {
-  const inner = (
-    <>
-      <span className={`sn ${tone}`}>{n}</span>
-      <span className="sl">{label}</span>
-    </>
-  );
-  // Drill to exactly this set — but only when there's something to see. A zero
-  // count links nowhere (nothing to drill into).
-  if (href && n > 0) {
-    return (
-      <Link href={href} className="t-stat lk">
-        {inner}
-        <span className="go">→</span>
-      </Link>
-    );
-  }
-  return <div className="t-stat">{inner}</div>;
-}
