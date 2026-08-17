@@ -1,20 +1,21 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import type { WeekdayShape } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
  * Seasonality calendar — the events calendar the engine plans against.
  * Front-end to the `events` table (name, kind, state, start/end,
  * uplift_pct). Every factor Simona named is here and editable:
  * weekday shape, school holidays, public/long weekends, Jewish
- * calendar, weather. No DB dependency — seeded with the real numbers
- * from her 12 Aug session so she can see and adjust what the engine
- * expects, week by week.
+ * calendar, weather. The weekday shape is now MEASURED from real
+ * sell-through (Simona's "weekends run much higher"); events stay
+ * seeded from her 12 Aug session so she can see and adjust them.
  * ------------------------------------------------------------------ */
 
-// Weekday demand shape, indexed by JS getDay() (0=Sun … 6=Sat).
-// From Simona: large store Mon–Wed ~80 → Thu–Sun ~120 units. Weekend
-// is a "huge factor". Same shape the Deliveries board scales by.
-const BASE: number[] = [1.05, 0.8, 0.8, 0.85, 1.15, 1.25, 1.2];
+// Fallback weekday shape, indexed by JS getDay() (0=Sun … 6=Sat).
+// From Simona's verbal read (large store Mon–Wed ~80 → Thu–Sun ~120).
+// Used only until there's a full week of real sales to measure from.
+const SEED_BASE: number[] = [1.05, 0.8, 0.8, 0.85, 1.15, 1.25, 1.2];
 const DOW_LABEL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 type Kind = "school" | "public" | "jewish" | "weather" | "retail" | "custom";
@@ -70,7 +71,9 @@ function ymd(y: number, m: number, d: number) {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-export default function SeasonalityCalendar() {
+export default function SeasonalityCalendar({ live }: { live: WeekdayShape | null }) {
+  // Weekday shape: measured from real sell-through when we have it, else the seed.
+  const BASE = live?.shape ?? SEED_BASE;
   // Default to Sept 2026 — the High-Holiday planning window Simona flagged.
   const [year, setYear] = useState(2026);
   const [month, setMonth] = useState(8); // 0-indexed → September
@@ -160,9 +163,15 @@ export default function SeasonalityCalendar() {
       <div className="panel intro">
         <div className="itxt">
           This is the events calendar the engine plans against — the same table the forecast reads. It starts from the
-          <b> weekday shape</b> (Mon–Wed quiet, Thu–Sun busy), then layers the swings Simona named: school holidays,
-          public and long weekends, the Jewish calendar, and weather. <b>Nothing here is fixed</b> — every uplift is a lever,
-          and she can add a custom event for any store or region.
+          <b> weekday shape</b> and layers the swings Simona named: school holidays, public and long weekends, the
+          Jewish calendar, and weather. <b>Nothing here is fixed</b> — every uplift is a lever, and she can add a custom
+          event for any store or region.
+          {live ? (
+            <> The weekday shape below is <b>measured from real sell-through</b> — weekends run <b>{live.weekendLift > 0 ? "+" : ""}{live.weekendLift}%</b> above
+            the weekday average across {live.weeks} week{live.weeks === 1 ? "" : "s"} of data, exactly the factor Simona flagged.</>
+          ) : (
+            <> The weekday shape is Simona&apos;s verbal read for now; it switches to the measured shape once a full week of sales lands.</>
+          )}
         </div>
       </div>
 

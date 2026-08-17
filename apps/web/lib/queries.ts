@@ -672,3 +672,41 @@ export async function getForecastAccuracy(): Promise<ForecastAccuracyData | null
     return null; // no history yet / query failed — page shows an honest empty state
   }
 }
+
+// ---------------------------------------------------------------------
+// Weekday demand shape — the real Sun..Sat multipliers from actual
+// sell-through, so the "weekends run much higher" factor Simona named is
+// measured, not assumed. Indexed by getDay() (0=Sun … 6=Sat), normalised
+// so the 7-day mean is 1.0. weekendLift = how much higher Sat/Sun run
+// vs the Mon–Fri average. Falls back to null (page uses the seed shape)
+// when there isn't a full week of data.
+// ---------------------------------------------------------------------
+export type WeekdayShape = { shape: number[]; weekendLift: number; weeks: number };
+export async function getWeekdayShape(): Promise<WeekdayShape | null> {
+  try {
+    const rows = await sql<{ dow: number; sold: number; days: number }[]>`
+      select extract(dow from sale_date)::int as dow,
+             sum(units_sold)::float8      as sold,
+             count(distinct sale_date)::int as days
+      from sales_daily
+      group by 1`;
+    if (rows.length < 7) return null;
+    const perDay = new Array(7).fill(0);
+    for (const r of rows) {
+      const d = Number(r.days);
+      perDay[Number(r.dow)] = d > 0 ? Number(r.sold) / d : 0;
+    }
+    if (perDay.some((v) => v <= 0)) return null; // a whole weekday missing — not enough to trust
+    const mean = perDay.reduce((a, b) => a + b, 0) / 7;
+    if (mean <= 0) return null;
+    const shape = perDay.map((v) => Math.round((v / mean) * 100) / 100);
+    const wkndAvg = (perDay[0] + perDay[6]) / 2;
+    const wkdayAvg = (perDay[1] + perDay[2] + perDay[3] + perDay[4] + perDay[5]) / 5;
+    const weekendLift = wkdayAvg > 0 ? Math.round((wkndAvg / wkdayAvg - 1) * 100) : 0;
+    const wk = await sql<{ weeks: number }[]>`
+      select count(distinct date_trunc('week', sale_date))::int as weeks from sales_daily`;
+    return { shape, weekendLift, weeks: Number(wk[0]?.weeks ?? 0) };
+  } catch {
+    return null;
+  }
+}
