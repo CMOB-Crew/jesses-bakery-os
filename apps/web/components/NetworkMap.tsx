@@ -10,9 +10,14 @@ import type { MapStore } from "@/lib/queries";
  * Regions are placed to read cleanly; the dots are the real network.
  * ------------------------------------------------------------------ */
 
-type Status = "green" | "amber" | "red";
-const COLOR: Record<Status, string> = { green: "var(--green)", amber: "var(--amber)", red: "var(--red)" };
-const STLABEL: Record<Status, string> = { green: "On track", amber: "Watch", red: "Needs attention" };
+type Kind = "green" | "amber" | "red" | "nodata";
+const COLOR: Record<Kind, string> = { green: "var(--green)", amber: "var(--amber)", red: "var(--red)", nodata: "var(--muted)" };
+const STLABEL: Record<Kind, string> = { green: "On track", amber: "Watch", red: "Needs attention", nodata: "No data" };
+
+// A mapped store with nothing delivered AND nothing sold has no loaded feed yet
+// (Coles/Harris) — neutral grey, never green. Same rule as the dashboards/Stores.
+const hasData = (s: MapStore) => Number(s.sent) > 0 || Number(s.sold) > 0;
+const effOf = (s: MapStore): Kind => (hasData(s) ? (s.status as Kind) : "nodata");
 
 export default function NetworkMap({ stores }: { stores: MapStore[] }) {
   const worst = [...stores].filter((s) => s.status === "red").sort((a, b) => Number(b.waste_pct ?? 0) - Number(a.waste_pct ?? 0));
@@ -29,8 +34,8 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
     );
   }
 
-  const counts: Record<Status, number> = { green: 0, amber: 0, red: 0 };
-  stores.forEach((s) => (counts[s.status] += 1));
+  const counts: Record<Kind, number> = { green: 0, amber: 0, red: 0, nodata: 0 };
+  stores.forEach((s) => (counts[effOf(s)] += 1));
   const sent = stores.reduce((a, s) => a + Number(s.sent), 0);
   const sold = stores.reduce((a, s) => a + Number(s.sold), 0);
   const wastePct = sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : 0;
@@ -109,11 +114,11 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
               return (
                 <g key={s.store_id} style={{ cursor: "pointer" }}
                    onMouseEnter={() => setHover(s.store_id)} onMouseLeave={() => setHover(null)} onClick={() => setSel(s)}>
-                  {on && <circle cx={x} cy={y} r={rr + 5} fill={COLOR[s.status]} opacity="0.16" />}
-                  <circle cx={x} cy={y} r={rr} fill={COLOR[s.status]} stroke="#fff" strokeWidth="1.8" />
+                  {on && <circle cx={x} cy={y} r={rr + 5} fill={COLOR[effOf(s)]} opacity="0.16" />}
+                  <circle cx={x} cy={y} r={rr} fill={COLOR[effOf(s)]} stroke="#fff" strokeWidth="1.8" />
                   {on && (
                     <g>
-                      <rect x={x + rr + 6} y={y - 15} width={s.name.length * 6.2 + 16} height="26" rx="6" fill="#211c16" />
+                      <rect x={x + rr + 6} y={y - 15} width={s.name.length * 6.6 + 18} height="26" rx="6" fill="#211c16" />
                       <text x={x + rr + 14} y={y + 3} fontSize="12.5" fill="#f3e9d6" fontWeight="600">{s.name}</text>
                     </g>
                   )}
@@ -122,7 +127,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
             })}
           </svg>
           <div className="maplegend">
-            {(["green", "amber", "red"] as Status[]).map((st) => (
+            {(["green", "amber", "red", "nodata"] as Kind[]).filter((st) => st !== "nodata" || counts.nodata > 0).map((st) => (
               <span className="lg" key={st}><i style={{ background: COLOR[st] }} />{STLABEL[st]} · {counts[st]}</span>
             ))}
             <span className="lg dim">dot size = weekly volume</span>
@@ -137,20 +142,21 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
               <span className="c green">{counts.green} on track</span>
               <span className="c amber">{counts.amber} watch</span>
               <span className="c red">{counts.red} attention</span>
+              {counts.nodata > 0 && <span className="c nodata">{counts.nodata} no data</span>}
             </div>
             <div className="sc-meta">{stores.length} stores mapped · {sent.toLocaleString("en-AU")} sent · {sold.toLocaleString("en-AU")} sold / wk</div>
           </div>
 
           {sel && (
             <div className="panel detail">
-              <div className="d-top"><span className="d-dot" style={{ background: COLOR[sel.status] }} /><span className="d-name">{sel.name}</span></div>
+              <div className="d-top"><span className="d-dot" style={{ background: COLOR[effOf(sel)] }} /><span className="d-name">{sel.name}</span></div>
               <div className="d-meta">{sel.retailer} · {sel.region ?? "—"}</div>
               <div className="d-stats">
                 <div className="ds"><div className="dn">{sel.waste_pct ?? "—"}%</div><div className="dl">waste</div></div>
                 <div className="ds"><div className="dn">{sel.sent}</div><div className="dl">sent / wk</div></div>
                 <div className="ds"><div className="dn">{sel.sold}</div><div className="dl">sold / wk</div></div>
               </div>
-              <div className={`d-status ${sel.status}`}>{STLABEL[sel.status]}</div>
+              <div className={`d-status ${effOf(sel)}`}>{STLABEL[effOf(sel)]}</div>
             </div>
           )}
 
@@ -199,6 +205,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
         .nmap .c.green{background:var(--green-b);color:var(--green-t)}
         .nmap .c.amber{background:var(--amber-b);color:var(--amber-t)}
         .nmap .c.red{background:var(--red-b);color:var(--red-t)}
+        .nmap .c.nodata{background:var(--line2);color:var(--muted)}
         .nmap .sc-meta{font-size:12px;color:var(--muted);margin-top:12px}
 
         .nmap .detail{padding:16px 18px}
@@ -214,6 +221,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
         .nmap .d-status.green{background:var(--green-b);color:var(--green-t)}
         .nmap .d-status.amber{background:var(--amber-b);color:var(--amber-t)}
         .nmap .d-status.red{background:var(--red-b);color:var(--red-t)}
+        .nmap .d-status.nodata{background:var(--line2);color:var(--muted)}
 
         .nmap .worst{overflow:hidden}
         .nmap .wrow{display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;background:var(--card);border:none;cursor:pointer;font-family:inherit;text-align:left}
