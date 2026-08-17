@@ -2,23 +2,31 @@
 
 import { Fragment, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import type { DeliveryLine, DeliveryDetailLine } from "@/lib/queries";
+import type { DeliveryLine, DeliveryDetailLine, WeekdayShape } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 
 const DOWSHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-// Typical week-shape — quieter Mon/Tue, heavy Fri–Sun. Splits the weekly plan
-// into a single day's drop; the weekly totals stay exact.
-const DOWMULT = [0.85, 0.85, 0.95, 1, 1.3, 1.55, 1.4];
-const DSUM = DOWMULT.reduce((a, b) => a + b, 0);
+// Fallback week-shape (Mon..Sun) — quieter Mon/Tue, heavy Fri–Sun. Used only
+// until there's a measured shape; splits the weekly plan into a single day's
+// drop while the weekly totals stay exact.
+const SEED_DOWMULT = [0.85, 0.85, 0.95, 1, 1.3, 1.55, 1.4];
 
 // The "calm" delivery order sheet. The engine writes the plan; Simona works
 // through it region by region, nudging any Final delivery number (−/+ appear on
 // hover), resetting or undoing, and ticking each store to approve. Each store
 // opens a per-product breakdown inline. Totals recalc live. Nothing sends to the
 // bakery until she signs it off.
-export default function DeliveriesBoard({ lines, detail = [] }: { lines: DeliveryLine[]; detail?: DeliveryDetailLine[] }) {
+export default function DeliveriesBoard({ lines, detail = [], shape = null }: { lines: DeliveryLine[]; detail?: DeliveryDetailLine[]; shape?: WeekdayShape | null }) {
+  // Day-split curve (Mon..Sun). Measured from real sell-through when we have it,
+  // reindexed from the Sun..Sat shape; else the seed curve. This is the same
+  // weekend uplift the Seasonality calendar shows — one shape across the app.
+  const DOWMULT = useMemo(
+    () => (shape?.shape ? [1, 2, 3, 4, 5, 6, 0].map((i) => shape.shape[i]) : SEED_DOWMULT),
+    [shape],
+  );
+  const DSUM = DOWMULT.reduce((a, b) => a + b, 0);
   const orig = useMemo(
     () => Object.fromEntries(lines.map((l) => [l.store_id, l.recommended])) as Record<string, number>,
     [lines],
@@ -143,6 +151,12 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
             <button type="button" key={d} className={`daypill ${day === i ? "on" : ""}`} onClick={() => setDay(i)}>{d}</button>
           ))}
         </div>
+        {shape && (
+          <span className="daymeas">
+            Day sizes measured from real sales — weekends run <b>{shape.weekendLift > 0 ? "+" : ""}{shape.weekendLift}%</b>,
+            so Sat/Sun drops sit at the top of each store&apos;s range and quiet weekdays at the bottom.
+          </span>
+        )}
       </div>
 
       <div className="hero">
@@ -306,7 +320,7 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
       <div className="foot">
         {isWeek
           ? <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you change it. Click a store to see its per-product breakdown. Tick to approve. Editing, reset &amp; undo are live; sending to the bakery is the next build phase. Switch to a day above to see just that day&apos;s drop — the buffer is already baked into every number.</>
-          : <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Click a store for its per-product breakdown, or tick to approve. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is modelled from typical demand until the daily plan is wired.</>}
+          : <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Click a store for its per-product breakdown, or tick to approve. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is {shape ? "sized from the measured weekday shape" : "modelled from typical demand"} until the daily plan is wired.</>}
       </div>
 
       <div className="actionbar">
@@ -322,6 +336,8 @@ export default function DeliveriesBoard({ lines, detail = [] }: { lines: Deliver
       <style>{`
       .dcalm{display:block;padding-bottom:72px}
       .dcalm .dayrow{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+      .dcalm .daymeas{flex-basis:100%;font-size:12px;color:var(--muted);line-height:1.5}
+      .dcalm .daymeas b{color:var(--ink);font-weight:700}
       .dcalm .daylbl{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.2px}
       .dcalm .dayselect{display:flex;gap:4px;background:#ece3d1;border-radius:11px;padding:4px;flex-wrap:wrap}
       .dcalm .daypill{border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;color:var(--muted);padding:8px 14px;border-radius:8px;cursor:pointer;transition:.14s}

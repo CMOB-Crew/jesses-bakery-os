@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { getDeliveryPlan, getDeliveryDetail } from "@/lib/queries";
+import { getDeliveryPlan, getDeliveryDetail, getWeekdayShape } from "@/lib/queries";
 import DeliveriesBoard from "@/components/DeliveriesBoard";
 
 export const metadata = { title: "Deliveries · Jesse's Bakery OS" };
 export const revalidate = 120; // cache ~2 min
 
 export default async function DeliveriesPage() {
-  const [lines, detail] = await Promise.all([getDeliveryPlan(), getDeliveryDetail()]);
+  const [lines, detail, shape] = await Promise.all([getDeliveryPlan(), getDeliveryDetail(), getWeekdayShape()]);
 
   return (
     <>
@@ -18,7 +18,7 @@ export default async function DeliveriesPage() {
       </div>
 
       {lines.length ? (
-        <DeliveriesBoard lines={lines} detail={detail} />
+        <DeliveriesBoard lines={lines} detail={detail} shape={shape} />
       ) : (
         // Empty until the plan is loaded — keep it honest, don't show a blank grid.
         <div className="panel">
