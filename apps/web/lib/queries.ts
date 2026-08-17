@@ -638,14 +638,16 @@ export type Launches = {
 };
 const EMPTY_LAUNCHES: Launches = { pipeline: [], cohorts: [], live: [], pipelineCount: 0, liveCount: 0 };
 
-export async function getLaunches(): Promise<Launches> {
+// Pipeline reads ONLY the base stores table, so it can never be taken down by a
+// mismatch in the deployed v_store_week shape.
+async function getPipelineStores(): Promise<PipelineStore[]> {
   try {
-    const pipeRows = await sql<{
+    const rows = await sql<{
       store_id: string; name: string; retailer: string; region: string | null;
       size: string | null; supplier_code: string | null; go_live_at: Date | null;
       days_to_live: number | null;
     }[]>`
-      select s.id as store_id, s.name, s.retailer::text as retailer,
+      select s.id::text as store_id, s.name, s.retailer::text as retailer,
              reg.name as region, s.size_category::text as size,
              s.supplier_code, s.go_live_at,
              (s.go_live_at - current_date)::int as days_to_live
@@ -655,29 +657,66 @@ export async function getLaunches(): Promise<Launches> {
         and s.go_live_at is not null
         and s.onboarded_at is null
       order by s.go_live_at asc nulls last, reg.name, s.name`;
-
-    const liveRows = await sql<{
-      store_id: string; name: string; retailer: string; region: string | null;
-      size: string | null; onboarded_at: Date | null; days_live: number | null;
-      total_sent: number; total_sold: number; total_sold_prev: number;
-      stockout_days: number; waste_pct: number | null; status: Status;
-    }[]>`
-      select v.store_id, v.name, v.retailer::text as retailer, v.region,
-             v.size_category::text as size, s.onboarded_at,
-             (current_date - s.onboarded_at)::int as days_live,
-             v.total_sent, v.total_sold, v.total_sold_prev,
-             v.stockout_days, v.waste_pct, v.status
-      from v_store_week v
-      join stores s on s.id = v.store_id
-      where s.onboarded_at is not null
-        and s.onboarded_at >= current_date - ${LAUNCH_WINDOW_DAYS}
-      order by s.onboarded_at desc, v.name`;
-
-    const pipeline: PipelineStore[] = pipeRows.map((r) => ({
+    return rows.map((r) => ({
       store_id: r.store_id, name: r.name, retailer: r.retailer, region: r.region,
       size: r.size, supplier_code: r.supplier_code, go_live_at: r.go_live_at,
       days_to_live: r.days_to_live == null ? null : Number(r.days_to_live),
     }));
+  } catch {
+    return [];
+  }
+}
+
+// Live-launch metrics come from getStoreWeek() (which does `select *`, so it
+// tolerates whatever shape the deployed view has). We only hit the base stores
+// table directly here, for onboarded_at, and match in JS. An isolated try/catch
+// means a view issue can never blank the Coming-up list.
+async function getLiveLaunchStores(): Promise<LiveLaunch[]> {
+  try {
+    const onboard = await sql<{ store_id: string; onboarded_at: Date; days_live: number }[]>`
+      select id::text as store_id, onboarded_at,
+             (current_date - onboarded_at)::int as days_live
+      from stores
+      where active = true
+        and onboarded_at is not null
+        and onboarded_at >= current_date - ${LAUNCH_WINDOW_DAYS}
+      order by onboarded_at desc, name`;
+    if (!onboard.length) return [];
+    const week = await getStoreWeek();
+    const byId = new Map(week.map((w) => [w.store_id, w] as const));
+    return onboard.map((o) => {
+      const w = byId.get(o.store_id);
+      const sold = Number(w?.total_sold ?? 0);
+      const daysLive = Number(o.days_live);
+      // Units per store per day = this week's units spread over the days observed
+      // (capped at 7, the sold window). ~ until the daily feed lands.
+      const denom = Math.min(7, Math.max(1, daysLive));
+      return {
+        store_id: o.store_id,
+        name: w?.name ?? o.store_id,
+        retailer: w?.retailer ?? "",
+        region: w?.region ?? null,
+        size: w?.size_category ?? null,
+        onboarded_at: o.onboarded_at,
+        days_live: daysLive,
+        total_sent: Number(w?.total_sent ?? 0),
+        total_sold: sold,
+        total_sold_prev: Number(w?.total_sold_prev ?? 0),
+        stockout_days: Number(w?.stockout_days ?? 0),
+        waste_pct: w?.waste_pct == null ? null : Number(w.waste_pct),
+        status: w?.status ?? "green",
+        units_per_day: sold > 0 ? Math.round((10 * sold) / denom) / 10 : null,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function getLaunches(): Promise<Launches> {
+  try {
+    const pipeline = await getPipelineStores();
+    const live = await getLiveLaunchStores();
 
     // Group the pipeline into rollout cohorts (same region + planned go-live) so
     // "5 Woolworths Metro stores launching in Canberra" reads as one rollout.
@@ -696,25 +735,6 @@ export async function getLaunches(): Promise<Launches> {
       const ta = a.go_live_at ? new Date(a.go_live_at).getTime() : Infinity;
       const tb = b.go_live_at ? new Date(b.go_live_at).getTime() : Infinity;
       return ta - tb;
-    });
-
-    const live: LiveLaunch[] = liveRows.map((r) => {
-      const sold = Number(r.total_sold);
-      const days = r.days_live == null ? null : Math.max(1, Math.min(LAUNCH_WINDOW_DAYS, Number(r.days_live)));
-      // Units per store per day = this week's units spread over the days observed
-      // (capped at 7, the sold window). ~ until the daily feed lands.
-      const denom = days == null ? 7 : Math.min(7, days);
-      return {
-        store_id: r.store_id, name: r.name, retailer: r.retailer, region: r.region,
-        size: r.size, onboarded_at: r.onboarded_at,
-        days_live: r.days_live == null ? null : Number(r.days_live),
-        total_sent: Number(r.total_sent), total_sold: sold,
-        total_sold_prev: Number(r.total_sold_prev),
-        stockout_days: Number(r.stockout_days),
-        waste_pct: r.waste_pct == null ? null : Number(r.waste_pct),
-        status: r.status,
-        units_per_day: sold > 0 ? Math.round((10 * sold) / denom) / 10 : null,
-      };
     });
 
     return { pipeline, cohorts, live, pipelineCount: pipeline.length, liveCount: live.length };
