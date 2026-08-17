@@ -5,6 +5,10 @@ import type { ProductionLine, WeekdayShape } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 const titleCase = (t: string) => t.replace(/\b\w/g, (c) => c.toUpperCase());
+const csvCell = (v: string | number) => {
+  const s = v == null ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
 
 // Accent per bread family — falls back to crust for anything new.
 const CAT_COLOR: Record<string, string> = {
@@ -111,6 +115,36 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2600);
+  }
+  // Export the bake sheet as it stands — current view (whole week or the
+  // selected day, with the day-split), any adjustments applied, grouped by
+  // category in bake order. Real CSV the floor can open and print.
+  function exportBakeSheet() {
+    const header = ["Category", "Product", "Current bake", "Engine plan", "Change", "Stores", isWeek ? "Confirmed" : "Baked"];
+    const body: string[] = [];
+    for (const g of groups) {
+      for (const l of g.rows) {
+        const cur = dv(l.sent);
+        const plan = dv(val(l.name));
+        body.push(
+          [g.category, l.name, cur, plan, plan - cur, l.stores, isDone(l.name) ? "Yes" : ""]
+            .map(csvCell)
+            .join(","),
+        );
+      }
+    }
+    const scope = isWeek ? "week" : DOWSHORT[day as number];
+    const csv = [header.map(csvCell).join(","), ...body].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `jesses-bake-sheet-${scope}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast(`Bake sheet exported — ${lines.length} lines (${isWeek ? "whole week" : dayName})`);
   }
   function setEngine(name: string, next: number, record = true) {
     if (!isWeek) return;
@@ -343,7 +377,7 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
       <div className="actionbar">
         <div className="prog"><b>{doneCount}</b> of {total} lines {isWeek ? "confirmed" : "baked"} · baking <span className="tr">{nf(totalEng)}</span> loaves {isWeek ? "this week" : dayShort}</div>
         <div className="sp">
-          <button type="button" className="btn" onClick={() => showToast(`${isWeek ? "Weekly bake sheet" : dayShort + " bake sheet"} sent to print — locking is the next build phase`)}>↧ {isWeek ? "Print bake sheet" : `Print ${dayShort} sheet`}</button>
+          <button type="button" className="btn" onClick={exportBakeSheet}>↧ {isWeek ? "Export bake sheet" : `Export ${dayShort} sheet`}</button>
           <button type="button" className="btn primary" onClick={() => {
             if (isWeek) { setApproved(Object.fromEntries(lines.map((l) => [l.name, true]))); showToast(`All ${total} lines confirmed ✓ — print & lock is the next build phase`); }
             else { setBaked((b) => ({ ...b, [String(day)]: Object.fromEntries(lines.map((l) => [l.name, true])) })); showToast(`All lines marked baked for ${dayShort} ✓`); }
