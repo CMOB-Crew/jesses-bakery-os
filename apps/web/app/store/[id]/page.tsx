@@ -20,10 +20,14 @@ const stOf = (s: StoreWeek) =>
 // peers, else same region, else the whole network — so it always resolves to
 // a real group. All from v_store_week.
 function computePeer(store: StoreWeek, all: StoreWeek[]): PeerStat {
-  let group = store.size_category ? all.filter((s) => s.size_category === store.size_category) : [];
+  // Compare only against OPERATING peers — stores with delivered volume this
+  // week. Stores with no loaded data (0 sent) would drag the medians to zero
+  // and make the ranking meaningless.
+  const active = all.filter((s) => Number(s.total_sent) > 0);
+  let group = store.size_category ? active.filter((s) => s.size_category === store.size_category) : [];
   let basis = store.size_category ? `${store.size_category} stores` : "";
-  if (group.length < 4) { group = all.filter((s) => s.region === store.region); basis = `${store.region ?? "network"} stores`; }
-  if (group.length < 4) { group = all; basis = "all stores"; }
+  if (group.length < 4) { group = active.filter((s) => s.region === store.region); basis = `${store.region ?? "network"} stores`; }
+  if (group.length < 4) { group = active; basis = "active stores"; }
   const peers = group.filter((s) => s.store_id !== store.store_id);
   const thisWaste = Number(store.waste_pct);
   const peerWastes = peers.map((s) => Number(s.waste_pct)).filter(Number.isFinite);
