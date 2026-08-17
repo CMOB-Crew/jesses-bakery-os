@@ -29,18 +29,40 @@ const retailerLabel = (r: string) =>
   r === "harris_farm" ? "Harris Farm" : r ? r[0].toUpperCase() + r.slice(1) : "—";
 const STATUS_LABEL: Record<Status, string> = { red: "Needs attention", amber: "Watch", green: "On track" };
 
+// Named drill-down views — each predicate matches an Overview "Needs attention"
+// / "Opportunities" tally EXACTLY, so clicking a number on the dashboard lands
+// on precisely those stores. Definitions must stay in lockstep with TodayDashboard.
+const sellThroughOf = (s: StoreWeek) => {
+  const sent = num(s.total_sent), sold = num(s.total_sold);
+  return sent > 0 ? (sold / sent) * 100 : null;
+};
+const growthOf = (s: StoreWeek) => {
+  const sold = num(s.total_sold), prev = num(s.total_sold_prev);
+  return prev > 0 ? ((sold - prev) / prev) * 100 : null;
+};
+const VIEWS: Record<string, { label: string; test: (s: StoreWeek) => boolean }> = {
+  waste25: { label: "Excessive waste (>25%)", test: (s) => s.waste_pct != null && num(s.waste_pct) > 25 },
+  stockouts: { label: "Likely stockouts", test: (s) => num(s.stockout_days) > 0 },
+  overdeliver: { label: "Allocation opportunities · over-delivering", test: (s) => num(s.total_sent) - num(s.total_sold) > Math.max(20, num(s.total_sold) * 0.2) },
+  expandrange: { label: "Could expand range", test: (s) => { const st = sellThroughOf(s); const w = s.waste_pct == null ? null : num(s.waste_pct); return st != null && st >= 95 && (w == null || w < 12); } },
+  outperform: { label: "Outperforming comparable stores", test: (s) => { const st = sellThroughOf(s); return s.status === "green" && st != null && st >= 92; } },
+  declines: { label: "Abnormal sales declines", test: (s) => { const g = growthOf(s); return g != null && g < -10; } },
+};
+
 // CSV-escape a cell (quote when it contains a comma, quote, or newline).
 const csvCell = (v: string | number | null) => {
   const s = v == null ? "" : String(v);
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-export default function StoresList({ stores, showRegion = true }: { stores: StoreWeek[]; showRegion?: boolean }) {
+export default function StoresList({ stores, showRegion = true, initialView }: { stores: StoreWeek[]; showRegion?: boolean; initialView?: string }) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<"all" | Status>("all");
   const [region, setRegion] = useState("all");
   const [retailer, setRetailer] = useState("all");
   const [sort, setSort] = useState<SortKey>("status");
+  const [view, setView] = useState(initialView && VIEWS[initialView] ? initialView : "");
+  const activeView = view && VIEWS[view] ? VIEWS[view] : null;
 
   const regions = useMemo(
     () => [...new Set(stores.map((s) => s.region).filter(Boolean) as string[])].sort(),
@@ -60,6 +82,7 @@ export default function StoresList({ stores, showRegion = true }: { stores: Stor
     const term = q.trim().toLowerCase();
     const list = stores.filter(
       (s) =>
+        (!activeView || activeView.test(s)) &&
         (status === "all" || s.status === status) &&
         (region === "all" || s.region === region) &&
         (retailer === "all" || s.retailer === retailer) &&
@@ -81,7 +104,7 @@ export default function StoresList({ stores, showRegion = true }: { stores: Stor
           return ORDER[a.status] - ORDER[b.status] || num(b.total_wasted) - num(a.total_wasted);
       }
     });
-  }, [stores, q, status, region, retailer, sort]);
+  }, [stores, q, status, region, retailer, sort, activeView]);
 
   const filtered = q || status !== "all" || region !== "all" || retailer !== "all";
 
@@ -114,6 +137,14 @@ export default function StoresList({ stores, showRegion = true }: { stores: Stor
 
   return (
     <div className="slist">
+      {activeView && (
+        <div className="viewbanner">
+          <span className="vb-l">Showing</span>
+          <b>{activeView.label}</b>
+          <span className="vb-c">{rows.length} store{rows.length === 1 ? "" : "s"}</span>
+          <button className="vb-x" onClick={() => setView("")}>Show all stores ×</button>
+        </div>
+      )}
       <div className="chips">
         {(["all", "red", "amber", "green"] as const).map((k) => (
           <button key={k} className={`chip ${k} ${status === k ? "on" : ""}`} onClick={() => setStatus(k)}>
@@ -204,6 +235,11 @@ export default function StoresList({ stores, showRegion = true }: { stores: Stor
       )}
 
       <style>{`
+        .slist .viewbanner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--card);border:1px solid var(--crust);border-left:3px solid var(--crust);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px}
+        .slist .viewbanner .vb-l{color:var(--muted);text-transform:uppercase;font-size:11px;font-weight:700;letter-spacing:.4px}
+        .slist .viewbanner b{color:var(--ink);font-weight:600}
+        .slist .viewbanner .vb-c{color:var(--ink2);font-variant-numeric:tabular-nums}
+        .slist .viewbanner .vb-x{margin-left:auto;border:none;background:none;color:var(--crust-deep);font-weight:600;font-size:12.5px;cursor:pointer;font-family:inherit;text-decoration:underline}
         .slist .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
         .slist .chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;color:var(--ink2);cursor:pointer;font-family:inherit}
         .slist .chip b{color:var(--ink);font-variant-numeric:tabular-nums}

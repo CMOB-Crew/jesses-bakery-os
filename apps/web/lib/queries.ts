@@ -330,7 +330,9 @@ export async function getRecommendations(limit = 3): Promise<Recommendation[]> {
 
   return Promise.all(
     red.map(async (s, i) => {
-      const atStake = Math.round(s.total_wasted * 0.9);
+      // Units wasted per week — the real, cost-feed-free figure. Labelled as
+      // units (not $) until Invoice_Cost lands and we can price it.
+      const atStake = Math.round(Number(s.total_wasted) || 0);
       const recos = await getStoreRecos(s.store_id);
 
       // Real engine numbers when we have a plan for this store — the card text is

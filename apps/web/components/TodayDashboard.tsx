@@ -38,8 +38,12 @@ export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWee
   const outperforming = rows.filter((r) => r.s.status === "green" && r.sellThrough != null && r.sellThrough >= 92).length;
 
   // ---- best performers: high sell-through, low waste ----
+  // Retail-scan stores only. Direct-invoice stores (cafes/schools) invoice
+  // exactly what they sell, so they sit at 100%/0% by definition and would
+  // fill this list with structural perfection, telling Simona nothing. This
+  // surfaces genuinely well-run RETAIL stores.
   const best = [...rows]
-    .filter((r) => r.sellThrough != null)
+    .filter((r) => r.sellThrough != null && r.s.retailer !== "invoice")
     .sort((a, b) => (b.sellThrough! - (b.waste ?? 0)) - (a.sellThrough! - (a.waste ?? 0)))
     .slice(0, 10);
 
@@ -56,27 +60,30 @@ export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWee
 
       <div className="t-strip">
         <div className="t-tile"><div className="tv">{nf(net.stores)}</div><div className="tl">Active stores supplied</div></div>
-        <div className="t-tile"><div className="tv soft">$ —</div><div className="tl">Sales · this week</div></div>
         <div className="t-tile"><div className="tv g">{netSellThrough == null ? "—" : `${netSellThrough}%`}</div><div className="tl">Sell-through</div></div>
-        <div className="t-tile"><div className="tv soft">$ —</div><div className="tl">Estimated waste</div></div>
         <div className="t-tile"><div className={`tv ${netWaste != null && netWaste <= 20 ? "g" : "a"}`}>{netWaste == null ? "—" : `${netWaste}%`}</div><div className="tl">Network waste</div></div>
-        <div className="t-tile"><div className="tv soft">$ —</div><div className="tl">Profit</div></div>
       </div>
-      <div className="t-soft">Sales, waste value and profit unlock with the cost feed — the per-unit figures already sit in the retailer data.</div>
+      <div className="t-locked">
+        <span className="lk">🔒 Unlocks with the cost feed</span>
+        <span className="lkm">Sales this week</span>
+        <span className="lkm">Estimated waste $</span>
+        <span className="lkm">Profit</span>
+        <span className="lknote">the per-unit figures already sit in the retailer data</span>
+      </div>
 
       <div className="t-cols">
         <div className="t-card attn">
           <div className="t-ch"><span className="ic">⚠</span> Needs attention</div>
-          <StatLine n={likelyStockouts} label="likely stockouts" tone="r" />
-          <StatLine n={excessiveWaste} label="excessive waste (>25%)" tone="r" />
-          <StatLine n={abnormalDeclines} label="abnormal sales declines" tone="a" />
-          <StatLine n={allocationOpps} label="allocation opportunities" tone="a" />
+          <StatLine n={likelyStockouts} label="likely stockouts" tone="r" href="/stores?view=stockouts" />
+          <StatLine n={excessiveWaste} label="excessive waste (>25%)" tone="r" href="/stores?view=waste25" />
+          <StatLine n={abnormalDeclines} label="abnormal sales declines" tone="a" href="/stores?view=declines" />
+          <StatLine n={allocationOpps} label="allocation opportunities" tone="a" href="/stores?view=overdeliver" />
         </div>
         <div className="t-card opp">
           <div className="t-ch"><span className="ic">📈</span> Opportunities</div>
-          <StatLine n={couldIncrease} label="stores could increase supply" tone="g" />
-          <StatLine n={couldExpandRange} label="stores could expand range" tone="g" />
-          <StatLine n={outperforming} label="outperforming comparable stores" tone="g" />
+          <StatLine n={couldIncrease} label="stores could increase supply" tone="g" href="/stores?view=stockouts" />
+          <StatLine n={couldExpandRange} label="stores could expand range" tone="g" href="/stores?view=expandrange" />
+          <StatLine n={outperforming} label="outperforming comparable stores" tone="g" href="/stores?view=outperform" />
         </div>
       </div>
 
@@ -113,15 +120,17 @@ export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWee
       .today .t-lbl{font-family:var(--serif);font-size:18px;font-weight:600;letter-spacing:-.2px}
       .today .t-date{font-size:12.5px;color:var(--ink2);font-weight:600}
       .today .t-note{margin-left:auto;font-size:11px;color:var(--faint)}
-      .today .t-strip{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
-      @media(max-width:900px){.today .t-strip{grid-template-columns:repeat(3,1fr)}}
-      @media(max-width:520px){.today .t-strip{grid-template-columns:repeat(2,1fr)}}
+      .today .t-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
+      @media(max-width:520px){.today .t-strip{grid-template-columns:1fr}}
       .today .t-tile{background:var(--card);padding:14px 16px}
       .today .t-tile .tv{font-family:var(--serif);font-size:23px;font-weight:600;letter-spacing:-.4px;font-variant-numeric:tabular-nums;line-height:1}
       .today .t-tile .tv.g{color:var(--green-t)}.today .t-tile .tv.a{color:var(--amber-t)}
-      .today .t-tile .tv.soft{color:var(--faint);font-weight:500}
       .today .t-tile .tl{font-size:11px;color:var(--muted);margin-top:6px}
-      .today .t-soft{font-size:11.5px;color:var(--faint);line-height:1.5;margin:8px 2px 18px}
+      .today .t-locked{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:10px 2px 18px}
+      .today .t-locked .lk{font-size:11.5px;font-weight:700;color:var(--muted);letter-spacing:.2px}
+      .today .t-locked .lkm{font-size:11.5px;color:var(--faint);border:1px dashed var(--line2);border-radius:6px;padding:2px 8px}
+      .today .t-locked .lknote{font-size:11px;color:var(--faint);font-style:italic}
+      @media(max-width:520px){.today .t-locked .lknote{width:100%}}
       .today .t-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
       @media(max-width:820px){.today .t-cols{grid-template-columns:1fr}}
       .today .t-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:16px 18px}
@@ -142,21 +151,37 @@ export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWee
       .today .t-row .mv.g{color:var(--green-t)}.today .t-row .mv.r{color:var(--red-t)}
       .today .t-row .mv2{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right;min-width:44px}
       .today .t-empty{padding:16px;color:var(--faint);font-size:12.5px}
-      .today .t-stat{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid var(--line2)}
-      .today .t-stat:first-of-type{border-top:none}
+      .today .t-stat{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid var(--line2)}
+      .today .t-stat:last-child{border-bottom:none}
       .today .t-stat .sn{font-family:var(--serif);font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;min-width:34px}
       .today .t-stat .sn.r{color:var(--red-t)}.today .t-stat .sn.a{color:var(--amber-t)}.today .t-stat .sn.g{color:var(--green-t)}
       .today .t-stat .sl{font-size:13px;color:var(--ink2)}
+      a.t-stat.lk{text-decoration:none;cursor:pointer;transition:background .12s;margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:7px}
+      a.t-stat.lk:hover{background:#faf6ee}
+      a.t-stat.lk .go{margin-left:auto;color:var(--faint);font-weight:700;font-size:13px}
+      a.t-stat.lk:hover .go{color:var(--crust-deep)}
+      a.t-stat.lk:hover .sl{color:var(--crust-deep)}
       `}</style>
     </section>
   );
 }
 
-function StatLine({ n, label, tone }: { n: number; label: string; tone: "r" | "a" | "g" }) {
-  return (
-    <div className="t-stat">
+function StatLine({ n, label, tone, href }: { n: number; label: string; tone: "r" | "a" | "g"; href?: string }) {
+  const inner = (
+    <>
       <span className={`sn ${tone}`}>{n}</span>
       <span className="sl">{label}</span>
-    </div>
+    </>
   );
+  // Drill to exactly this set — but only when there's something to see. A zero
+  // count links nowhere (nothing to drill into).
+  if (href && n > 0) {
+    return (
+      <Link href={href} className="t-stat lk">
+        {inner}
+        <span className="go">→</span>
+      </Link>
+    );
+  }
+  return <div className="t-stat">{inner}</div>;
 }

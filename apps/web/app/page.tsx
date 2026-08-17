@@ -24,7 +24,7 @@ export default async function Overview() {
       <div className="head">
         <h1>Overview</h1>
         <div className="meta">
-          <span>{fmtDate(asOf)} · this week</span>
+          <span>As of {fmtDate(asOf)}</span>
           {stale && (
             <span className="stalepill">⚠ {label(stale.source)} feed · {daysAgo(stale.as_of)} stale</span>
           )}
@@ -75,7 +75,7 @@ export default async function Overview() {
             </div>
             <div className="mini">
               <span>{r.red} need · {r.amber} watch · {r.green} on track</span>
-              <span className="rw">waste {r.waste_pct}%</span>
+              <span className="rw">waste {r.waste_pct == null ? "—" : `${r.waste_pct}%`}</span>
             </div>
           </Link>
         ))}

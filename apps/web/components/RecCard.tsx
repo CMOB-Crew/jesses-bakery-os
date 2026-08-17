@@ -12,7 +12,7 @@ export default function RecCard({ rec }: { rec: Recommendation }) {
       <div className="r-top">
         <span className="r-title">{s.name}</span>
         <StatusTag status={s.status} />
-        <span className="r-risk">~${rec.atStake.toLocaleString("en-AU")}/wk at stake</span>
+        <span className="r-risk">~{rec.atStake.toLocaleString("en-AU")} units/wk at stake</span>
       </div>
       <div className="r-body">{rec.cause}</div>
       <div className="r-fix"><span className="lbl">Recommended</span><b>{rec.fix}</b></div>
@@ -27,7 +27,7 @@ export default function RecCard({ rec }: { rec: Recommendation }) {
       {state === "approved" && (
         <div className="btns">
           <span style={{ fontSize: 12.5, color: "var(--green-t)", fontWeight: 600 }}>
-            ✓ Approved — queued to production &amp; delivery.
+            ✓ Approved
           </span>
         </div>
       )}
