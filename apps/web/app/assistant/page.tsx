@@ -2,7 +2,7 @@ import AssistantBoard, { type AssistantFacts } from "@/components/AssistantBoard
 import { getNetwork, getEngineProjection } from "@/lib/queries";
 
 export const metadata = { title: "Assistant · Jesse's Bakery OS" };
-export const revalidate = 120; // cache the fact-card numbers ~2 min
+export const dynamic = "force-dynamic"; // read live, like the other data pages
 
 async function loadFacts(): Promise<AssistantFacts> {
   try {
@@ -10,7 +10,11 @@ async function loadFacts(): Promise<AssistantFacts> {
     const balanced = scenarios.find((s) => s.scenario === "balanced");
     return {
       wastePct: net.waste_pct == null ? null : Number(net.waste_pct),
-      storesAttention: (Number(net.red) || 0) + (Number(net.amber) || 0),
+      // "Need attention" = red (waste >30% or repeat stockouts), matching the
+      // dashboards, the store list, and the answer engine's own "56 stores need
+      // attention". Amber is "to watch", a separate bucket — don't fold it in
+      // here, or the fact card reads 74 while the answer beside it reads 56.
+      storesAttention: Number(net.red) || 0,
       savedWk: balanced ? Number(balanced.units_saved_wk) || 0 : null,
     };
   } catch {
