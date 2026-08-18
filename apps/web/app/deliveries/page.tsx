@@ -3,7 +3,9 @@ import { getDeliveryPlan, getDeliveryDetail, getWeekdayShape } from "@/lib/queri
 import DeliveriesBoard from "@/components/DeliveriesBoard";
 
 export const metadata = { title: "Deliveries · Jesse's Bakery OS" };
-export const revalidate = 120; // cache ~2 min
+// Heavy per-store × per-product plan; render per request and stay off the
+// build-time prerender path (like the other data pages).
+export const dynamic = "force-dynamic";
 
 export default async function DeliveriesPage() {
   const [lines, detail, shape] = await Promise.all([getDeliveryPlan(), getDeliveryDetail(), getWeekdayShape()]);

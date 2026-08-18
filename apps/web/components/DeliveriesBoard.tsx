@@ -352,7 +352,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null }: { 
 
       <div className="foot">
         {isWeek
-          ? <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you change it. Click a store to see its per-product breakdown. Tick to approve. Editing, reset &amp; undo are live; sending to the bakery is the next build phase. Switch to a day above to see just that day&apos;s drop — the buffer is already baked into every number.</>
+          ? <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you change it. Click a store to see its per-product breakdown. Tick to approve. Your edits and approvals here are a working draft — they reset if you reload; saving them and sending to the bakery is the next build phase. Switch to a day above to see just that day&apos;s drop — the buffer is already baked into every number.</>
           : <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Click a store for its per-product breakdown, or tick to approve. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is {shape ? "sized from the measured weekday shape" : "modelled from typical demand"} until the daily plan is wired.</>}
       </div>
 
@@ -360,7 +360,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null }: { 
         <div className="prog"><b>{apprCount}</b> of {total} approved · trimming <span className="tr">{nf(Math.max(0, trim))}</span> loaves {isWeek ? "this week" : dayShort}</div>
         <div className="sp">
           <button type="button" className="btn" onClick={exportRunSheet}>↓ Export run sheet</button>
-          <button type="button" className="btn primary" onClick={() => { setApproved(Object.fromEntries(lines.map((l) => [l.store_id, true]))); showToast(`All ${total} orders approved ✓ — sending to the bakery is the next build phase`); }}>✓ Approve all</button>
+          <button type="button" className="btn primary" onClick={() => { setApproved(Object.fromEntries(lines.map((l) => [l.store_id, true]))); showToast(`All ${total} orders approved ✓ — draft only; saving + sending to the bakery is the next build phase`); }}>✓ Approve all</button>
         </div>
       </div>
 
@@ -420,9 +420,13 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null }: { 
       .dcalm .tgl.link{background:transparent;border-color:transparent;box-shadow:none;color:var(--crust-deep)}
       .dcalm .tgl.reset:not(:disabled){background:#fdf6e7;border-color:var(--amber);color:var(--amber-t)}
       .dcalm .tgl.reset:not(:disabled):hover{background:#fbeed2}
-      .dcalm .sheet{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
+      .dcalm .sheet{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh)}
       .dcalm .grid{display:grid;grid-template-columns:minmax(210px,1fr) 128px 150px 120px 104px;align-items:center}
-      .dcalm .colhead{background:var(--surface);border-bottom:1px solid var(--line)}
+      /* Sticky column header — this is a work-through spreadsheet, so the labels
+         stay put as she scrolls the 30 rows. (Needs the sheet NOT to be
+         overflow:hidden, which previously clipped it into a non-scrolling box.) */
+      .dcalm .colhead{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;border-top-left-radius:var(--r);border-top-right-radius:var(--r)}
+      .dcalm .sheet>:last-child{border-bottom-left-radius:var(--r);border-bottom-right-radius:var(--r)}
       .dcalm .colhead .grid>div{font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:12px 18px}
       .dcalm .colhead .r{text-align:right}.dcalm .colhead .c{text-align:center}
       .dcalm .colhead .grid>div:last-child{padding-right:24px}
