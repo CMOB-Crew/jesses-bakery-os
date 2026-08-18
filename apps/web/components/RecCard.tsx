@@ -29,6 +29,7 @@ export default function RecCard({ rec }: { rec: Recommendation }) {
           <span style={{ fontSize: 12.5, color: "var(--green-t)", fontWeight: 600 }}>
             ✓ Approved
           </span>
+          <span style={{ fontSize: 11.5, color: "var(--faint)" }}>saving it to the plan is the next build phase</span>
         </div>
       )}
       {state === "dismissed" && (
