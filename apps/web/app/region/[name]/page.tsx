@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { getRegionStores } from "@/lib/queries";
 import StoresList from "@/components/StoresList";
 
-export const revalidate = 120; // cache pages ~2 min so navigation is instant (prefetchable)
+// Render per request, consistent with the other data pages and off the
+// build-time prerender path.
+export const dynamic = "force-dynamic";
 
 export default async function RegionPage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = await params;
@@ -11,8 +13,14 @@ export default async function RegionPage({ params }: { params: Promise<{ name: s
   const stores = await getRegionStores(region);
   if (!stores.length) notFound();
 
-  const red = stores.filter((s) => s.status === "red").length;
-  const amber = stores.filter((s) => s.status === "amber").length;
+  // A store with nothing delivered AND nothing sold has no loaded feed yet — it
+  // is NOT "on track", it's awaiting feed. Count it separately (same rule as the
+  // dashboards and the store list below) so the summary matches its own chips.
+  const hasData = (s: (typeof stores)[number]) => Number(s.total_sent) > 0 || Number(s.total_sold) > 0;
+  const red = stores.filter((s) => hasData(s) && s.status === "red").length;
+  const amber = stores.filter((s) => hasData(s) && s.status === "amber").length;
+  const green = stores.filter((s) => hasData(s) && s.status === "green").length;
+  const nodata = stores.filter((s) => !hasData(s)).length;
   const sent = stores.reduce((a, s) => a + Number(s.total_sent), 0);
   const wasted = stores.reduce((a, s) => a + Number(s.total_wasted), 0);
   const waste = sent ? Math.round((1000 * wasted) / sent) / 10 : 0;
@@ -26,7 +34,7 @@ export default async function RegionPage({ params }: { params: Promise<{ name: s
           <span className="sh-meta">{stores.length} stores · waste {waste}%</span>
         </div>
         <div style={{ fontSize: 14, color: "var(--ink2)" }}>
-          {red} store{red !== 1 ? "s" : ""} need attention, {amber} to watch. The rest are on track.
+          {red} {red === 1 ? "store needs" : "stores need"} attention · {amber} to watch · {green} on track{nodata ? ` · ${nodata} awaiting feed` : ""}.
         </div>
       </div>
 
