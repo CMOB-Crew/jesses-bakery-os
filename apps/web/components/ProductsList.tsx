@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ProductPerf } from "@/lib/queries";
 import { createProductLaunch, setProductLaunch, clearProductLaunch } from "@/app/products/actions";
@@ -127,10 +128,16 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
   return (
     <div className="plist">
       <div className="strip">
-        <div className="tile"><div className="tn">{totals.lines}</div><div className="tl">Lines ranged · network</div></div>
+        <div className="tile"><div className="tn">{totals.lines}</div><div className="tl">Core lines · engine-planned</div></div>
         <div className="tile"><div className="tn">{nf(totals.sent)}</div><div className="tl">Delivered · units / wk</div></div>
         <div className="tile"><div className="tn">{nf(totals.sold)}</div><div className="tl">Sold · units / wk</div></div>
         <div className="tile"><div className="tn">{totals.wastePct ?? "—"}<span className="u">%</span></div><div className="tl">Implied waste · delivered − sold</div></div>
+      </div>
+
+      <div className="scopenote">
+        These are the engine&apos;s core planned lines (store_reco), not the full catalogue. Waste here is the
+        <b> current plan&apos;s over-delivery</b> — it runs higher than realised network waste on Overview because it&apos;s
+        exactly what the <b>Engine change</b> column trims. Click a line to see which stores drive it.
       </div>
 
       <NewProductLaunch />
@@ -180,7 +187,7 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
                 const chg = num(p.change);
                 return (
                   <tr key={p.product_id}>
-                    <td className="strong">{p.name}</td>
+                    <td className="strong"><Link href={`/product/${p.product_id}`}>{p.name}</Link></td>
                     <td style={{ color: "var(--ink2)" }}>{titleCase(p.category)}</td>
                     <td className="num">{nf(num(p.stores))}</td>
                     <td className="num">{nf(num(p.sent))}</td>
@@ -233,10 +240,14 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
         .plist .wp{font-weight:600;font-variant-numeric:tabular-nums}
         .plist .wp.hi{color:var(--red-t)} .plist .wp.mid{color:var(--amber-t)} .plist .wp.lo{color:var(--ink2)}
         .plist .chg{font-weight:700;font-variant-numeric:tabular-nums}
-        .plist .chg.cut{color:var(--red-t)} .plist .chg.add{color:var(--green-t)} .plist .chg.flat{color:var(--muted)}
+        /* Engine change: a cut trims over-delivery (waste win) -> green; a lift
+           raises an under-ordered line -> neutral. Never alarm-red. */
+        .plist .chg.cut{color:var(--green-t)} .plist .chg.add{color:var(--ink2)} .plist .chg.flat{color:var(--muted)}
+        .plist .scopenote{font-size:12px;color:var(--muted);line-height:1.55;background:var(--surface);border:1px solid var(--line2);border-radius:9px;padding:10px 13px;margin-bottom:14px}
+        .plist .scopenote b{color:var(--ink2);font-weight:600}
         .plist th.launchcol,.plist td.launchcol{text-align:right;white-space:nowrap}
-        .plist .pl-track{border:1px solid var(--line);background:var(--card);color:var(--crust-deep);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
-        .plist .pl-track:hover{background:#f6f0e6}
+        .plist .pl-track{border:none;background:none;color:var(--muted);padding:4px 6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:2px}
+        .plist .pl-track:hover{color:var(--crust-deep);text-decoration-color:currentColor}
         .plist .pl-track:disabled{opacity:.6;cursor:default}
         .plist .pl-on{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--green-t);background:var(--green-b);border-radius:999px;padding:4px 6px 4px 10px}
         .plist .pl-on .pl-dot{font-size:9px;line-height:1}

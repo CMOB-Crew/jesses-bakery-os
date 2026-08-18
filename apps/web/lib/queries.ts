@@ -216,6 +216,75 @@ export async function getProducts(): Promise<ProductPerf[]> {
   }
 }
 
+// One product's network totals — for the product drill-down header.
+export type ProductDetail = {
+  product_id: string; name: string; category: string; launched: boolean;
+  stores: number; sent: number; sold: number; recommended: number;
+  sell_through: number | null; waste_pct: number | null; change: number;
+};
+export async function getProductById(id: string): Promise<ProductDetail | null> {
+  try {
+    const rows = await sql<{
+      product_id: string; name: string; category: string; launched_at: Date | null;
+      stores: number; sent: number; sold: number; recommended: number;
+    }[]>`
+      select p.id::text as product_id, p.name, p.category::text as category, p.launched_at,
+             count(distinct r.store_id)::int as stores,
+             coalesce(sum(r.sent), 0)::int as sent,
+             coalesce(sum(r.sold), 0)::int as sold,
+             coalesce(sum(r.recommended), 0)::int as recommended
+      from products p
+      left join store_reco r on r.product_id = p.id
+      where p.id = ${id}::uuid
+      group by p.id, p.name, p.category, p.launched_at`;
+    const r = rows[0];
+    if (!r) return null;
+    const sent = Number(r.sent), sold = Number(r.sold);
+    return {
+      product_id: r.product_id, name: r.name, category: r.category,
+      launched: r.launched_at != null,
+      stores: Number(r.stores), sent, sold, recommended: Number(r.recommended),
+      sell_through: sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null,
+      waste_pct: sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null,
+      change: Number(r.recommended) - sent,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Per-store breakdown for one product (the drill-down): which stores range it
+// and how each does. Straight from the engine plan (store_reco).
+export type ProductStore = {
+  store_id: string; name: string; region: string | null;
+  sent: number; sold: number; recommended: number;
+  sell_through: number | null; waste_pct: number | null; change: number;
+};
+export async function getProductStores(id: string): Promise<ProductStore[]> {
+  try {
+    const rows = await sql<{ store_id: string; name: string; region: string | null; sent: number; sold: number; recommended: number }[]>`
+      select s.id::text as store_id, s.name, reg.name as region,
+             r.sent, r.sold, r.recommended
+      from store_reco r
+      join stores s on s.id = r.store_id
+      left join regions reg on reg.id = s.region_id
+      where r.product_id = ${id}::uuid
+      order by (r.sent - r.sold) desc, s.name`;
+    return rows.map((r) => {
+      const sent = Number(r.sent), sold = Number(r.sold);
+      return {
+        store_id: r.store_id, name: r.name, region: r.region,
+        sent, sold, recommended: Number(r.recommended),
+        sell_through: sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null,
+        waste_pct: sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null,
+        change: Number(r.recommended) - sent,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 // ---------------------------------------------------------------------
 // Product launches -- a new product line, tracked separately for its first
 // 6 weeks (mirrors the store Launches flow). launched_at is set from the

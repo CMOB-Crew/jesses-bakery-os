@@ -13,7 +13,7 @@ export default async function ProductsPage() {
     <>
       <div className="head">
         <h1>Products</h1>
-        <div className="meta">{products.length} lines · delivered vs sold, waste and engine move per product</div>
+        <div className="meta">{products.length} engine-planned lines · delivered vs sold, waste and engine move per product</div>
       </div>
       <ProductsList products={products} />
     </>
