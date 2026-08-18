@@ -296,7 +296,7 @@ export default function DriverApp() {
             <div className="content">
               {/* eslint-disable-next-line @next/next/no-img-element -- runtime camera data URL, not a static asset */}
               {photo && <img src={photo} className="thumb" alt="delivery" />}
-              <div className="meta"><span>🕑 7:12am</span><span>📍 −33.89, 151.27 · ±8m</span><span>✓ server-verified</span></div>
+              <div className="meta"><span>🕑 7:12am</span><span>📍 −33.89, 151.27 · ±8m</span><span>✓ time + GPS stamped</span></div>
               <div className="box"><div className="bh">Store signature</div>
                 <canvas ref={sigRef} className="sig" />
                 <div className="sighint">Receiver signs above · <a onClick={clearSig} style={{ color: "var(--crust-deep)", cursor: "pointer" }}>clear</a></div>
@@ -312,7 +312,7 @@ export default function DriverApp() {
             <div className="done-wrap">
               <div className="ck">✓</div>
               <h3>{cur?.name} delivered</h3>
-              <p>Photo, time, location &amp; signature saved.<br />On to the next stop.</p>
+              <p>Photo, time, location &amp; signature captured.<br />On to the next stop.</p>
             </div>
             <div className="actions"><button className="big" onClick={resetForNextStop}>Continue run</button></div>
           </div>
