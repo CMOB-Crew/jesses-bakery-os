@@ -582,7 +582,15 @@ export async function getBenchmarks(): Promise<Benchmarks> {
         stores: [...rs].sort((a, b) => b.sell - a.sell).map((r) => ({ store_id: r.store_id, name: r.name, sell: r.sell, vs: Math.round((r.sell - cm) * 10) / 10, status: r.status })),
       };
     })
-    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+    // Retail cohorts first: direct-invoice cohorts are structurally ~100%
+    // sell-through with no spread (a cafe invoices exactly what it sells), so
+    // they make a flat, zero-signal default and browse poorly. Lead with the
+    // retail cohorts that actually vary, then by size. Invoice cohorts still
+    // appear, at the end.
+    .sort((a, b) =>
+      (a.channel === b.channel ? 0 : a.channel === "Retail" ? -1 : 1)
+      || b.count - a.count
+      || a.key.localeCompare(b.key));
 
   const under = rows.filter((r) => r.vs_cohort !== null && r.vs_cohort <= -3).sort((a, b) => a.vs_cohort! - b.vs_cohort!);
   const over = rows.filter((r) => r.vs_cohort !== null && r.vs_cohort >= 3).sort((a, b) => b.vs_cohort! - a.vs_cohort!);

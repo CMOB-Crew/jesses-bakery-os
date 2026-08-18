@@ -2,7 +2,7 @@ import { getBenchmarks } from "@/lib/queries";
 import StoreBenchmarks from "@/components/StoreBenchmarks";
 
 export const metadata = { title: "Benchmarks · Jesse's Bakery OS" };
-export const revalidate = 120;
+export const dynamic = "force-dynamic";
 
 export default async function BenchmarksPage() {
   const data = await getBenchmarks();
