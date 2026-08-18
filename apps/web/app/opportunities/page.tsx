@@ -2,7 +2,7 @@ import { getOpportunities } from "@/lib/queries";
 import OpportunityFinder from "@/components/OpportunityFinder";
 
 export const metadata = { title: "Opportunities · Jesse's Bakery OS" };
-export const revalidate = 120;
+export const dynamic = "force-dynamic";
 
 export default async function OpportunitiesPage() {
   const data = await getOpportunities();

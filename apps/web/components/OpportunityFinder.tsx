@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Opportunities, OppLever } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -24,6 +24,14 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
   const queuedCount = Object.values(queued).filter(Boolean).length;
   const queuedUnits = data.opps.filter((o) => queued[o.id]).reduce((a, o) => a + o.gain, 0);
   function toggle(id: string) { setQueued((q) => ({ ...q, [id]: !q[id] })); }
+
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function showToast(msg: string) {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3400);
+  }
 
   if (!data.hasData) {
     return (
@@ -68,7 +76,12 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
         {queuedCount > 0 && (
           <div className="queuebar">
             <span>{queuedCount} queued · ~{queuedUnits} units/wk</span>
-            <button className="addplan">Add to this week&apos;s plan</button>
+            <button
+              className="addplan"
+              onClick={() => showToast(`Queued ${queuedCount} move${queuedCount === 1 ? "" : "s"} (~${queuedUnits} units/wk) — writing them into this week's plan is the next build phase`)}
+            >
+              Add to this week&apos;s plan
+            </button>
           </div>
         )}
       </div>
@@ -108,6 +121,8 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
         else right-sized to demand. Ranked by units today; it re-orders by revenue when the price feed lands (Invoice_Cost),
         and by true profit once Simona&apos;s production cost per unit is in.
       </div>
+
+      {toast && <div className="toast">{toast}</div>}
 
       <style>{`
         .opps .intro{margin-bottom:16px}
@@ -155,6 +170,7 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
         .opps .qbtn:hover{background:#f6f0e6}
         .opps .qbtn.on{background:var(--green);border-color:var(--green);color:#fff}
 
+        .opps .toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:var(--espresso);color:#f6eddb;padding:12px 18px;border-radius:12px;box-shadow:var(--sh-pop);font-size:13.5px;font-weight:500;z-index:60;max-width:88vw;text-align:center}
         @media (max-width:1080px){ .opps .headline{gap:16px} .opps .hl-levers{margin-left:0} .opps .oact{width:auto;flex-direction:row;align-items:center} }
       `}</style>
     </div>
