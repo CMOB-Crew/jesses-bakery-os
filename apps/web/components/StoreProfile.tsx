@@ -94,7 +94,11 @@ export default function StoreProfile({
   const metrics: { k: string; v: string; cls?: string }[] = [
     { k: "Sell-through", v: sellThrough == null ? "—" : `${sellThrough}%`, cls: sellThrough != null && sellThrough >= 85 ? "g" : undefined },
     { k: "Units sold · wk", v: nf(soldWk) },
-    { k: "Waste", v: wastePct == null ? "—" : `${wastePct}%`, cls: wastePct != null && wastePct <= 20 ? "g" : wastePct != null && wastePct > 25 ? "r" : "a" },
+    // Colour by the canonical RAG thresholds (jb_status: green <20, amber 20-30,
+    // red >30) so the tile agrees with this store's own status badge and every
+    // other page. (Was reddening at >25, which disagreed with the badge on a
+    // store sitting in the 25-30% amber band.)
+    { k: "Waste", v: wastePct == null ? "—" : `${wastePct}%`, cls: wastePct == null ? undefined : wastePct < 20 ? "g" : wastePct > 30 ? "r" : "a" },
     { k: "Stockout days", v: stockouts ? `${stockouts}` : "0", cls: stockouts ? "a" : undefined },
     { k: "Sales growth", v: growth == null ? "—" : `${growth >= 0 ? "▲" : "▼"} ${Math.abs(growth)}%`, cls: growth == null ? undefined : growth >= 0 ? "g" : "r" },
   ];

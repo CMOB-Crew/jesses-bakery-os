@@ -4,7 +4,10 @@ import { getStoreById, getStoreDaily, getStoreRecos, getStoreWeek } from "@/lib/
 import StoreProfile, { type PeerStat } from "@/components/StoreProfile";
 import type { StoreWeek } from "@/lib/queries";
 
-export const revalidate = 120; // cache pages ~2 min so navigation is instant (prefetchable)
+// Render per request, like the other data pages — this is the "single source of
+// truth" profile Simona acts on, so it should never serve a cached/stale read,
+// and it stays off the flaky build-time prerender path.
+export const dynamic = "force-dynamic";
 
 function median(xs: number[]): number | null {
   const a = xs.filter((v) => Number.isFinite(v)).sort((x, y) => x - y);
