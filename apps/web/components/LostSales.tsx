@@ -25,22 +25,27 @@ export default function LostSales({ data }: { data: LostSales }) {
     setResolved((r) => { const n = { ...r }; for (const l of data.losses) if (l.conf === "high" && !n[l.id]) n[l.id] = "applied"; return n; });
   }
 
-  if (!data.hasData) {
-    return (
-      <div className="losts">
-        <div className="panel intro">
-          <div className="itxt">
-            The mirror of waste — where stores <b>sell out early</b> and turn demand away. It reads from the on-hand ledger
-            (a stockout day = the shelf hit zero with nothing left to expire). No stockouts flagged this week; as the ledger
-            accumulates across Coles and Harris Farm, sellouts surface here with a sized fix.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="losts">
+      {!data.hasData ? (
+        <>
+          <div className="panel intro">
+            <div className="itxt">
+              The mirror of waste — where stores <b>sell out early</b> and turn demand away. It reads from the on-hand ledger
+              (a stockout day = the shelf hit zero with nothing left to expire). No stockouts flagged this week; as the ledger
+              accumulates across Coles and Harris Farm, sellouts surface here with a sized fix.
+            </div>
+          </div>
+          <div className="strip">
+            <div className="tile"><div className="tn dim">—</div><div className="tl">Estimated lost sales · units/wk</div></div>
+            <div className="tile"><div className="tn dim">—</div><div className="tl">Stores flagged</div></div>
+            <div className="tile"><div className="tn dim">$ —</div><div className="tl">Lost revenue / wk · lights up with the price feed</div></div>
+            <div className="tile"><div className="tn dim">—</div><div className="tl">Repeat sellouts · 3+ days out</div></div>
+          </div>
+          <div className="emptyhint">Nothing to action this week — the moment a store runs dry before its next drop, the sellout and a sized fix appear here.</div>
+        </>
+      ) : (
+      <>
       <div className="panel intro">
         <div className="itxt">
           The mirror of waste. Waste is baking too much; <b>lost sales is selling out early</b> and turning demand away —
@@ -119,6 +124,8 @@ export default function LostSales({ data }: { data: LostSales }) {
           </div>
         </div>
       )}
+      </>
+      )}
 
       <div className="foot" style={{ marginTop: 16 }}>
         Live from the on-hand ledger. Lost units are estimated from sell-through across the stockout days; the sized fix
@@ -136,6 +143,7 @@ export default function LostSales({ data }: { data: LostSales }) {
         .losts .tn.dim{color:var(--muted)}
         .losts .tn.amber{color:var(--amber-t)}
         .losts .tl{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4}
+        .losts .emptyhint{font-size:13px;color:var(--faint);line-height:1.6}
 
         .losts .banner{background:var(--amber-b);border:1px solid #e9cfa0;border-radius:var(--r);padding:16px 20px;margin-bottom:18px}
         .losts .banner .bh{font-family:var(--serif);font-size:16px;font-weight:600;color:var(--amber-t)}
