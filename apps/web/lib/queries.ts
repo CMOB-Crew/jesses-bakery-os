@@ -698,17 +698,21 @@ export async function getStockouts(): Promise<LostSales> {
 // ---------------------------------------------------------------------
 export type MapStore = {
   store_id: string; name: string; retailer: string; region: string | null;
-  lat: number; lng: number; status: Status; sent: number; sold: number; waste_pct: number | null;
+  status: Status; sent: number; sold: number; waste_pct: number | null;
 };
 export async function getMapStores(): Promise<MapStore[]> {
   try {
+    // The network map is a region-grouped diagram, not a to-scale geographic
+    // plot — it never uses coordinates. Read straight from v_store_week (the
+    // same active-store population Overview and Stores use) so every one of the
+    // 265 stores is placed and the map's counts reconcile with the rest of the
+    // app. (Previously it inner-joined stores on lat/lng and silently dropped
+    // ~39 stores with no coordinates, so the map read 226 / fewer of every
+    // status than the dashboards.)
     return await sql<MapStore[]>`
-      select v.store_id, v.name, v.retailer, v.region,
-             s.lat::float8 as lat, s.lng::float8 as lng, v.status,
-             v.total_sent as sent, v.total_sold as sold, v.waste_pct
-      from v_store_week v
-      join stores s on s.id = v.store_id
-      where s.lat is not null and s.lng is not null`;
+      select store_id, name, retailer, region, status,
+             total_sent as sent, total_sold as sold, waste_pct
+      from v_store_week`;
   } catch {
     return [];
   }
