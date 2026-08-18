@@ -243,6 +243,14 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
         .plist .pl-x{border:none;background:rgba(0,0,0,.06);color:inherit;width:17px;height:17px;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;padding:0;font-family:inherit}
         .plist .pl-x:hover{background:rgba(0,0,0,.14)}
         .plist .pl-x:disabled{opacity:.5;cursor:default}
+        .plist .pl-confirm{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end}
+        .plist .pl-date{border:1px solid var(--line);border-radius:7px;padding:4px 7px;font-size:12px;font-family:inherit;background:var(--surface);color:var(--ink);outline:none}
+        .plist .pl-date:focus{border-color:var(--crust)}
+        .plist .pl-go{border:none;background:var(--green,#557a4f);color:#fff;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
+        .plist .pl-go:disabled{opacity:.6;cursor:default}
+        .plist .pl-cancel2{border:1px solid var(--line);background:var(--card);color:var(--muted);width:24px;height:24px;border-radius:7px;cursor:pointer;font-size:13px;line-height:1;padding:0;font-family:inherit}
+        .plist .pl-cancel2:hover{background:#f6f0e6}
+        .plist .pl-cancel2:disabled{opacity:.5;cursor:default}
 
         .plist .nomatch{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px 20px;text-align:center;color:var(--ink2);font-size:14px}
         .plist .foot{margin-top:14px;font-size:12px;color:var(--muted);line-height:1.6}
@@ -257,12 +265,14 @@ function ProductLaunchCell({ id, launched }: { id: string; launched: boolean }) 
   const router = useRouter();
   const [pending, start] = useTransition();
   const [err, setErr] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [date, setDate] = useState("");
 
   function run(fn: () => Promise<{ ok: boolean }>) {
     setErr(false);
     start(async () => {
       const r = await fn();
-      if (r.ok) router.refresh();
+      if (r.ok) { setConfirming(false); router.refresh(); }
       else setErr(true);
     });
   }
@@ -275,10 +285,19 @@ function ProductLaunchCell({ id, launched }: { id: string; launched: boolean }) 
       </span>
     );
   }
+  if (!confirming) {
+    return (
+      <button className="pl-track" onClick={() => { setConfirming(true); setErr(false); }} title="Track this line as a launch">
+        Track launch
+      </button>
+    );
+  }
   return (
-    <button className="pl-track" onClick={() => run(() => setProductLaunch(id))} disabled={pending} title="Track this line as a launch (from today)">
-      {pending ? "…" : err ? "Retry" : "Track launch"}
-    </button>
+    <span className="pl-confirm">
+      <input type="date" className="pl-date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Launch date (defaults to today)" title="Launch date — defaults to today; set a past date to backdate" />
+      <button className="pl-go" onClick={() => run(() => setProductLaunch(id, date || undefined))} disabled={pending}>{pending ? "…" : err ? "Retry" : "Track"}</button>
+      <button className="pl-cancel2" onClick={() => { setConfirming(false); setErr(false); }} disabled={pending} title="Cancel" aria-label="Cancel">×</button>
+    </span>
   );
 }
 
