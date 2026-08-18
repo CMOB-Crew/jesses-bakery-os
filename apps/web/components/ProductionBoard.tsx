@@ -243,7 +243,7 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
               </>
             ) : (
               <>
-                <b>{dayName}{isToday ? " (today)" : ""}</b> — the bakery makes <b>{nf(totalEng)}</b> loaves. That&apos;s <b>{nf(totalSent)}</b> under the old plan, so <span className="fewer">{nf(Math.max(0, trim))} less</span> comes back. This is the sheet for the floor.
+                <b>{dayName}{isToday ? " (today)" : ""}</b> — the bakery makes <b>{nf(totalEng)}</b> loaves, down from <b>{nf(totalSent)}</b> under the old standing order{trim > 0 ? <>, so <span className="fewer">{nf(trim)} less</span> comes back at day&apos;s end</> : <></>}. This is the sheet for the floor.
               </>
             )}
           </div>
@@ -368,9 +368,9 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
 
       <div className="foot">
         {isWeek ? (
-          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Editing, reset &amp; undo are live;</b> printing &amp; lock land next phase. Daily splits are {shape ? "sized from the measured weekday shape" : "modelled from typical day-of-week demand"} until the daily plan is wired — the weekly totals are exact.</>
+          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Your edits and confirmations here are a working draft — they reset if you reload;</b> saving them and printing &amp; locking the sheet for the floor is the next build phase. Daily splits are {shape ? "sized from the measured weekday shape" : "modelled from typical day-of-week demand"} until the daily plan is wired — the weekly totals are exact.</>
         ) : (
-          <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Tick each line as it&apos;s baked, or print for the bench. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is {shape ? "sized from the measured weekday shape" : "modelled from typical demand"} until the daily plan is wired.</>
+          <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Tick each line as it&apos;s baked, or export the sheet for the bench. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is {shape ? "sized from the measured weekday shape" : "modelled from typical demand"} until the daily plan is wired.</>
         )}
       </div>
 
@@ -379,7 +379,7 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
         <div className="sp">
           <button type="button" className="btn" onClick={exportBakeSheet}>↧ {isWeek ? "Export bake sheet" : `Export ${dayShort} sheet`}</button>
           <button type="button" className="btn primary" onClick={() => {
-            if (isWeek) { setApproved(Object.fromEntries(lines.map((l) => [l.name, true]))); showToast(`All ${total} lines confirmed ✓ — print & lock is the next build phase`); }
+            if (isWeek) { setApproved(Object.fromEntries(lines.map((l) => [l.name, true]))); showToast(`All ${total} lines confirmed ✓ — draft only; saving + printing the sheet for the floor is the next build phase`); }
             else { setBaked((b) => ({ ...b, [String(day)]: Object.fromEntries(lines.map((l) => [l.name, true])) })); showToast(`All lines marked baked for ${dayShort} ✓`); }
           }}>✓ {isWeek ? "Confirm all" : "Mark all baked"}</button>
         </div>
@@ -433,9 +433,10 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
       .pcalm .tgl.link{background:transparent;border-color:transparent;box-shadow:none;color:var(--crust-deep)}
       .pcalm .tgl.reset:not(:disabled){background:#fdf6e7;border-color:var(--amber);color:var(--amber-t)}
       .pcalm .tgl.reset:not(:disabled):hover{background:#fbeed2}
-      .pcalm .sheet{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
+      .pcalm .sheet{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh)}
       .pcalm .grid{display:grid;grid-template-columns:minmax(190px,1fr) 116px 150px 104px 72px 108px;align-items:center}
-      .pcalm .colhead{background:var(--surface);border-bottom:1px solid var(--line)}
+      .pcalm .colhead{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;border-top-left-radius:var(--r);border-top-right-radius:var(--r)}
+      .pcalm .sheet>:last-child{border-bottom-left-radius:var(--r);border-bottom-right-radius:var(--r)}
       .pcalm .colhead .grid>div{font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:12px 18px}
       .pcalm .colhead .r{text-align:right}.pcalm .colhead .c{text-align:center}
       .pcalm .colhead .grid>div:last-child{padding-right:24px}
