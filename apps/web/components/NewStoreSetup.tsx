@@ -68,7 +68,7 @@ type RangeRule = { label: string; match: (region: string, retailer: string, name
 const RANGING: RangeRule[] = [
   {
     label: "Woolworths ACT doesn't range rye, dark rye or mini challah",
-    match: (region, retailer) => retailer === "woolworths" && region === "Canberra / ACT",
+    match: (region, retailer) => retailer === "woolworths" && /canberra|\bact\b/i.test(region),
     exclude: ["sd-rye", "sd-darkrye", "mc-plain", "mc-sesame"],
   },
   {
@@ -120,11 +120,15 @@ function seed(size: Size, type: SType, excluded: Set<string> = new Set()): Recor
   return out;
 }
 
-export default function NewStoreSetup() {
+const titleCaseRegion = (s: string) => (s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+export default function NewStoreSetup({ regions = [] }: { regions?: string[] }) {
+  // Real regions from the DB when available; otherwise the built-in fallback.
+  const regionOpts = regions.length ? regions : REGIONS;
   const [name, setName] = useState("");
   const [retailer, setRetailer] = useState("woolworths");
   const [storeNo, setStoreNo] = useState("");
-  const [region, setRegion] = useState(REGIONS[0]);
+  const [region, setRegion] = useState(regionOpts[0]);
   const [run, setRun] = useState("1");
   const [days, setDays] = useState<Record<string, boolean>>({ Mon: true, Tue: false, Wed: true, Thu: false, Fri: true, Sat: false, Sun: false });
   const [size, setSize] = useState<Size>("small");
@@ -199,11 +203,11 @@ export default function NewStoreSetup() {
             <div className="sec-h"><span className="no">1</span>Store identity</div>
             <div className="fgrid">
               <label className="fld f-2">
-                <span>Store name</span>
+                <span>Store name <i className="req">required</i></span>
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Woolworths Metro Bonner" />
               </label>
               <label className="fld">
-                <span>Store number</span>
+                <span>Store number <i className="opt">optional</i></span>
                 <input value={storeNo} onChange={(e) => setStoreNo(e.target.value)} placeholder="e.g. 1457" />
               </label>
               <div className="fld f-3">
@@ -217,7 +221,7 @@ export default function NewStoreSetup() {
               <label className="fld">
                 <span>Region</span>
                 <select value={region} onChange={(e) => setRegion(e.target.value)}>
-                  {REGIONS.map((r) => <option key={r}>{r}</option>)}
+                  {regionOpts.map((r) => <option key={r} value={r}>{titleCaseRegion(r)}</option>)}
                 </select>
               </label>
               <label className="fld">
@@ -387,6 +391,16 @@ export default function NewStoreSetup() {
             >
               {saving ? "Saving…" : timing === "live" ? "Create & go live" : "Create store"}
             </button>
+            {!saving && (!name || over || (timing === "upcoming" && !goLiveDate)) ? (
+              <div className="createhint">
+                {!name
+                  ? "Add a store name to continue."
+                  : over
+                  ? "The bundle is over the shelf max — trim it or raise the cap first."
+                  : "Set a planned go-live date to continue."}
+              </div>
+            ) : null}
+            <div className="savescope">Creates the store and its go-live. The starting bundle, run and delivery days are the plan it launches with — saved to the engine as the feed comes online.</div>
             {saved && (
               <div className={`savemsg ${saved.ok ? "ok" : "err"}`}>
                 {saved.msg}{saved.ok && <> <a href="/launches">Open Launches →</a></>}
@@ -485,6 +499,11 @@ export default function NewStoreSetup() {
         .nstore .savemsg.ok{background:var(--green-b);color:var(--green-t);border:1px solid var(--green)}
         .nstore .savemsg.err{background:var(--red-b,#f7e4e0);color:var(--red-t,#a4372a);border:1px solid var(--red,#c0563f)}
         .nstore .savemsg a{color:inherit;text-decoration:underline}
+        .nstore .req,.nstore .opt{font-style:normal;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:999px;margin-left:6px;vertical-align:1px}
+        .nstore .req{color:var(--red-t,#a4372a);background:var(--red-b,#f7e4e0)}
+        .nstore .opt{color:var(--muted);background:var(--line2)}
+        .nstore .createhint{font-size:11.5px;color:var(--muted);text-align:center;margin-top:8px;line-height:1.4}
+        .nstore .savescope{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5}
 
         @media (max-width:1080px){ .nstore .grid2{grid-template-columns:1fr} .nstore .rail{position:static} }
       `}</style>

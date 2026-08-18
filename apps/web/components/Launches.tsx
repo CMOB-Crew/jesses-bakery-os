@@ -61,7 +61,7 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
         <div className="tile"><div className="tn">{nextLive ? fmtDate(nextLive) : "—"}</div><div className="tl">Next planned go-live</div></div>
       </div>
 
-      <div className="section-h"><span className="tick" />Coming up</div>
+      <div className="section-h"><span className="tick" />Coming up<Link href="/new-store" className="add-launch">+ New store launch</Link></div>
       {cohorts.length === 0 ? (
         <div className="panel empty">
           Nothing in the pipeline right now. When you add a new store on <Link href="/new-store">New store</Link> and set a
@@ -86,7 +86,7 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
         </div>
       )}
 
-      <div className="section-h" style={{ marginTop: 26 }}><span className="tick" />New products — first 6 weeks</div>
+      <div className="section-h" style={{ marginTop: 26 }}><span className="tick" />New products — first 6 weeks<Link href="/products" className="add-launch">+ New product launch</Link></div>
       {productLaunches.length === 0 ? (
         <div className="panel empty slim">
           No product launches tracked yet. Tag a line&apos;s launch date on <Link href="/products">Products</Link> and it
@@ -118,6 +118,9 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
         .lau .tn.zero{color:var(--muted)}
         .lau .tl{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4}
 
+        .lau .section-h{display:flex;align-items:center}
+        .lau .add-launch{margin-left:auto;font-size:12px;font-weight:600;color:var(--crust-deep,var(--espresso));border:1px solid var(--line);background:var(--card);border-radius:8px;padding:5px 11px;text-decoration:none}
+        .lau .add-launch:hover{background:#f6f0e6}
         .lau .empty{font-size:14px;line-height:1.6;color:var(--ink2);margin-top:2px}
         .lau .empty.slim{font-size:13px;line-height:1.55;color:var(--muted);padding:13px 18px}
         .lau .empty a{color:var(--crust-deep,var(--espresso));font-weight:600}

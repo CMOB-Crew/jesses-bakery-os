@@ -73,6 +73,18 @@ export async function getRegions(): Promise<RegionWeek[]> {
   }
 }
 
+// Every real region name, straight from the regions table (not store-gated like
+// v_region_week). Drives the New store dropdown so it only ever offers regions
+// that actually exist — a picked region can't silently fail to attach.
+export async function getRegionNames(): Promise<string[]> {
+  try {
+    const rows = await sql<{ name: string }[]>`select name from regions order by name`;
+    return rows.map((r) => r.name).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 // 6-week network waste trend, oldest -> newest, as a % series for the chart.
 export async function getWasteTrend(): Promise<number[]> {
   try {
