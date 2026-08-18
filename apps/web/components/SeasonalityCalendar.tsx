@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { WeekdayShape, SeasonEvent } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -171,6 +171,14 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
     setUplifts((u) => ({ ...u, [id]: (u[id] ?? 0) + dir }));
   }
 
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function showToast(msg: string) {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3600);
+  }
+
   const fmtPct = (m: number) => {
     const p = Math.round((m - 1) * 100);
     return (p > 0 ? "+" : "") + p + "%";
@@ -297,16 +305,20 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
                 <div className="ev-note">{e.note}</div>
               </div>
             ))}
-            <button className="addev">+ Add event or store-specific override</button>
+            <button className="addev" onClick={() => showToast("Adding events and per-store overrides is the next build phase — the calendar here reads from the shared events table.")}>+ Add event or store-specific override</button>
           </div>
           <div className="foot" style={{ marginTop: 12 }}>
             Seeded from Simona&apos;s 12 Aug session. Dates for the Jewish calendar are the engine&apos;s current
-            assumption — confirmed with her, and adjustable here any time.
+            assumption — confirmed with her. Nudging an uplift previews it live; writing changes back to the shared
+            calendar is the next build phase.
           </div>
         </div>
       </div>
 
+      {toast && <div className="toast">{toast}</div>}
+
       <style>{`
+        .seasn .toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:var(--espresso);color:#f6eddb;padding:12px 18px;border-radius:12px;box-shadow:var(--sh-pop);font-size:13.5px;font-weight:500;z-index:60;max-width:88vw;text-align:center}
         .seasn .intro{margin-bottom:16px}
         .seasn .intro .itxt{font-size:14.5px;line-height:1.65;color:var(--ink2)}
         .seasn .intro b{color:var(--ink);font-weight:600}
