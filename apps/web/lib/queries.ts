@@ -679,7 +679,9 @@ async function getLiveLaunchStores(): Promise<LiveLaunch[]> {
       from stores
       where active = true
         and onboarded_at is not null
-        and onboarded_at >= current_date - ${LAUNCH_WINDOW_DAYS}
+        -- cast the bound param to int so it resolves to the date - int operator
+        -- (an untyped/bigint bind can fail operator resolution and throw)
+        and onboarded_at >= current_date - ${LAUNCH_WINDOW_DAYS}::int
       order by onboarded_at desc, name`;
     if (!onboard.length) return [];
     const week = await getStoreWeek();
