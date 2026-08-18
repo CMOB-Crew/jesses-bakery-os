@@ -161,12 +161,12 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
       .dsheet th{font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:12px 10px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
       /* Even, breathable number columns. */
       .dsheet th:not(.store), .dsheet td:not(.store){min-width:62px}
-      .dsheet th.store{text-align:left;padding-left:16px;position:sticky;left:0;background:var(--card);z-index:2;width:212px;min-width:212px;max-width:212px;border-right:1px solid var(--line)}
+      .dsheet th.store{text-align:left;padding-left:16px;position:sticky;left:0;background:var(--card);z-index:2;width:250px;min-width:250px;max-width:250px;border-right:1px solid var(--line)}
       .dsheet td{padding:10px 12px;border-bottom:1px solid var(--line2);text-align:center}
       /* Freeze the Store column at a fixed width and truncate the odd very-long
          name (e.g. "Woolworths Marrickville Metro Shopping Centre") so one outlier
          no longer blows the column wide and pushes every number far right. */
-      .dsheet td.store{text-align:left;padding-left:16px;font-weight:600;font-size:13.5px;position:sticky;left:0;background:var(--card);white-space:nowrap;z-index:1;width:212px;min-width:212px;max-width:212px;border-right:1px solid var(--line)}
+      .dsheet td.store{text-align:left;padding-left:16px;font-weight:600;font-size:13.5px;position:sticky;left:0;background:var(--card);white-space:nowrap;z-index:1;width:250px;min-width:250px;max-width:250px;border-right:1px solid var(--line)}
       .dsheet td.store .snm{display:block;overflow:hidden;text-overflow:ellipsis}
       .dsheet td.store small{display:block;color:var(--muted);font-weight:400;font-size:11.5px;overflow:hidden;text-overflow:ellipsis}
       .dsheet tr:last-child td{border-bottom:none}
