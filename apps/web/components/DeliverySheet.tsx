@@ -41,14 +41,16 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
   }, [detail]);
   const [cells, setCells] = useState<Record<string, number>>(initial);
   const [flash, setFlash] = useState<string | null>(null);
-  const [saved, setSaved] = useState("All changes saved");
+  // Honest status: edits live in the browser only (write-back is next phase), so
+  // never claim "saved" or "sent to packers & production" — that would be false.
+  const [saved, setSaved] = useState("Working draft · resets on reload");
 
   const cell = (sid: string, p: string) => cells[`${sid}::${p}`] ?? 0;
   function setCell(sid: string, p: string, val: number) {
     const n = Math.max(0, Math.floor(Number(val) || 0));
     setCells((c) => ({ ...c, [`${sid}::${p}`]: n }));
     setFlash(`${sid}::${p}`);
-    setSaved("Saved · sent to packers & production");
+    setSaved("Draft updated · not yet sent to packers & production");
   }
 
   const rowTotal = (sid: string) => products.reduce((a, p) => a + cell(sid, p), 0);
@@ -73,7 +75,7 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
   return (
     <section className="dsheet">
       <div className="dhead">
-        <div className="save">✓ <span>{saved}</span></div>
+        <div className="save"><span>{saved}</span></div>
       </div>
 
       <div className="layout">
@@ -97,7 +99,7 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
                       return (
                         <td key={p}>
                           <input
-                            className={`cell ${flash === k ? "flash" : ""}`}
+                            className={`cell ${cell(s.store_id, p) === 0 ? "z" : ""}${flash === k ? " flash" : ""}`}
                             value={cell(s.store_id, p)}
                             inputMode="numeric"
                             onChange={(e) => setCell(s.store_id, p, parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)}
@@ -151,22 +153,29 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
       <style>{`
       .dsheet{display:block;padding-bottom:40px}
       .dsheet .dhead{display:flex;align-items:center;margin-bottom:14px}
-      .dsheet .save{margin-left:auto;font-size:12.5px;color:var(--green-t);font-weight:600}
+      .dsheet .save{margin-left:auto;font-size:12.5px;color:var(--muted);font-weight:600}
       .dsheet .layout{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start}
       @media(max-width:1080px){.dsheet .layout{grid-template-columns:1fr}}
       .dsheet .sheetwrap{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:auto}
       .dsheet table{width:100%;border-collapse:collapse}
       .dsheet th{font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:12px 8px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
       .dsheet th.store{text-align:left;padding-left:16px;position:sticky;left:0;background:var(--card);z-index:2}
-      .dsheet td{padding:5px 8px;border-bottom:1px solid var(--line2);text-align:center}
+      .dsheet td{padding:8px 12px;border-bottom:1px solid var(--line2);text-align:center}
       .dsheet td.store{text-align:left;padding-left:16px;font-weight:600;font-size:13.5px;position:sticky;left:0;background:var(--card);white-space:nowrap;z-index:1}
       .dsheet td.store small{display:block;color:var(--muted);font-weight:400;font-size:11.5px}
       .dsheet tr:last-child td{border-bottom:none}
-      .dsheet input.cell{width:48px;padding:6px 4px;border:1px solid transparent;border-radius:8px;background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums;color:var(--ink);outline:none}
-      .dsheet input.cell:hover{border-color:var(--line)}
-      .dsheet input.cell:focus{border-color:var(--crust);background:#fff;box-shadow:0 0 0 3px rgba(176,116,28,.13)}
+      /* Zebra rows + dimmed zeros keep a wide, dense grid readable. Cells read as
+         plain numbers on the row and only light up as editable on hover/focus. */
+      .dsheet tbody tr:nth-child(even) td{background:#fbf8f1}
+      .dsheet tbody tr:nth-child(even) td.store{background:#fbf8f1}
+      .dsheet tbody tr:hover td{background:#f5efe3}
+      .dsheet tbody tr:hover td.store{background:#f5efe3}
+      .dsheet input.cell{width:52px;padding:6px 4px;border:1px solid transparent;border-radius:8px;background:transparent;font-family:inherit;font-size:14px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums;color:var(--ink);outline:none;transition:background .12s,border-color .12s}
+      .dsheet input.cell.z{color:var(--faint);font-weight:400}
+      .dsheet input.cell:hover{border-color:var(--line);background:var(--card)}
+      .dsheet input.cell:focus{border-color:var(--crust);background:#fff;box-shadow:0 0 0 3px rgba(176,116,28,.13);color:var(--ink);font-weight:600}
       .dsheet input.cell.flash{animation:dsfl .6s}
-      @keyframes dsfl{0%{background:#fbeed2}100%{background:var(--surface)}}
+      @keyframes dsfl{0%{background:#fbeed2}100%{background:transparent}}
       .dsheet td.rowtot{font-weight:700;font-variant-numeric:tabular-nums;font-size:13.5px}
       .dsheet tfoot td{border-top:2px solid var(--line);font-weight:700;font-variant-numeric:tabular-nums;padding:12px 8px;font-size:13.5px;background:var(--surface)}
       .dsheet tfoot td.store{background:var(--surface)}
