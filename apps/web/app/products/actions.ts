@@ -21,6 +21,7 @@ const isUuid = (s: string) => /^[0-9a-fA-F-]{36}$/.test(s);
 // products immediately, and fills with units/sell-through as the plan and sales
 // come in.
 export async function createProductLaunch(input: CreateProductLaunchInput): Promise<ProductActionResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true };
   try {
     const name = (input.name ?? "").trim();
     if (!name) return { ok: false, error: "Product name is required." };
@@ -44,6 +45,7 @@ export async function createProductLaunch(input: CreateProductLaunchInput): Prom
 
 // Tag an existing product as a launch (set its launch date).
 export async function setProductLaunch(productId: string, dateStr?: string): Promise<ProductActionResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true };
   try {
     if (!isUuid(productId)) return { ok: false, error: "Unknown product." };
     const date = (dateStr ?? "").trim() || null;
@@ -63,6 +65,7 @@ export async function setProductLaunch(productId: string, dateStr?: string): Pro
 
 // Stop tracking a product as a launch (clear its launch date).
 export async function clearProductLaunch(productId: string): Promise<ProductActionResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true };
   try {
     if (!isUuid(productId)) return { ok: false, error: "Unknown product." };
     await sql`update products set launched_at = null where id = ${productId}::uuid`;

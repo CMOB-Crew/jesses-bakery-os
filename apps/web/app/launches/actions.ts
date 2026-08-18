@@ -11,6 +11,7 @@ const isUuid = (s: string) => /^[0-9a-fA-F-]{36}$/.test(s);
 // (defaults to today), and clear the planned go_live_at. It moves out of Coming
 // up and into Live now for its first 6 weeks. No SQL needed.
 export async function markStoreLive(storeId: string, dateStr?: string): Promise<LaunchActionResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true };
   try {
     if (!isUuid(storeId)) return { ok: false, error: "Unknown store." };
     const date = (dateStr ?? "").trim() || null;
@@ -34,6 +35,7 @@ export async function markStoreLive(storeId: string, dateStr?: string): Promise<
 
 // Adjust an upcoming store's planned go-live date.
 export async function setGoLiveDate(storeId: string, dateStr: string): Promise<LaunchActionResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true };
   try {
     if (!isUuid(storeId)) return { ok: false, error: "Unknown store." };
     const date = (dateStr ?? "").trim();

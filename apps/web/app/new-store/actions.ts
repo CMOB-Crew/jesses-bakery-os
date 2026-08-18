@@ -26,6 +26,7 @@ export type CreateStoreResult = { ok: true; id: string } | { ok: false; error: s
 // it active with an onboarded_at so it lands in Launches > Live now. This is the
 // no-SQL path for adding a rollout.
 export async function createStore(input: CreateStoreInput): Promise<CreateStoreResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, id: "demo" };
   try {
     const name = (input.name ?? "").trim();
     if (!name) return { ok: false, error: "Store name is required." };
