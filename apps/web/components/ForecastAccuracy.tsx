@@ -69,6 +69,13 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
             accuracy and per-product difficulty all populate here automatically. Nothing to score yet.
           </div>
         </div>
+        <div className="strip">
+          <div className="tile"><div className="tn dim">—</div><div className="tl">Network accuracy · mean closeness to actual (100 = spot on)</div></div>
+          <div className="tile"><div className="tn dim">—</div><div className="tl">Bias · over-send (waste) vs under-send (stockout)</div></div>
+          <div className="tile"><div className="tn dim">—</div><div className="tl">Change vs prior weeks</div></div>
+          <div className="tile"><div className="tn dim">—</div><div className="tl">Stores at or above the 85% target</div></div>
+        </div>
+        <div className="emptyhint">Backtesting needs at least a few weeks of sales per store — this fills in automatically as the Woolworths ledger deepens and the Coles / Harris Farm feeds come online.</div>
         <style>{faccCss}</style>
       </div>
     );
@@ -240,7 +247,9 @@ const faccCss = `
   .facc .tn{font-family:var(--serif);font-size:32px;font-weight:600;line-height:1;letter-spacing:-.6px;font-variant-numeric:tabular-nums}
   .facc .tn .u{font-size:15px;color:var(--muted);font-family:var(--sans);font-weight:500}
   .facc .tn.green{color:var(--green-t)} .facc .tn.amber{color:var(--amber-t)} .facc .tn.red{color:var(--red-t)} .facc .tn.blue{color:#4f7396}
+  .facc .tn.dim{color:var(--muted)}
   .facc .tl{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4}
+  .facc .emptyhint{font-size:13px;color:var(--faint);line-height:1.6}
 
   .facc .chartcard .cc-top{display:flex;justify-content:space-between;align-items:flex-start}
   .facc .cc-lbl{font-size:12px;color:var(--muted)}
