@@ -86,7 +86,7 @@ export default function SettingsPanel({ scenarios }: { scenarios: EngineScenario
       </div>
 
       {/* MINIMUM PER PRODUCT */}
-      <div className="sec"><span className="tick" />Minimum per product <span className="secnote">the floor for any store that ranges a line — empty today, so nothing gets sent a minimum</span></div>
+      <div className="sec"><span className="tick" />Minimum per product <span className="secnote">the floor a store carrying a line never drops below — 2 across the core lines by default, editable here</span></div>
       <div className="card">
         <div className="minsgrid">
           {CORE_BASKET.map((p) => (
