@@ -48,16 +48,16 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
     <div className="lau">
       <div className="panel intro">
         <div className="itxt">
-          Every new store rollout, tracked from the day it&apos;s added. <b>Coming up</b> is the stores you&apos;ve lined
-          up but aren&apos;t supplying yet; <b>Live now</b> is anything gone live in the last 6 weeks, watched on the one
-          number that matters early — <b>units per store, per day</b>. It fills in on its own as stores are added and
-          flipped live, so a launch never slips through the cracks.
+          Every new store and product launch, tracked from the day it&apos;s added. <b>Coming up</b> is the stores
+          you&apos;ve lined up but aren&apos;t supplying yet; <b>Live now</b> and <b>New products</b> are anything gone live
+          in the last 6 weeks — watched early on <b>units per store, per day</b> for a store, and stores-ranging plus units
+          sold for a new line. It fills in on its own as launches are added and go live, so none slips through the cracks.
         </div>
       </div>
 
       <div className="strip">
         <div className="tile"><div className="tn">{pipelineCount}</div><div className="tl">Coming up · awaiting supply</div></div>
-        <div className="tile"><div className="tn green">{liveCount}</div><div className="tl">Live now · first 6 weeks</div></div>
+        <div className="tile"><div className={`tn${liveCount > 0 ? " green" : " zero"}`}>{liveCount}</div><div className="tl">Live now · first 6 weeks</div></div>
         <div className="tile"><div className="tn">{nextLive ? fmtDate(nextLive) : "—"}</div><div className="tl">Next planned go-live</div></div>
       </div>
 
@@ -76,10 +76,9 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
 
       <div className="section-h" style={{ marginTop: 26 }}><span className="tick" />Live now — first 6 weeks</div>
       {live.length === 0 ? (
-        <div className="panel empty">
-          Nothing has gone live in the last 6 weeks. The moment you flip a new store live (set it active with its go-live
-          date), it lands here for its first 6 weeks — <b>days live</b>, <b>units per store per day</b>, sell-through and
-          waste — then graduates to the normal store list. Per-day detail sharpens as the daily sales feed comes online.
+        <div className="panel empty slim">
+          Nothing live in the last 6 weeks yet. Flip a store live and it tracks here for 6 weeks — days live, units per
+          store per day, sell-through and waste.
         </div>
       ) : (
         <div className="live">
@@ -89,10 +88,10 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
 
       <div className="section-h" style={{ marginTop: 26 }}><span className="tick" />New products — first 6 weeks</div>
       {productLaunches.length === 0 ? (
-        <div className="panel empty">
-          No product launches being tracked. When you put out a new line, tag its launch date on <Link href="/products">Products</Link>{" "}
-          (or add it there) and it tracks here for 6 weeks — <b>stores ranging it</b>, <b>units sold</b>, sell-through and
-          waste. The Harris Farm Choc Babka is first in line once its product code lands.
+        <div className="panel empty slim">
+          No product launches tracked yet. Tag a line&apos;s launch date on <Link href="/products">Products</Link> and it
+          tracks here for 6 weeks — stores ranging it, units sold, sell-through and waste. (Harris Farm Choc Babka once its
+          code lands.)
         </div>
       ) : (
         <div className="live">
@@ -101,9 +100,10 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
       )}
 
       <div className="foot">
-        Live from the store master. A store joins <b>Coming up</b> when it&apos;s added with a planned go-live and no supply
-        yet; it moves to <b>Live now</b> when it&apos;s flipped active with a go-live date, and leaves after 6 weeks. Units
-        per store per day is this week&apos;s units spread over the days observed (~) until the daily feed lands.
+        Live from the store master and product ledger. A store joins <b>Coming up</b> when it&apos;s added with a planned
+        go-live and no supply yet, moves to <b>Live now</b> when it&apos;s flipped active with a go-live date, and leaves
+        after 6 weeks; a product joins <b>New products</b> when its launch date is set. Units per store per day is this
+        week&apos;s units spread over the days observed (~) until the daily feed lands.
       </div>
 
       <style>{`
@@ -115,9 +115,11 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
         .lau .tile{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:16px 18px}
         .lau .tn{font-family:var(--serif);font-size:30px;font-weight:600;line-height:1.05;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
         .lau .tn.green{color:var(--green-t)}
+        .lau .tn.zero{color:var(--muted)}
         .lau .tl{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4}
 
         .lau .empty{font-size:14px;line-height:1.6;color:var(--ink2);margin-top:2px}
+        .lau .empty.slim{font-size:13px;line-height:1.55;color:var(--muted);padding:13px 18px}
         .lau .empty a{color:var(--crust-deep,var(--espresso));font-weight:600}
 
         .lau .cohorts{display:flex;flex-direction:column;gap:14px}
@@ -177,7 +179,7 @@ function Cohort({ c }: { c: LaunchCohort }) {
       <div className="co-head">
         <span className="co-title">{n} {n === 1 ? "store" : "stores"} · {c.region ?? "Unassigned"}</span>
         <span className="co-when">Go-live {fmtDate(c.go_live_at)} · {whenLive(days)}</span>
-        <span className="co-sub">{retailers} · supply not started</span>
+        <span className="co-sub">{retailers}</span>
       </div>
       <div className="co-rows">
         {c.stores.map((s) => (
