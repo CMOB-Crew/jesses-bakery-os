@@ -178,3 +178,44 @@ tr.clk:hover td{background:#faf6ee}
 
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 @media(max-width:900px){.app{grid-template-columns:1fr}.side{display:none}.col-work,.col-side{grid-column:span 12}}
+
+/* ---------------------------------------------------------------------
+   Print — the run sheets (Production, Deliveries) and the delivery-sheet
+   grid get printed by the floor/packers. Strip the app chrome and the
+   interactive controls so Ctrl-P produces a clean paper sheet. Everything
+   else prints the page content minus the sidebar.
+   --------------------------------------------------------------------- */
+@media print {
+  @page { margin: 12mm; }
+  body { background: #fff !important; }
+  .side { display: none !important; }
+  .app { grid-template-columns: 1fr !important; }
+  .main { padding: 0 !important; }
+  .no-print { display: none !important; }
+  * { box-shadow: none !important; }
+  a { color: inherit !important; text-decoration: none !important; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+
+  /* fixed bottom action bars never belong on paper */
+  .actionbar { display: none !important; }
+
+  /* Production + Deliveries: keep the sheet, drop the rest */
+  .pcalm .dayrow, .pcalm .hero, .pcalm .help, .pcalm .toolbar, .pcalm .foot,
+  .dcalm .dayrow, .dcalm .hero, .dcalm .help, .dcalm .toolbar, .dcalm .foot { display: none !important; }
+  .pcalm, .dcalm { padding-bottom: 0 !important; }
+  .pcalm .sheet, .dcalm .sheet { border: 1px solid #ccc; }
+  .pcalm .colhead, .dcalm .colhead { position: static !important; }
+  .pcalm .row, .pcalm .cathead, .dcalm .row, .dcalm .reghead { break-inside: avoid; }
+  /* hide the steppers / approve controls; print the numbers as plain text */
+  .pcalm .stepper button, .dcalm .stepper button,
+  .pcalm .appcell, .dcalm .appcell,
+  .pcalm .chg .rst, .dcalm .chg .rst { display: none !important; }
+  .pcalm .stepper input, .dcalm .stepper input { border: none !important; background: transparent !important; }
+
+  /* Delivery-sheet grid: drop the side panel + notes, print the grid full width */
+  .dsheet .dhead, .dsheet .note, .dsheet .prod { display: none !important; }
+  .dsheet .layout { grid-template-columns: 1fr !important; }
+  .dsheet .sheetwrap { overflow: visible !important; border: 1px solid #ccc; }
+  .dsheet input.cell { border: none !important; }
+}
