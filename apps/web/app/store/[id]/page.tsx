@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getStoreById, getStoreDaily, getStoreRecos, getStoreWeek } from "@/lib/queries";
+import { getStoreById, getStoreDaily, getStoreRecos, getStoreWeek, getStoreOverrides } from "@/lib/queries";
 import StoreProfile, { type PeerStat } from "@/components/StoreProfile";
 import type { StoreWeek } from "@/lib/queries";
 
@@ -55,8 +55,8 @@ function computePeer(store: StoreWeek, all: StoreWeek[]): PeerStat {
 
 export default async function StorePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [store, daily, recos, all] = await Promise.all([
-    getStoreById(id), getStoreDaily(id), getStoreRecos(id), getStoreWeek(),
+  const [store, daily, recos, all, overrides] = await Promise.all([
+    getStoreById(id), getStoreDaily(id), getStoreRecos(id), getStoreWeek(), getStoreOverrides(id),
   ]);
   if (!store) notFound();
 
@@ -69,7 +69,7 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
         {store.region && <> › <Link href={`/region/${encodeURIComponent(store.region)}`}>{store.region}</Link></>}
         {" "}› {store.name}
       </div>
-      <StoreProfile store={store} recos={recos} daily={daily} peer={peer} />
+      <StoreProfile store={store} recos={recos} daily={daily} peer={peer} overrides={overrides} />
     </>
   );
 }

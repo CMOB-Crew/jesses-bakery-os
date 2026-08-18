@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import StoreBars from "@/components/StoreBars";
-import type { StoreWeek, StoreReco, DailyBar } from "@/lib/queries";
+import type { StoreWeek, StoreReco, DailyBar, StoreOverride } from "@/lib/queries";
+import { setStoreOverride, clearStoreOverride } from "@/app/store/actions";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 
 type Adj = { qty: number; mode: "perm" | "temp"; from?: string; to?: string };
-type Row = { name: string; sold: number; now: number; rec: number };
+type Row = { pid: string; name: string; sold: number; now: number; rec: number };
 
 const SCORE = {
   green: { dot: "🟢", label: "High performer", cls: "g" },
@@ -34,11 +36,13 @@ export default function StoreProfile({
   recos,
   daily,
   peer,
+  overrides = [],
 }: {
   store: StoreWeek;
   recos: StoreReco[];
   daily: DailyBar[];
   peer?: PeerStat;
+  overrides?: StoreOverride[];
 }) {
   // Coerce every DB number up front (waste_pct/shelf_max arrive as strings).
   const wastePct = store.waste_pct == null ? null : Number(store.waste_pct);
@@ -59,13 +63,27 @@ export default function StoreProfile({
   const capStale = cap != null && soldWk > 0 && cap < soldWk;
 
   const rows: Row[] = useMemo(
-    () => recos.map((r) => ({ name: r.product_name, sold: Number(r.sold) || 0, now: Number(r.sent) || 0, rec: Number(r.recommended) || 0 })),
+    () => recos.map((r) => ({ pid: r.product_id, name: r.product_name, sold: Number(r.sold) || 0, now: Number(r.sent) || 0, rec: Number(r.recommended) || 0 })),
     [recos],
   );
 
+  const router = useRouter();
+  const [, startSave] = useTransition();
   const [dial, setDial] = useState<"lean" | "balanced" | "service">("balanced");
   const [ranged, setRanged] = useState<Record<string, boolean>>(() => Object.fromEntries(rows.map((r) => [r.name, true])));
-  const [adj, setAdj] = useState<Record<string, Adj>>({});
+  // Hydrate saved overrides (migration 011) as the starting adjustments, keyed by
+  // product name to match the row map. So a change Simona made yesterday is
+  // already showing when she opens the profile today.
+  const [adj, setAdj] = useState<Record<string, Adj>>(() => {
+    const nameById = new Map(recos.map((r) => [r.product_id, r.product_name]));
+    const init: Record<string, Adj> = {};
+    for (const o of overrides) {
+      const name = nameById.get(o.product_id);
+      if (!name) continue;
+      init[name] = { qty: Number(o.qty) || 0, mode: o.mode, from: o.starts_on ?? undefined, to: o.ends_on ?? undefined };
+    }
+    return init;
+  });
   const [editing, setEditing] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -74,6 +92,39 @@ export default function StoreProfile({
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3000);
+  }
+
+  // Persist an adjustment to the store record. Optimistic: reflect it in the UI
+  // immediately, then write it, and only surface a message if the save fails.
+  function applyOverride(r: Row, next: Adj) {
+    setAdj((s) => ({ ...s, [r.name]: next }));
+    setEditing(null);
+    startSave(async () => {
+      const res = await setStoreOverride({
+        storeId: store.store_id, productId: r.pid,
+        qty: next.qty, mode: next.mode, from: next.from, to: next.to,
+      });
+      if (res.ok) {
+        showToast(`${r.name} set to ${next.qty} (${next.mode === "perm" ? "permanent" : `resets after ${next.to || "the end date"}`}) — saved`);
+        router.refresh();
+      } else {
+        showToast(`Couldn't save ${r.name}: ${res.error}`);
+      }
+    });
+  }
+
+  function clearOverride(r: Row) {
+    setAdj((s) => { const n = { ...s }; delete n[r.name]; return n; });
+    setEditing(null);
+    startSave(async () => {
+      const res = await clearStoreOverride(store.store_id, r.pid);
+      if (res.ok) {
+        showToast(`${r.name} back to the recommended order — saved`);
+        router.refresh();
+      } else {
+        showToast(`Couldn't remove ${r.name}: ${res.error}`);
+      }
+    });
   }
 
   const isRanged = (name: string) => ranged[name] !== false;
@@ -271,12 +322,8 @@ export default function StoreProfile({
                     row={r}
                     current={a}
                     onCancel={() => setEditing(null)}
-                    onClear={() => { setAdj((s) => { const n = { ...s }; delete n[r.name]; return n; }); setEditing(null); }}
-                    onApply={(next) => {
-                      setAdj((s) => ({ ...s, [r.name]: next }));
-                      setEditing(null);
-                      showToast(`${r.name} set to ${next.qty} (${next.mode === "perm" ? "permanent" : `resets after ${next.to || "the end date"}`}) — saving to the profile is the next build phase`);
-                    }}
+                    onClear={() => clearOverride(r)}
+                    onApply={(next) => applyOverride(r, next)}
                   />
                 )}
               </div>
@@ -291,7 +338,7 @@ export default function StoreProfile({
       )}
 
       <div className="foot">
-        This profile is the single source of truth — ranging, service level and adjustments set here propagate everywhere, with the shelf cap enforced and a warning on anything over it. <b>Editing is live in this build;</b> writing changes back to the store record is the next phase.
+        This profile is the single source of truth — ranging, service level and adjustments set here shape the plan, with the shelf cap enforced and a warning on anything over it. <b>Per-product adjustments now save to the store record</b> and are here when you come back; ranging and service level are still live-only in this build.
       </div>
 
       {toast && <div className="toast">{toast}</div>}

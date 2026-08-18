@@ -390,16 +390,41 @@ export async function getStoreById(id: string): Promise<StoreWeek | null> {
 // Per-product engine order recommendation for a store — the "does Simona's job"
 // table. sold/sent are this week's real numbers; recommended is the newsvendor
 // order-up-to (balanced). Woolworths mature feed; empty for stores without a plan.
-export type StoreReco = { product_name: string; sold: number; sent: number; recommended: number };
+export type StoreReco = { product_id: string; product_name: string; sold: number; sent: number; recommended: number };
 export async function getStoreRecos(id: string): Promise<StoreReco[]> {
   try {
     return await sql<StoreReco[]>`
-      select p.name as product_name, r.sold, r.sent, r.recommended
+      select p.id::text as product_id, p.name as product_name, r.sold, r.sent, r.recommended
       from store_reco r join products p on p.id = r.product_id
       where r.store_id = ${id}
       order by (r.sent - r.recommended) desc, p.name`;
   } catch {
     return []; // table not present yet — store page falls back gracefully
+  }
+}
+
+// Active manual overrides Simona has set on a store's product lines (the
+// write-back layer). One row per product; perm rows always apply, temp rows
+// apply only until their end date, so an expired temporary change quietly stops
+// mattering with no cleanup. Empty (and a no-op) until migration 011 is applied.
+export type StoreOverride = {
+  product_id: string;
+  qty: number;
+  mode: "perm" | "temp";
+  starts_on: string | null;
+  ends_on: string | null;
+};
+export async function getStoreOverrides(id: string): Promise<StoreOverride[]> {
+  try {
+    return await sql<StoreOverride[]>`
+      select product_id::text as product_id, qty, mode,
+             to_char(starts_on, 'YYYY-MM-DD') as starts_on,
+             to_char(ends_on, 'YYYY-MM-DD') as ends_on
+      from store_product_overrides
+      where store_id = ${id}::uuid
+        and (mode = 'perm' or ends_on is null or ends_on >= current_date)`;
+  } catch {
+    return []; // table not present yet — profile falls back to engine numbers
   }
 }
 
