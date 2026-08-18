@@ -2,7 +2,7 @@ import { getArchivedStores } from "@/lib/queries";
 import StoreArchive from "@/components/StoreArchive";
 
 export const metadata = { title: "Archive · Jesse's Bakery OS" };
-export const revalidate = 120;
+export const dynamic = "force-dynamic";
 
 export default async function ArchivePage() {
   const stores = await getArchivedStores();

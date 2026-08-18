@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ArchivedStore } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -23,6 +23,13 @@ const sizeLabel = (s: string | null) => (s ? s[0].toUpperCase() + s.slice(1) : "
 
 export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
   const [filter, setFilter] = useState<Filter>("all");
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function showToast(msg: string) {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3600);
+  }
 
   const rows = useMemo(() => stores.map((s) => ({
     ...s, warm: s.days_since !== null && s.days_since <= WARM_DAYS,
@@ -93,8 +100,8 @@ export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
               </div>
             </div>
             <div className="ac-act">
-              <button className="hist">View history</button>
-              <button className={`react${a.warm ? " on" : ""}`}>Re-range</button>
+              <button className="hist" onClick={() => showToast(`${a.name}'s full sales history opens here — the timeline view is the next build phase. The record is kept; nothing's lost.`)}>View history</button>
+              <button className={`react${a.warm ? " on" : ""}`} onClick={() => showToast(`Re-ranging ${a.name} opens New store pre-filled from its history — that flip is the next build phase. Confirm with the retailer first.`)}>Re-range</button>
             </div>
           </div>
         ))}
@@ -105,7 +112,10 @@ export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
         store pre-filled from the store&apos;s history. Archived stays out of the live network counts but never leaves the record.
       </div>
 
+      {toast && <div className="archtoast">{toast}</div>}
+
       <style>{`
+        .arch .archtoast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:var(--espresso);color:#f6eddb;padding:12px 18px;border-radius:12px;box-shadow:var(--sh-pop);font-size:13.5px;font-weight:500;z-index:60;max-width:88vw;text-align:center}
         .arch .intro{margin-bottom:16px}
         .arch .intro .itxt{font-size:14.5px;line-height:1.65;color:var(--ink2)}
         .arch .intro b{color:var(--ink);font-weight:600}
