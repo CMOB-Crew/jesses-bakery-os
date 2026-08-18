@@ -201,6 +201,61 @@ export async function getProducts(): Promise<ProductPerf[]> {
   }
 }
 
+// ---------------------------------------------------------------------
+// Product launches -- a new product line, tracked separately for its first
+// 6 weeks (mirrors the store Launches flow). launched_at is set from the
+// Products page; performance is aggregated from the engine ledger
+// (store_reco): stores ranging it, units sold, sell-through, waste. A brand
+// new line shows zeros honestly until the plan/sales come in.
+// ---------------------------------------------------------------------
+const PRODUCT_LAUNCH_WINDOW = 42; // a product counts as a "new launch" for 6 weeks
+
+export type ProductLaunch = {
+  product_id: string; name: string; category: string;
+  launched_at: Date | null; days_since: number | null;
+  stores: number; sent: number; sold: number;
+  sell_through: number | null; waste_pct: number | null; units_per_day: number | null;
+};
+
+export async function getProductLaunches(): Promise<ProductLaunch[]> {
+  try {
+    const rows = await sql<{
+      product_id: string; name: string; category: string;
+      launched_at: Date | null; days_since: number | null;
+      stores: number; sent: number; sold: number;
+    }[]>`
+      select p.id::text as product_id, p.name, p.category::text as category,
+             p.launched_at,
+             (current_date - p.launched_at)::int as days_since,
+             count(distinct r.store_id) filter (where r.sent > 0 or r.sold > 0) as stores,
+             coalesce(sum(r.sent), 0)::int as sent,
+             coalesce(sum(r.sold), 0)::int as sold
+      from products p
+      left join store_reco r on r.product_id = p.id
+      where p.launched_at is not null
+        and p.launched_at >= current_date - ${PRODUCT_LAUNCH_WINDOW}::int
+      group by p.id, p.name, p.category, p.launched_at
+      order by p.launched_at desc, p.name`;
+    return rows.map((r) => {
+      const sent = Number(r.sent), sold = Number(r.sold), stores = Number(r.stores);
+      const days = r.days_since == null ? null : Number(r.days_since);
+      // Units per store per day = this week's units over the stores ranging it,
+      // spread across the days observed (capped at 7). ~ until the daily feed lands.
+      const denom = stores > 0 ? stores * Math.min(7, Math.max(1, days ?? 7)) : 0;
+      return {
+        product_id: r.product_id, name: r.name, category: r.category,
+        launched_at: r.launched_at, days_since: days,
+        stores, sent, sold,
+        sell_through: sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null,
+        waste_pct: sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null,
+        units_per_day: sold > 0 && denom > 0 ? Math.round((10 * sold) / denom) / 10 : null,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 export type FeedStatus = { source: string; status: string; as_of: Date; detail: string | null };
 export async function getFeedStatus(): Promise<FeedStatus[]> {
   try {

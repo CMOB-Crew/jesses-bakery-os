@@ -2,7 +2,10 @@ import { getProducts } from "@/lib/queries";
 import ProductsList from "@/components/ProductsList";
 
 export const metadata = { title: "Products · Jesse's Bakery OS" };
-export const revalidate = 120; // cache pages ~2 min so navigation is instant (prefetchable)
+// Render per request: this aggregates the whole engine ledger (heavy), and the
+// New-product-launch form should reflect immediately. Keeps it off the flaky
+// build-time prerender path, like the other data pages.
+export const dynamic = "force-dynamic";
 
 export default async function ProductsPage() {
   const products = await getProducts();

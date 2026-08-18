@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Launches, LaunchCohort, LiveLaunch, PipelineStore } from "@/lib/queries";
+import type { Launches, LaunchCohort, LiveLaunch, PipelineStore, ProductLaunch } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
 import { markStoreLive } from "@/app/launches/actions";
 
@@ -20,6 +20,7 @@ const RETAILER: Record<string, string> = {
 };
 const retailerLabel = (r: string) => RETAILER[r] ?? r;
 const sizeLabel = (s: string | null) => (s ? s[0].toUpperCase() + s.slice(1) : "Unsized");
+const titleCase = (t: string) => (t || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
 function fmtDate(d: Date | string | null): string {
   if (!d) return "date TBC";
@@ -39,7 +40,7 @@ const num = (n: number) => n.toLocaleString("en-AU");
 const sellThrough = (l: LiveLaunch): number | null =>
   l.total_sent > 0 ? Math.round((1000 * l.total_sold) / l.total_sent) / 10 : null;
 
-export default function LaunchesView({ launches }: { launches: Launches }) {
+export default function LaunchesView({ launches, productLaunches = [] }: { launches: Launches; productLaunches?: ProductLaunch[] }) {
   const { cohorts, live, pipelineCount, liveCount } = launches;
   const nextLive = cohorts.find((c) => c.go_live_at)?.go_live_at ?? null;
 
@@ -86,14 +87,18 @@ export default function LaunchesView({ launches }: { launches: Launches }) {
         </div>
       )}
 
-      <div className="panel next">
-        <div className="nh">New products are next</div>
-        <div className="nt">
-          Same idea for a new product launch — track it separately from day one (units moved, sell-through, which stores
-          took it). The next step is tagging a product&apos;s launch date; the Harris Farm Choc Babka is first in line once
-          its product code lands.
+      <div className="section-h" style={{ marginTop: 26 }}><span className="tick" />New products — first 6 weeks</div>
+      {productLaunches.length === 0 ? (
+        <div className="panel empty">
+          No product launches being tracked. When you put out a new line, tag its launch date on <Link href="/products">Products</Link>{" "}
+          (or add it there) and it tracks here for 6 weeks — <b>stores ranging it</b>, <b>units sold</b>, sell-through and
+          waste. The Harris Farm Choc Babka is first in line once its product code lands.
         </div>
-      </div>
+      ) : (
+        <div className="live">
+          {productLaunches.map((p) => <ProductRow key={p.product_id} p={p} />)}
+        </div>
+      )}
 
       <div className="foot">
         Live from the store master. A store joins <b>Coming up</b> when it&apos;s added with a planned go-live and no supply
@@ -148,6 +153,7 @@ export default function LaunchesView({ launches }: { launches: Launches }) {
         .lau .met .ml{font-size:10.5px;color:var(--muted);margin-top:3px;text-transform:uppercase;letter-spacing:.03em}
         .lau .lr-act{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
         .lau .lr-open{font-size:13px;font-weight:600;color:var(--crust-deep,var(--espresso))}
+        .lau .pr-sold{font-size:12px;font-weight:700;color:var(--ink2);background:var(--line2);border-radius:999px;padding:4px 10px;white-space:nowrap}
 
         .lau .next{margin-top:22px;border-style:dashed}
         .lau .next .nh{font-family:var(--serif);font-size:15px;font-weight:600;margin-bottom:5px}
@@ -219,6 +225,28 @@ function PipelineRowActions({ store }: { store: PipelineStore }) {
       <button className="sr-go" onClick={go} disabled={pending}>{pending ? "Saving…" : "Confirm live"}</button>
       <button className="sr-cancel" onClick={() => { setConfirming(false); setErr(null); }} disabled={pending}>Cancel</button>
       {err ? <span className="sr-err">{err}</span> : null}
+    </div>
+  );
+}
+
+function ProductRow({ p }: { p: ProductLaunch }) {
+  const noData = p.sent === 0 && p.sold === 0;
+  return (
+    <div className="lr">
+      <div className="lr-main">
+        <div className="lr-name">{p.name}</div>
+        <div className="lr-meta">{titleCase(p.category)} · launched {fmtDate(p.launched_at)} · {p.stores} {p.stores === 1 ? "store" : "stores"} ranging</div>
+      </div>
+      <div className="lr-mets">
+        <div className="met"><div className="mv">{p.days_since ?? "—"}</div><div className="ml">Days live</div></div>
+        <div className="met"><div className="mv">{p.units_per_day != null ? `~${num(p.units_per_day)}` : "—"}</div><div className="ml">Units/store/day</div></div>
+        <div className="met"><div className="mv">{p.sell_through != null ? `${p.sell_through}%` : "—"}</div><div className="ml">Sell-through</div></div>
+        <div className="met"><div className="mv">{p.waste_pct != null ? `${p.waste_pct}%` : "—"}</div><div className="ml">Waste</div></div>
+      </div>
+      <div className="lr-act">
+        {noData ? <StatusTag status="nodata" /> : <span className="pr-sold">{num(p.sold)} sold/wk</span>}
+        <Link href="/products" className="lr-open">Open products →</Link>
+      </div>
     </div>
   );
 }

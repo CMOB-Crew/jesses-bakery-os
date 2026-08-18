@@ -1,7 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { ProductPerf } from "@/lib/queries";
+import { createProductLaunch } from "@/app/products/actions";
+
+const CATEGORY_OPTS = ["sourdough", "bagel", "challah", "pita", "pastry", "cake", "other"];
 
 /* ------------------------------------------------------------------ *
  * Products directory — the per-product lens on the whole network,
@@ -129,6 +133,8 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
         <div className="tile"><div className="tn">{totals.wastePct ?? "—"}<span className="u">%</span></div><div className="tl">Implied waste · delivered − sold</div></div>
       </div>
 
+      <NewProductLaunch />
+
       <div className="ctrls">
         <div className="search">
           <span className="mag">⌕</span>
@@ -231,6 +237,72 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
         .plist .foot{margin-top:14px;font-size:12px;color:var(--muted);line-height:1.6}
 
         @media (max-width:1080px){ .plist .strip{grid-template-columns:1fr 1fr} }
+      `}</style>
+    </div>
+  );
+}
+
+function NewProductLaunch() {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("pastry");
+  const [date, setDate] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  function submit() {
+    setMsg(null);
+    const nm = name.trim();
+    start(async () => {
+      const res = await createProductLaunch({ name: nm, category, launchedAt: date || undefined });
+      if (res.ok) {
+        setMsg({ ok: true, text: `"${nm}" added — now tracking in Launches under New products.` });
+        setName(""); setDate("");
+        router.refresh();
+      } else {
+        setMsg({ ok: false, text: res.error });
+      }
+    });
+  }
+
+  return (
+    <div className="npl">
+      {!open ? (
+        <button className="npl-open" onClick={() => { setOpen(true); setMsg(null); }}>+ New product launch</button>
+      ) : (
+        <div className="npl-form">
+          <div className="npl-h">Track a new product line from day one</div>
+          <div className="npl-row">
+            <input className="npl-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Product name (e.g. Choc Babka)" aria-label="Product name" />
+            <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
+              {CATEGORY_OPTS.map((c) => <option key={c} value={c}>{titleCase(c)}</option>)}
+            </select>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Launch date (defaults to today)" />
+            <button className="npl-add" onClick={submit} disabled={pending || !name.trim()}>{pending ? "Adding…" : "Add launch"}</button>
+            <button className="npl-cancel" onClick={() => { setOpen(false); setMsg(null); }} disabled={pending}>Cancel</button>
+          </div>
+          <div className="npl-note">Adds the line and tags today (or the date above) as its launch. It appears in Launches immediately and fills with units and sell-through as the plan and sales come in.</div>
+        </div>
+      )}
+      {msg && <div className={`npl-msg ${msg.ok ? "ok" : "err"}`}>{msg.text}{msg.ok && <> <a href="/launches">Open Launches →</a></>}</div>}
+      <style>{`
+        .plist .npl{margin-bottom:14px}
+        .plist .npl-open{border:1px dashed var(--line);background:var(--surface);color:var(--crust-deep);border-radius:10px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+        .plist .npl-open:hover{background:#f6f0e6}
+        .plist .npl-form{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:14px 16px}
+        .plist .npl-h{font-family:var(--serif);font-size:15px;font-weight:600;margin-bottom:10px}
+        .plist .npl-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+        .plist .npl-name{flex:1;min-width:200px;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:14px;font-family:inherit;background:var(--surface);color:var(--ink);outline:none}
+        .plist .npl-name:focus{border-color:var(--crust)}
+        .plist .npl-add{border:none;background:var(--espresso);color:#f7efdd;border-radius:9px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+        .plist .npl-add:disabled{opacity:.5;cursor:default}
+        .plist .npl-cancel{border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:9px;padding:9px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+        .plist .npl-note{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:9px}
+        .plist .npl-msg{margin-top:10px;font-size:12.5px;font-weight:600;border-radius:9px;padding:9px 12px}
+        .plist .npl-msg.ok{background:var(--green-b);color:var(--green-t);border:1px solid var(--green)}
+        .plist .npl-msg.err{background:var(--red-b,#f7e4e0);color:var(--red-t,#a4372a);border:1px solid var(--red,#c0563f)}
+        .plist .npl-msg a{color:inherit;text-decoration:underline}
       `}</style>
     </div>
   );
