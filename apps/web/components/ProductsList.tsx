@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { ProductPerf } from "@/lib/queries";
-import { createProductLaunch } from "@/app/products/actions";
+import { createProductLaunch, setProductLaunch, clearProductLaunch } from "@/app/products/actions";
 
 const CATEGORY_OPTS = ["sourdough", "bagel", "challah", "pita", "pastry", "cake", "other"];
 
@@ -172,6 +172,7 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
                 <th>Product</th><th>Category</th>
                 <th className="num">Stores</th><th className="num">Delivered</th><th className="num">Sold</th>
                 <th className="num">Sell-through</th><th className="num">Waste %</th><th className="num">Engine change</th>
+                <th className="launchcol">Launch</th>
               </tr>
             </thead>
             <tbody>
@@ -187,6 +188,7 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
                     <td className="num">{p.sell_through == null ? "—" : `${p.sell_through}%`}</td>
                     <td className="num"><span className={`wp ${num(p.waste_pct) >= 25 ? "hi" : num(p.waste_pct) >= 12 ? "mid" : "lo"}`}>{p.waste_pct == null ? "—" : `${p.waste_pct}%`}</span></td>
                     <td className="num"><span className={`chg ${chg < 0 ? "cut" : chg > 0 ? "add" : "flat"}`}>{chg > 0 ? "+" : ""}{nf(chg)}</span></td>
+                    <td className="launchcol"><ProductLaunchCell id={p.product_id} launched={p.launched} /></td>
                   </tr>
                 );
               })}
@@ -232,6 +234,15 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
         .plist .wp.hi{color:var(--red-t)} .plist .wp.mid{color:var(--amber-t)} .plist .wp.lo{color:var(--ink2)}
         .plist .chg{font-weight:700;font-variant-numeric:tabular-nums}
         .plist .chg.cut{color:var(--red-t)} .plist .chg.add{color:var(--green-t)} .plist .chg.flat{color:var(--muted)}
+        .plist th.launchcol,.plist td.launchcol{text-align:right;white-space:nowrap}
+        .plist .pl-track{border:1px solid var(--line);background:var(--card);color:var(--crust-deep);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
+        .plist .pl-track:hover{background:#f6f0e6}
+        .plist .pl-track:disabled{opacity:.6;cursor:default}
+        .plist .pl-on{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--green-t);background:var(--green-b);border-radius:999px;padding:4px 6px 4px 10px}
+        .plist .pl-on .pl-dot{font-size:9px;line-height:1}
+        .plist .pl-x{border:none;background:rgba(0,0,0,.06);color:inherit;width:17px;height:17px;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;padding:0;font-family:inherit}
+        .plist .pl-x:hover{background:rgba(0,0,0,.14)}
+        .plist .pl-x:disabled{opacity:.5;cursor:default}
 
         .plist .nomatch{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px 20px;text-align:center;color:var(--ink2);font-size:14px}
         .plist .foot{margin-top:14px;font-size:12px;color:var(--muted);line-height:1.6}
@@ -239,6 +250,35 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
         @media (max-width:1080px){ .plist .strip{grid-template-columns:1fr 1fr} }
       `}</style>
     </div>
+  );
+}
+
+function ProductLaunchCell({ id, launched }: { id: string; launched: boolean }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState(false);
+
+  function run(fn: () => Promise<{ ok: boolean }>) {
+    setErr(false);
+    start(async () => {
+      const r = await fn();
+      if (r.ok) router.refresh();
+      else setErr(true);
+    });
+  }
+
+  if (launched) {
+    return (
+      <span className="pl-on" title={err ? "Could not update — try again" : "Tracked in Launches"}>
+        <span className="pl-dot">●</span> Launching
+        <button className="pl-x" onClick={() => run(() => clearProductLaunch(id))} disabled={pending} title="Stop tracking as a launch" aria-label="Stop tracking">×</button>
+      </span>
+    );
+  }
+  return (
+    <button className="pl-track" onClick={() => run(() => setProductLaunch(id))} disabled={pending} title="Track this line as a launch (from today)">
+      {pending ? "…" : err ? "Retry" : "Track launch"}
+    </button>
   );
 }
 

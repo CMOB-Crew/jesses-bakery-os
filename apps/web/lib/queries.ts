@@ -174,17 +174,19 @@ export type ProductPerf = {
   product_id: string; name: string; category: string;
   stores: number; sent: number; sold: number; recommended: number;
   sell_through: number | null; waste_pct: number | null; change: number;
+  launched: boolean; // tagged as a tracked launch (launched_at set)
 };
 export async function getProducts(): Promise<ProductPerf[]> {
   try {
-    const rows = await sql<{ product_id: string; name: string; category: string; stores: number; sent: number; sold: number; recommended: number }[]>`
+    const rows = await sql<{ product_id: string; name: string; category: string; stores: number; sent: number; sold: number; recommended: number; launched_at: Date | null }[]>`
       select p.id as product_id, p.name, p.category::text as category,
              count(distinct r.store_id)::int as stores,
              sum(r.sent)::int as sent, sum(r.sold)::int as sold,
-             sum(r.recommended)::int as recommended
+             sum(r.recommended)::int as recommended,
+             p.launched_at
       from store_reco r join products p on p.id = r.product_id
       where p.active
-      group by p.id, p.name, p.category
+      group by p.id, p.name, p.category, p.launched_at
       order by sum(r.sent - r.sold) desc`;
     return rows.map((r) => {
       const sent = Number(r.sent), sold = Number(r.sold);
@@ -194,6 +196,7 @@ export async function getProducts(): Promise<ProductPerf[]> {
         sell_through: sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null,
         waste_pct: sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null,
         change: Number(r.recommended) - sent,
+        launched: r.launched_at != null,
       };
     });
   } catch {
