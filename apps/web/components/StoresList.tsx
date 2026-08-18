@@ -131,7 +131,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
         EFF_LABEL[effOf(s)],
         s.waste_pct == null ? "" : Number(s.waste_pct),
         num(s.stockout_days),
-        num(s.total_sold),
+        effOf(s) === "nodata" ? "" : num(s.total_sold),
       ].map(csvCell).join(","),
     );
     const csv = [header.map(csvCell).join(","), ...body].join("\r\n");
@@ -233,7 +233,8 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
                   <td><StatusTag status={effOf(s)} /></td>
                   <td className="num">{s.waste_pct == null ? "—" : `${s.waste_pct}%`}</td>
                   {anyStockouts && <td className="num">{num(s.stockout_days) || "—"}</td>}
-                  <td className="num">{nf(num(s.total_sold))}</td>
+                  {/* No-data stores have no feed yet — show "—", not a misleading 0 sold (matches the waste column). */}
+                  <td className="num">{effOf(s) === "nodata" ? "—" : nf(num(s.total_sold))}</td>
                 </tr>
               ))}
             </tbody>
