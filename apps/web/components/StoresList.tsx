@@ -49,7 +49,7 @@ const growthOf = (s: StoreWeek) => {
   return prev > 0 ? ((sold - prev) / prev) * 100 : null;
 };
 const VIEWS: Record<string, { label: string; test: (s: StoreWeek) => boolean }> = {
-  waste25: { label: "Excessive waste (>25%)", test: (s) => s.waste_pct != null && num(s.waste_pct) > 25 },
+  waste30: { label: "Excessive waste (>30%)", test: (s) => s.waste_pct != null && num(s.waste_pct) > 30 },
   stockouts: { label: "Likely stockouts", test: (s) => num(s.stockout_days) > 0 },
   overdeliver: { label: "Allocation opportunities · over-delivering", test: (s) => num(s.total_sent) - num(s.total_sold) > Math.max(20, num(s.total_sold) * 0.2) },
   expandrange: { label: "Could expand range", test: (s) => { const st = sellThroughOf(s); const w = s.waste_pct == null ? null : num(s.waste_pct); return st != null && st >= 95 && (w == null || w < 12); } },

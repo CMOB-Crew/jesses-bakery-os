@@ -27,19 +27,22 @@ export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWee
   const netWaste = net.waste_pct == null ? null : Number(net.waste_pct);
 
   // ---- Today's action list (Simona's format: issue -> action) ----
-  const highWastage = rows.filter((r) => r.waste != null && r.waste > 25).length;
+  // "High wastage" = the RAG red waste threshold (>30%, per jb_status). Anything
+  // 20-30% is amber ("to watch"), not a "reduce production now" call — so this
+  // stays at >30 to match the status dots used everywhere else in the app.
+  const highWastage = rows.filter((r) => r.waste != null && r.waste > 30).length;
   const stockOuts = rows.filter((r) => r.stockouts > 0).length;
   const salesDecline = rows.filter((r) => r.growth != null && r.growth < -10).length;
   const strongSellers = rows.filter((r) => r.sellThrough != null && r.sellThrough >= 95 && (r.waste == null || r.waste < 12)).length;
-  // "Need attention today" = any store hit by one of the three problem signals
-  // (union, so a store counts once even if it trips two).
-  const needAttention = rows.filter(
-    (r) => (r.waste != null && r.waste > 25) || r.stockouts > 0 || (r.growth != null && r.growth < -10),
-  ).length;
+  // "Need attention today" mirrors the hero's red count exactly (status === red,
+  // i.e. waste >30 or >=3 stockout days). Deriving it from the same RAG status
+  // keeps this header locked in lockstep with the hero and the region cards —
+  // one "needs attention" number on the page, never 56 here and 68 there.
+  const needAttention = rows.filter((r) => r.s.status === "red").length;
   // dataPending: the sales-trend signals stay at 0 until the daily history loads
   // — flag that rather than implying "all clear".
   const actions = [
-    { key: "waste", tone: "red", n: highWastage, issue: "high wastage", action: "Reduce production", href: "/stores?view=waste25", pending: false },
+    { key: "waste", tone: "red", n: highWastage, issue: "high wastage", action: "Reduce production", href: "/stores?view=waste30", pending: false },
     { key: "stock", tone: "amber", n: stockOuts, issue: "repeated stock-outs", action: "Increase allocation", href: "/stores?view=stockouts", pending: true },
     { key: "decline", tone: "blue", n: salesDecline, issue: "sudden sales decline", action: "Investigate", href: "/stores?view=declines", pending: true },
     { key: "growth", tone: "green", n: strongSellers, issue: "strong sellers", action: "Consider expanding range", href: "/stores?view=expandrange", pending: false },
