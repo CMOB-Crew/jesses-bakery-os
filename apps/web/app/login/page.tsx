@@ -1,4 +1,5 @@
 import { signInWithPassword, signInWithMicrosoft } from "./actions";
+import SubmitButton from "./SubmitButton";
 
 // Sign-in screen. Self-contained full-viewport layout so it reads as its own
 // page rather than sitting inside the app shell/sidebar. Only ever shown once
@@ -49,18 +50,18 @@ export default async function LoginPage({
               placeholder="••••••••"
             />
           </label>
-          <button type="submit" className="loginbtn primary">
+          <SubmitButton className="loginbtn primary" pendingText="Signing in…">
             Sign in
-          </button>
+          </SubmitButton>
         </form>
 
         <div className="loginor"><span>or</span></div>
 
         <form action={signInWithMicrosoft}>
           <input type="hidden" name="next" value={next} />
-          <button type="submit" className="loginbtn ms">
+          <SubmitButton className="loginbtn ms" pendingText="Redirecting…">
             Continue with Microsoft
-          </button>
+          </SubmitButton>
         </form>
 
         <p className="loginfoot">
@@ -94,6 +95,11 @@ export default async function LoginPage({
           padding:11px 14px;border-radius:var(--rc);border:1px solid transparent}
         .loginbtn.primary{background:var(--ink);color:#fff;margin-top:4px}
         .loginbtn.ms{background:#fff;color:var(--ink);border-color:var(--line)}
+        .loginbtn[disabled]{opacity:.75;cursor:progress}
+        .loginbtn-loading{display:inline-flex;align-items:center;justify-content:center;gap:8px}
+        .loginspin{width:14px;height:14px;border-radius:50%;border:2px solid currentColor;
+          border-top-color:transparent;display:inline-block;animation:loginspin .6s linear infinite}
+        @keyframes loginspin{to{transform:rotate(360deg)}}
         .loginor{display:flex;align-items:center;text-align:center;color:var(--faint);
           font-size:12px;margin:16px 0}
         .loginor::before,.loginor::after{content:"";flex:1;height:1px;background:var(--line)}
