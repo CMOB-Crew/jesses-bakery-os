@@ -68,8 +68,9 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
         </div>
 
         <div className="eng-foot">
-          Woolworths only for now (Coles &amp; Harris held until their feeds fill).
-          Dollar figures come next — the per-unit cost data already lives in your retailer feeds.
+          Waste this week is Woolworths only for now (Coles &amp; Harris held until their feeds fill).
+          Dollar figures are live — valued from your retailer cost feeds; Coles is still catching up
+          after a feed change, so its share is understated for now.
         </div>
       </div>
 
