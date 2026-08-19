@@ -10,7 +10,7 @@ const CATEGORY_OPTS = ["sourdough", "bagel", "challah", "pita", "pastry", "cake"
 
 /* ------------------------------------------------------------------ *
  * Products directory — the per-product lens on the whole network,
- * aggregated live from the engine ledger (store_reco). The Stores page
+ * aggregated live from the plan ledger (store_reco). The Stores page
  * answers "which store needs me"; this answers "which line is wasting,
  * which is under-ordered, how widely is it ranged". Searchable by name,
  * filterable by category, sortable by what matters. All client-side over
@@ -26,7 +26,7 @@ const SORTS: { k: SortKey; label: string }[] = [
   { k: "waste", label: "Waste %" },
   { k: "sell", label: "Sell-through" },
   { k: "sent", label: "Delivered" },
-  { k: "change", label: "Biggest engine cut" },
+  { k: "change", label: "Biggest cut" },
   { k: "stores", label: "Stores ranged" },
   { k: "name", label: "Name A–Z" },
 ];
@@ -88,7 +88,7 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
   }, [products]);
 
   function downloadCsv() {
-    const header = ["Product", "Category", "Stores ranged", "Delivered (wk)", "Sold (wk)", "Sell-through %", "Waste %", "Engine change"];
+    const header = ["Product", "Category", "Stores ranged", "Delivered (wk)", "Sold (wk)", "Sell-through %", "Waste %", "Difference"];
     const body = rows.map((p) =>
       [
         p.name,
@@ -117,8 +117,8 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
     return (
       <div className="plist">
         <div className="empty">
-          The product ledger is warming up. This lists every line the engine plans across the network — delivered vs sold,
-          sell-through and waste per product — and fills in as the engine plan (store_reco) loads.
+          The product ledger is warming up. This lists every line the plan covers across the network — delivered vs sold,
+          sell-through and waste per product — and fills in as the plan (store_reco) loads.
         </div>
         <style>{`.plist .empty{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px 20px;text-align:center;color:var(--ink2);font-size:14px;line-height:1.6}`}</style>
       </div>
@@ -128,16 +128,16 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
   return (
     <div className="plist">
       <div className="strip">
-        <div className="tile"><div className="tn">{totals.lines}</div><div className="tl">Core lines · engine-planned</div></div>
+        <div className="tile"><div className="tn">{totals.lines}</div><div className="tl">Core lines · planned</div></div>
         <div className="tile"><div className="tn">{nf(totals.sent)}</div><div className="tl">Delivered · units / wk</div></div>
         <div className="tile"><div className="tn">{nf(totals.sold)}</div><div className="tl">Sold · units / wk</div></div>
         <div className="tile"><div className="tn">{totals.wastePct ?? "—"}<span className="u">%</span></div><div className="tl">Implied waste · delivered − sold</div></div>
       </div>
 
       <div className="scopenote">
-        These are the engine&apos;s core planned lines (store_reco), not the full catalogue. Waste here is the
+        These are the plan&apos;s core planned lines (store_reco), not the full catalogue. Waste here is the
         <b> current plan&apos;s over-delivery</b> — it runs higher than realised network waste on Overview because it&apos;s
-        exactly what the <b>Engine change</b> column trims. Click a line to see which stores drive it.
+        exactly what the <b>Difference</b> column trims. Click a line to see which stores drive it.
       </div>
 
       <NewProductLaunch />
@@ -178,7 +178,7 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
               <tr>
                 <th>Product</th><th>Category</th>
                 <th className="num">Stores</th><th className="num">Delivered</th><th className="num">Sold</th>
-                <th className="num">Sell-through</th><th className="num">Waste %</th><th className="num">Engine change</th>
+                <th className="num">Sell-through</th><th className="num">Waste %</th><th className="num">Difference</th>
                 <th className="launchcol">Launch</th>
               </tr>
             </thead>
@@ -209,8 +209,8 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
       )}
 
       <div className="foot">
-        Live from the engine plan (store_reco). Sell-through is sold ÷ delivered; waste is delivered − sold (inferred, the
-        same method as the store view). Engine change is the net order move the engine recommends across the network —
+        Live from the plan (store_reco). Sell-through is sold ÷ delivered; waste is delivered − sold (inferred, the
+        same method as the store view). Difference is the net order move the plan recommends across the network —
         negative trims an over-delivered line, positive lifts an under-ordered one.
       </div>
 
@@ -240,7 +240,7 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
         .plist .wp{font-weight:600;font-variant-numeric:tabular-nums}
         .plist .wp.hi{color:var(--red-t)} .plist .wp.mid{color:var(--amber-t)} .plist .wp.lo{color:var(--ink2)}
         .plist .chg{font-weight:700;font-variant-numeric:tabular-nums}
-        /* Engine change: a cut trims over-delivery (waste win) -> green; a lift
+        /* Difference: a cut trims over-delivery (waste win) -> green; a lift
            raises an under-ordered line -> neutral. Never alarm-red. */
         .plist .chg.cut{color:var(--green-t)} .plist .chg.add{color:var(--ink2)} .plist .chg.flat{color:var(--muted)}
         .plist .scopenote{font-size:12px;color:var(--muted);line-height:1.55;background:var(--surface);border:1px solid var(--line2);border-radius:9px;padding:10px 13px;margin-bottom:14px}

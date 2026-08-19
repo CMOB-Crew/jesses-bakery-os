@@ -29,7 +29,7 @@ type SortKey = "status" | "waste" | "sold" | "stockouts" | "name";
 const SORTS: { k: SortKey; label: string }[] = [
   { k: "status", label: "Worst first" },
   { k: "waste", label: "Waste %" },
-  { k: "stockouts", label: "Stockouts" },
+  { k: "stockouts", label: "Sold out" },
   { k: "sold", label: "Units sold" },
   { k: "name", label: "Name A–Z" },
 ];
@@ -50,7 +50,7 @@ const growthOf = (s: StoreWeek) => {
 };
 const VIEWS: Record<string, { label: string; test: (s: StoreWeek) => boolean }> = {
   waste30: { label: "Excessive waste (>30%)", test: (s) => s.waste_pct != null && num(s.waste_pct) > 30 },
-  stockouts: { label: "Likely stockouts", test: (s) => num(s.stockout_days) > 0 },
+  stockouts: { label: "Likely to sell out", test: (s) => num(s.stockout_days) > 0 },
   overdeliver: { label: "Allocation opportunities · over-delivering", test: (s) => num(s.total_sent) - num(s.total_sold) > Math.max(20, num(s.total_sold) * 0.2) },
   expandrange: { label: "Could expand range", test: (s) => { const st = sellThroughOf(s); const w = s.waste_pct == null ? null : num(s.waste_pct); return st != null && st >= 95 && (w == null || w < 12); } },
   outperform: { label: "Outperforming comparable stores", test: (s) => { const st = sellThroughOf(s); return s.status === "green" && st != null && st >= 92; } },
@@ -122,7 +122,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
   // Export exactly what's on screen (current filter + sort) as CSV — Simona
   // works from spreadsheets, so the filtered view goes straight to one.
   function downloadCsv() {
-    const header = ["Store", ...(showRegion ? ["Region"] : []), "Retailer", "Status", "Waste %", "Stockout days", "Sold (wk)"];
+    const header = ["Store", ...(showRegion ? ["Region"] : []), "Retailer", "Status", "Waste %", "Sold-out days", "Sold (wk)"];
     const body = rows.map((s) =>
       [
         s.name,
@@ -221,7 +221,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
             <thead>
               <tr>
                 <th>Store</th>{showRegion && <th>Region</th>}<th>Retailer</th><th>Status</th>
-                <th className="num">Waste %</th>{anyStockouts && <th className="num">Stockouts</th>}<th className="num">Sold (wk)</th>
+                <th className="num">Waste %</th>{anyStockouts && <th className="num">Sold out</th>}<th className="num">Sold (wk)</th>
               </tr>
             </thead>
             <tbody>

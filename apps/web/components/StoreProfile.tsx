@@ -150,7 +150,7 @@ export default function StoreProfile({
     // other page. (Was reddening at >25, which disagreed with the badge on a
     // store sitting in the 25-30% amber band.)
     { k: "Waste", v: wastePct == null ? "—" : `${wastePct}%`, cls: wastePct == null ? undefined : wastePct < 20 ? "g" : wastePct > 30 ? "r" : "a" },
-    { k: "Stockout days", v: stockouts ? `${stockouts}` : "0", cls: stockouts ? "a" : undefined },
+    { k: "Sold-out days", v: stockouts ? `${stockouts}` : "0", cls: stockouts ? "a" : undefined },
     { k: "Sales growth", v: growth == null ? "—" : `${growth >= 0 ? "▲" : "▼"} ${Math.abs(growth)}%`, cls: growth == null ? undefined : growth >= 0 ? "g" : "r" },
   ];
 
@@ -241,11 +241,11 @@ export default function StoreProfile({
       <div className="dialrow">
         <div className="dial-l">
           <div className="dl-t">Service level · this store</div>
-          <div className="dl-s">Sets the waste-vs-stockout trade-off for every product here — not just loaves. The engine re-sizes each line to match.</div>
+          <div className="dl-s">Sets the waste-vs-selling-out trade-off for every product here — not just loaves. The plan re-sizes each line to match.</div>
         </div>
         <div className="seg">
           {(["lean", "balanced", "service"] as const).map((s) => (
-            <button key={s} type="button" className={dial === s ? "on" : ""} onClick={() => { setDial(s); showToast(`Service level set to ${s} for ${store.name} — the engine retunes every line to match (wired next phase)`); }}>
+            <button key={s} type="button" className={dial === s ? "on" : ""} onClick={() => { setDial(s); showToast(`Service level set to ${s} for ${store.name} — the plan retunes every line to match (wired next phase)`); }}>
               {s[0].toUpperCase() + s.slice(1)}
               {s === "balanced" && <small>default</small>}
             </button>
@@ -333,7 +333,7 @@ export default function StoreProfile({
       ) : (
         <div className="empty">
           <div className="e-t">Per-product plan is warming up for this store</div>
-          <div className="e-b">The engine writes line-by-line ranging and orders for stores on a mature sales feed (Woolworths today). This store&apos;s totals are above; its product rows light up as its retailer feed fills the ledger.</div>
+          <div className="e-b">The plan writes line-by-line ranging and orders for stores on a live sales feed (Woolworths today). This store&apos;s totals are above; its product rows light up as its retailer feed fills the ledger.</div>
         </div>
       )}
 

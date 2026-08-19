@@ -10,7 +10,7 @@ export default async function AccuracyPage() {
     <>
       <div className="head">
         <h1>Forecast accuracy</h1>
-        <div className="meta">Is the engine getting it right?</div>
+        <div className="meta">Is the plan getting it right?</div>
       </div>
       <ForecastAccuracy data={data} />
     </>

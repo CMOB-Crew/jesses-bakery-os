@@ -10,7 +10,7 @@ export default async function SeasonalityPage() {
     <>
       <div className="head">
         <h1>Seasonality</h1>
-        <div className="meta">The events calendar the engine plans against</div>
+        <div className="meta">The events calendar the plan reads from</div>
       </div>
       <SeasonalityCalendar live={live} liveEvents={liveEvents} />
     </>

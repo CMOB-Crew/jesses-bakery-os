@@ -7,7 +7,7 @@ import { createStore } from "@/app/new-store/actions";
  * fill." A new store has no sales history, so we seed Simona's baseline
  * stock bundle (her 14 Aug spec, active until sales data builds), sized
  * to the store, on the real Jesse's product lines with their Woolworths
- * product numbers. Capped at shelf max; the engine takes over as real
+ * product numbers. Capped at shelf max; the plan takes over as real
  * sales come in. Front-end prototype wired to the real bundle.
  * ------------------------------------------------------------------ */
 
@@ -190,7 +190,7 @@ export default function NewStoreSetup({ regions = [] }: { regions?: string[] }) 
       <div className="panel intro">
         <div className="itxt">
           <b>Enter once, set the ceiling, let it fill.</b> A new store has no sales history, so we seed
-          <b> Simona&apos;s baseline stock bundle</b> — sized to the store — then cap it at the shelf max and let the engine
+          <b> Simona&apos;s baseline stock bundle</b> — sized to the store — then cap it at the shelf max and let the plan
           take over as real sales come in. The bundle is her spec (active until data lands), on the real Jesse&apos;s lines
           with their Woolworths product numbers. No per-product guessing, and no override that gets forgotten.
         </div>
@@ -266,7 +266,7 @@ export default function NewStoreSetup({ regions = [] }: { regions?: string[] }) 
               </div>
             </div>
             <div className="fld caprow" style={{ marginTop: 14 }}>
-              <span>Shelf max — the hard ceiling the engine never exceeds</span>
+              <span>Shelf max — the hard ceiling the plan never exceeds</span>
               <div className="capstep">
                 <button onClick={() => setCap((c) => Math.max(total, c - 5))} aria-label="Lower cap">−</button>
                 <div className="capval">{cap}<small>units</small></div>
@@ -400,14 +400,14 @@ export default function NewStoreSetup({ regions = [] }: { regions?: string[] }) 
                   : "Set a planned go-live date to continue."}
               </div>
             ) : null}
-            <div className="savescope">Creates the store and its go-live. The starting bundle, run and delivery days are the plan it launches with — saved to the engine as the feed comes online.</div>
+            <div className="savescope">Creates the store and its go-live. The starting bundle, run and delivery days are the plan it launches with — saved to the plan as the feed comes online.</div>
             {saved && (
               <div className={`savemsg ${saved.ok ? "ok" : "err"}`}>
                 {saved.msg}{saved.ok && <> <a href="/launches">Open Launches →</a></>}
               </div>
             )}
             <div className="learnnote">
-              First few weeks the engine holds close to Simona&apos;s bundle while it learns the store&apos;s real demand — then
+              First few weeks the plan holds close to Simona&apos;s bundle while it learns the store&apos;s real demand — then
               it takes over sizing every order, capped at the {cap}-unit shelf max. Challah, babka and specialty lines add
               on as the store picks them up.
             </div>

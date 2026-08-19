@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { WeekdayShape, SeasonEvent } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
- * Seasonality calendar — the events calendar the engine plans against.
+ * Seasonality calendar — the events calendar the plan reads from.
  * Front-end to the `events` table (name, kind, state, start/end,
  * uplift_pct). Every factor Simona named is here and editable:
  * weekday shape, school holidays, public/long weekends, Jewish
@@ -188,7 +188,7 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
     <div className="seasn">
       <div className="panel intro">
         <div className="itxt">
-          This is the events calendar the engine plans against — the same table the forecast reads. It starts from the
+          This is the events calendar the plan reads from — the same table the forecast reads. It starts from the
           <b> weekday shape</b> and layers the swings Simona named: school holidays, public and long weekends, the
           Jewish calendar, and weather. <b>Nothing here is fixed</b> — every uplift is a lever, and she can add a custom
           event for any store or region.
@@ -278,12 +278,12 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
                   {selEvents.length === 0 && <div className="dc-none">Just the weekday shape — no events layered on this day.</div>}
                 </div>
                 <div className="dc-foot">
-                  Engine plans this day <b>{fmtPct(selMult)}</b> against a flat week.
+                  Plan reads this day <b>{fmtPct(selMult)}</b> against a flat week.
                   {selEvents.length > 0 && " Product-specific spikes (e.g. challah) run higher than the network figure."}
                 </div>
               </>
             ) : (
-              <div className="dc-empty">Pick a day to see how the engine sizes it.</div>
+              <div className="dc-empty">Pick a day to see how the plan sizes it.</div>
             )}
           </div>
 
@@ -308,7 +308,7 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
             <button className="addev" onClick={() => showToast("Adding events and per-store overrides is the next build phase — the calendar here reads from the shared events table.")}>+ Add event or store-specific override</button>
           </div>
           <div className="foot" style={{ marginTop: 12 }}>
-            Seeded from Simona&apos;s 12 Aug session. Dates for the Jewish calendar are the engine&apos;s current
+            Seeded from Simona&apos;s 12 Aug session. Dates for the Jewish calendar are the plan&apos;s current
             assumption — confirmed with her. Nudging an uplift previews it live; writing changes back to the shared
             calendar is the next build phase.
           </div>

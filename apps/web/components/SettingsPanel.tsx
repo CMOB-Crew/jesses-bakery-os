@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import type { EngineScenario } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
-// Null-safe first word. Guards prerender: if the engine_projection feed is slow
+// Null-safe first word. Guards prerender: if the plan_projection feed is slow
 // or a row lands without a label during a Netlify build, this returns "" instead
 // of throwing on undefined.split() and failing the whole build.
 const firstWord = (s?: string | null) => (s ? String(s).split(" ")[0] : "");
@@ -52,14 +52,14 @@ export default function SettingsPanel({ scenarios }: { scenarios: EngineScenario
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   }
-  const setMin = (p: string, d: number) => { setMins((m) => ({ ...m, [p]: Math.max(0, (m[p] ?? 2) + d) })); ping("Minimum updated — saving to the engine config is the next phase"); };
+  const setMin = (p: string, d: number) => { setMins((m) => ({ ...m, [p]: Math.max(0, (m[p] ?? 2) + d) })); ping("Minimum updated — saving to the settings is the next phase"); };
   const setSize = (k: string, field: "cap" | "fill", v: number) => setSizes((ss) => ss.map((s) => (s.key === k ? { ...s, [field]: Math.max(0, v) } : s)));
-  const toggleFactor = (k: string) => { setFactors((fs) => fs.map((f) => (f.key === k ? { ...f, on: !f.on } : f))); ping("Factor toggled — the engine picks this up next phase"); };
+  const toggleFactor = (k: string) => { setFactors((fs) => fs.map((f) => (f.key === k ? { ...f, on: !f.on } : f))); ping("Factor toggled — the plan picks this up next phase"); };
 
   return (
     <section className="setp">
       <div className="lead-panel">
-        The engine is not a black box — every number here is a lever you control. This is exactly how it decides what to bake and send. Nothing is guessed; defaults come from Jesse&apos;s and Simona&apos;s calls, and change the moment you say so. <b>Editing is live in this build; writing config back to the engine is the next phase.</b>
+        The plan is not a black box — every number here is a lever you control. This is exactly how it decides what to bake and send. Nothing is guessed; defaults come from Jesse&apos;s and Simona&apos;s calls, and change the moment you say so. <b>Editing is live in this build; writing config back to the plan is the next phase.</b>
       </div>
 
       {/* SERVICE LEVEL */}
@@ -151,7 +151,7 @@ export default function SettingsPanel({ scenarios }: { scenarios: EngineScenario
       {/* FEED COVERAGE */}
       <div className="sec"><span className="tick" />Feed coverage</div>
       <div className="card">
-        <div className="feed"><b className="g">● Woolworths</b> — mature feed, live on plan. Full per-store, per-product orders.</div>
+        <div className="feed"><b className="g">● Woolworths</b> — live feed, live on plan. Full per-store, per-product orders.</div>
         <div className="feed"><b className="a">● Coles &amp; Harris Farm</b> — feeds still filling in the ledger. They light up automatically as sales data lands; nothing to configure. This is also what unlocks the dollar &amp; profit figures across the app.</div>
       </div>
 

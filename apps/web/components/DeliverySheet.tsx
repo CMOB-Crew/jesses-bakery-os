@@ -67,7 +67,7 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
     return (
       <div className="panel">
         <div style={{ fontFamily: "var(--serif)", fontSize: 18, marginBottom: 8 }}>The grid warms up with the plan</div>
-        <div style={{ color: "var(--ink2)", maxWidth: 560, lineHeight: 1.6 }}>The store × product sheet is built from the engine&apos;s per-store plan on the mature Woolworths feed. It fills in here as the plan is written.</div>
+        <div style={{ color: "var(--ink2)", maxWidth: 560, lineHeight: 1.6 }}>The store × product sheet is built from the per-store plan on the Woolworths feed. It fills in here as the plan is written.</div>
       </div>
     );
   }

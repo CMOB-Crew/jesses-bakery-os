@@ -43,7 +43,7 @@ export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWee
   // — flag that rather than implying "all clear".
   const actions = [
     { key: "waste", tone: "red", n: highWastage, issue: "high wastage", action: "Reduce production", href: "/stores?view=waste30", pending: false },
-    { key: "stock", tone: "amber", n: stockOuts, issue: "repeated stock-outs", action: "Increase allocation", href: "/stores?view=stockouts", pending: true },
+    { key: "stock", tone: "amber", n: stockOuts, issue: "lines selling out", action: "Increase allocation", href: "/stores?view=stockouts", pending: true },
     { key: "decline", tone: "blue", n: salesDecline, issue: "sudden sales decline", action: "Investigate", href: "/stores?view=declines", pending: true },
     { key: "growth", tone: "green", n: strongSellers, issue: "strong sellers", action: "Consider expanding range", href: "/stores?view=expandrange", pending: false },
   ] as const;

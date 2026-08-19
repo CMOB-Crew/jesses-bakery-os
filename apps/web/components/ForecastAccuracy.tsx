@@ -4,14 +4,14 @@ import { useMemo, useState } from "react";
 import type { ForecastAccuracyData, FaccStore } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
- * Forecast accuracy — is the engine actually getting it right? With no
+ * Forecast accuracy — is the plan actually getting it right? With no
  * stored engine forecasts to grade yet, this is a real backtest: for
- * every store and product we replay the honest baseline the engine has
+ * every store and product we replay the honest baseline the plan has
  * to beat — a trailing-demand forecast (each week from the mean of the
  * prior weeks) — and score it against what actually sold. One metric
  * everywhere: "closeness" (100 = spot on). Over-forecast leans to
  * waste; under-forecast leans to stockouts, so the same number that
- * grades the engine points to which of the other two problems a store
+ * grades the plan points to which of the other two problems a store
  * has. Every scored (store, week) pair is one real snapshot; the count
  * is shown, not asserted.
  * ------------------------------------------------------------------ */
@@ -71,7 +71,7 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
         </div>
         <div className="strip">
           <div className="tile"><div className="tn dim">—</div><div className="tl">Network accuracy · mean closeness to actual (100 = spot on)</div></div>
-          <div className="tile"><div className="tn dim">—</div><div className="tl">Bias · over-send (waste) vs under-send (stockout)</div></div>
+          <div className="tile"><div className="tn dim">—</div><div className="tl">Bias · over-send (waste) vs under-send (selling out)</div></div>
           <div className="tile"><div className="tn dim">—</div><div className="tl">Change vs prior weeks</div></div>
           <div className="tile"><div className="tn dim">—</div><div className="tl">Stores at or above the 85% target</div></div>
         </div>
@@ -102,9 +102,9 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
     <div className="facc">
       <div className="panel intro">
         <div className="itxt">
-          Every forecast is scored against what the store actually sold. With no stored engine forecasts to grade yet,
-          this backtests the honest baseline the engine has to beat — a <b>trailing-demand forecast</b> replayed across
-          the real sales history. <b>Over-forecasting leans to waste; under-forecasting leans to stockouts</b> — so the
+          Every forecast is scored against what the store actually sold. With no saved forecasts to grade yet,
+          this backtests the honest baseline the plan has to beat — a <b>trailing-demand forecast</b> replayed across
+          the real sales history. <b>Over-forecasting leans to waste; under-forecasting leans to selling out</b> — so the
           same number that grades the forecast points to which of the other two problems a store has.
         </div>
       </div>
@@ -117,7 +117,7 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
         </div>
         <div className="tile">
           <div className={`tn ${netBias > 0 ? "amber" : "blue"}`}>{netBias > 0 ? "+" : ""}{netBias}<span className="u">%</span></div>
-          <div className="tl">Bias · {netBias > 0 ? "leans over → waste" : netBias < 0 ? "leans under → stockout" : "balanced"}</div>
+          <div className="tl">Bias · {netBias > 0 ? "leans over → waste" : netBias < 0 ? "leans under → selling out" : "balanced"}</div>
         </div>
         <div className="tile">
           <div className={`tn ${improve >= 0 ? "green" : "red"}`}>{improve >= 0 ? "+" : ""}{improve}<span className="u"> pts</span></div>
@@ -183,7 +183,7 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
                 <td className="num"><span className={`accpill ${accClass(s.acc)}`}>{s.acc}%</span></td>
                 <td>
                   <span className={`bias ${s.bias > 0 ? "over" : "under"}`}>
-                    {s.bias > 0 ? "+" : ""}{s.bias}% {s.bias > 0 ? "over → waste" : s.bias < 0 ? "under → stockout" : "balanced"}
+                    {s.bias > 0 ? "+" : ""}{s.bias}% {s.bias > 0 ? "over → waste" : s.bias < 0 ? "under → selling out" : "balanced"}
                   </span>
                 </td>
                 <td><Spark vals={s.trend} /></td>
@@ -230,7 +230,7 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
       <div className="foot" style={{ marginTop: 16 }}>
         Real backtest over {snapshots.toLocaleString()} scored store-week snapshots. Each week is forecast from the mean
         of the prior {lookback} weeks and scored against actual sales; the current (partial) week is held out. This is
-        the baseline the engine must beat — once the engine writes its own forecasts, they score in right here alongside it.
+        the baseline the plan must beat — once the plan writes its own forecasts, they score in right here alongside it.
       </div>
 
       <style>{faccCss}</style>

@@ -39,8 +39,8 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
         <div className="panel intro">
           <div className="itxt">
             One ranked list of the biggest wins across the network — trim waste where we over-send, capture demand where
-            we sell out. This fills in as the ledger accumulates weeks: over-delivery shows up first on the mature
-            Woolworths feed, stockouts as the on-hand ledger builds. Nothing to action yet.
+            we sell out. This fills in as the ledger accumulates weeks: over-delivery shows up first on the fuller
+            Woolworths feed, sell-outs as the on-hand ledger builds. Nothing to action yet.
           </div>
         </div>
       </div>
@@ -117,7 +117,7 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
       </div>
 
       <div className="foot" style={{ marginTop: 16 }}>
-        Live from the store-week view and the engine plan. Trim-waste moves are sized from the plan where a store has one,
+        Live from the store-week view and the plan. Trim-waste moves are sized from the plan where a store has one,
         else right-sized to demand. Ranked by units today; it re-orders by revenue when the price feed lands (Invoice_Cost),
         and by true profit once Simona&apos;s production cost per unit is in.
       </div>

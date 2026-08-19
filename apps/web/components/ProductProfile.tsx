@@ -4,7 +4,7 @@ import type { ProductDetail, ProductStore } from "@/lib/queries";
 /* ------------------------------------------------------------------ *
  * Product profile — the drill-down from the Products table. Answers the
  * question the list can't: for this one line, WHICH stores range it and
- * which are wasting it. All from the engine plan (store_reco), same lines
+ * which are wasting it. All from the plan (store_reco), same lines
  * and method as the Products page. Worst-waste-first.
  * ------------------------------------------------------------------ */
 
@@ -36,7 +36,7 @@ export default function ProductProfile({ product, stores }: { product: ProductDe
         <div className="tile"><div className="tn">{nf(p.sold)}</div><div className="tl">Sold · units / wk</div></div>
         <div className="tile"><div className="tn">{p.sell_through == null ? "—" : `${p.sell_through}%`}</div><div className="tl">Sell-through</div></div>
         <div className="tile"><div className={`tn wp ${wasteClass(p.waste_pct)}`}>{p.waste_pct == null ? "—" : `${p.waste_pct}%`}</div><div className="tl">Implied waste · delivered − sold</div></div>
-        <div className="tile"><div className={`tn chg ${chgClass(p.change)}`}>{p.change > 0 ? "+" : ""}{nf(p.change)}</div><div className="tl">Engine change · units / wk</div></div>
+        <div className="tile"><div className={`tn chg ${chgClass(p.change)}`}>{p.change > 0 ? "+" : ""}{nf(p.change)}</div><div className="tl">Difference · units / wk</div></div>
       </div>
 
       <div className="section-h"><span className="tick" />By store — worst waste first</div>
@@ -47,7 +47,7 @@ export default function ProductProfile({ product, stores }: { product: ProductDe
               <tr>
                 <th>Store</th><th>Region</th>
                 <th className="num">Delivered</th><th className="num">Sold</th>
-                <th className="num">Sell-through</th><th className="num">Waste %</th><th className="num">Engine change</th>
+                <th className="num">Sell-through</th><th className="num">Waste %</th><th className="num">Difference</th>
               </tr>
             </thead>
             <tbody>
@@ -66,12 +66,12 @@ export default function ProductProfile({ product, stores }: { product: ProductDe
           </table>
         </div>
       ) : (
-        <div className="empty">No store-level plan for this line yet. It fills in as the engine plans it across stores.</div>
+        <div className="empty">No store-level plan for this line yet. It fills in as the plan builds across stores.</div>
       )}
 
       <div className="foot">
-        Live from the engine plan (store_reco) — the same core lines and method as the Products page. Sell-through is
-        sold ÷ delivered; waste is delivered − sold. Engine change is the order move the engine recommends for this line at
+        Live from the plan (store_reco) — the same core lines and method as the Products page. Sell-through is
+        sold ÷ delivered; waste is delivered − sold. Difference is the order move the plan recommends for this line at
         each store — a cut trims an over-delivered store, a lift raises an under-ordered one. Store names open the full
         store profile.
       </div>

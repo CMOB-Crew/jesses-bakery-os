@@ -1,23 +1,20 @@
-"use client";
-
-import { useState } from "react";
 import type { EngineScenario } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 
 // The hero of the whole build: "waste this week — today vs. the plan", on the
 // real Woolworths ledger. Before→after on the left with the cut line + legend;
-// the service dial and its four numbers on the right. The dial trades waste
-// against lost sales — every setting sits below today's rate. $ unlocks with
-// the per-unit cost data already in the retailer feeds.
+// the four payoff numbers on the right, at the default (balanced) setting. The
+// waste-vs-selling-out dial lives in Settings now, not here — the Overview just
+// shows what the plan saves. $ unlocks with the per-unit cost data already in
+// the retailer feeds.
 export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[] }) {
   const current = scenarios.find((s) => s.scenario === "current");
   const engines = scenarios.filter((s) => s.scenario !== "current").sort((a, b) => a.ord - b.ord);
-  const [sel, setSel] = useState("balanced");
 
   if (!current || engines.length === 0) return null;
 
-  const eng = engines.find((e) => e.scenario === sel) ?? engines.find((e) => e.scenario === "balanced") ?? engines[0];
+  const eng = engines.find((e) => e.scenario === "balanced") ?? engines[0];
   const curPct = Number(current.waste_pct) || 0;
   const engPct = Number(eng.waste_pct) || 0;
   const drop = Math.round((curPct - engPct) * 10) / 10;
@@ -39,7 +36,7 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
           <div>
             <div className="ba">
               <div className="cell now">
-                <div className="k">Their system today</div>
+                <div className="k">Right now</div>
                 <div className="big">{curPct}<span className="u">%</span></div>
               </div>
               <div className="arrow"><svg viewBox="0 0 34 20"><path d="M2 10h28M22 3l8 7-8 7" /></svg></div>
@@ -60,15 +57,7 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
           </div>
 
           <div className="dialwrap">
-            <div className="dialhd"><span className="t">Service dial</span><span className="hint">trades waste vs. selling out</span></div>
-            <div className="seg">
-              {engines.map((e) => (
-                <button key={e.scenario} type="button" className={e.scenario === sel ? "on" : ""} onClick={() => setSel(e.scenario)}>
-                  {e.label.split(" ")[0]}
-                  {e.scenario === "balanced" && <small>default</small>}
-                </button>
-              ))}
-            </div>
+            <div className="dialhd"><span className="t">What the plan saves</span><span className="hint">at the default setting</span></div>
             <div className="quad">
               <div className="q"><div className="qn">{nf(savedWk)}</div><div className="ql">loaves saved / week</div></div>
               <div className="q"><div className="qn">~{nf(annual)}</div><div className="ql">saved / year</div></div>
@@ -79,7 +68,7 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
         </div>
 
         <div className="eng-foot">
-          Mature Woolworths feed only (Coles &amp; Harris held until their feeds fill).
+          Woolworths only for now (Coles &amp; Harris held until their feeds fill).
           Dollar figures come next — the per-unit cost data already lives in your retailer feeds.
         </div>
       </div>
@@ -111,12 +100,6 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
       .enghero .dialhd{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px;gap:8px;flex-wrap:wrap}
       .enghero .dialhd .t{font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);font-weight:700}
       .enghero .dialhd .hint{font-size:11px;color:var(--faint)}
-      .enghero .seg{display:flex;background:#ece3d1;border-radius:10px;padding:3px;gap:3px}
-      .enghero .seg button{flex:1;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:600;color:var(--muted);padding:9px 6px;border-radius:8px;cursor:pointer;transition:.15s;letter-spacing:-.1px}
-      .enghero .seg button:hover{color:var(--ink2)}
-      .enghero .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(60,45,30,.16)}
-      .enghero .seg button small{display:block;font-size:10px;font-weight:600;color:var(--muted);letter-spacing:0;margin-top:1px}
-      .enghero .seg button.on small{color:var(--green-t)}
       .enghero .quad{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden;margin-top:14px}
       .enghero .quad .q{background:var(--card);padding:14px 16px}
       .enghero .quad .q .qn{font-family:var(--serif);font-size:24px;font-weight:600;letter-spacing:-.5px;font-variant-numeric:tabular-nums;line-height:1}

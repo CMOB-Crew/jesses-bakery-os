@@ -17,7 +17,7 @@ const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 // drop while the weekly totals stay exact.
 const SEED_DOWMULT = [0.85, 0.85, 0.95, 1, 1.3, 1.55, 1.4];
 
-// The "calm" delivery order sheet. The engine writes the plan; Simona works
+// The "calm" delivery order sheet. The plan sizes each order; Simona works
 // through it region by region, nudging any Final delivery number (−/+ appear on
 // hover), resetting or undoing, and ticking each store to approve. Each store
 // opens a per-product breakdown inline. Totals recalc live. Nothing sends to the
@@ -88,7 +88,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null }: { 
   // Export the run sheet as it stands — current view (whole week or one day),
   // adjustments included, in the region order shown. Real CSV, no dependency.
   function exportRunSheet() {
-    const header = ["Region", "Store", "Sending now", "Final delivery", "Change", "Approved"];
+    const header = ["Region", "Store", "Sending now", "Final delivery", "Difference", "Approved"];
     const body: string[] = [];
     for (const g of groups) {
       for (const l of g.rows) {
@@ -249,7 +249,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null }: { 
           <div>Store</div>
           <div className="r hide">Sending now</div>
           <div className="c">Final delivery</div>
-          <div className="r">Change</div>
+          <div className="r">Difference</div>
           <div className="c">Approve</div>
         </div></div>
 

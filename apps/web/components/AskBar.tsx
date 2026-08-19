@@ -9,7 +9,7 @@ const CHIPS = [
   "What should we cut?",
   "Where is my waste worst?",
   "Which stores need attention?",
-  "Sunday stockouts",
+  "Sunday sell-outs",
 ];
 
 export default function AskBar() {

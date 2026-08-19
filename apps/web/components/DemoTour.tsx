@@ -11,8 +11,8 @@ type Step = { sel: string; title: string; body: string; next?: string };
 const TOURS: Record<string, Step[]> = {
   "/": [
     { sel: ".hero", title: "Your morning glance", body: "Open this first each day. It tells you how many stores need attention today — the rest are running themselves. Exception-first: you only look at what needs you." },
-    { sel: ".enghero", title: "Waste this week vs. the plan", body: "Their old system runs ~32.5% waste. Sized to what actually sells, the plan takes it toward 22.5% — thousands of loaves a week saved. Slide the dial between Lean, Balanced and Service." },
-    { sel: ".today", title: "Today, and the action list", body: "Live coverage for the day, then the to-do list underneath — high wastage, stock-outs, sudden drops and strong sellers, worst first." },
+    { sel: ".enghero", title: "Waste this week vs. the plan", body: "Their old system runs ~32.5% waste. Sized to what actually sells, the plan takes it toward 22.5% — thousands of loaves a week saved." },
+    { sel: ".today", title: "Today, and the action list", body: "Live coverage for the day, then the to-do list underneath — high wastage, lines that sold out, sudden drops and strong sellers, worst first." },
     { sel: ".side", title: "Everything's a click away", body: "Stores, Deliveries, Production, the Assistant and the rest live in the sidebar. Open Stores next.", next: "/stores" },
   ],
   "/stores": [

@@ -29,7 +29,7 @@ const SEED_DOWMULT = [0.85, 0.85, 0.95, 1, 1.3, 1.55, 1.4];
 
 type Day = "week" | number;
 
-// The "calm" bake sheet. The engine sizes each product to real demand; Simona
+// The "calm" bake sheet. The plan sizes each product to real demand; Simona
 // works down it by bread type, nudging any Engine-plan number (−/+ appear on
 // hover), resetting or undoing, and ticking each line to confirm. Flip to a
 // single day to hand the floor exactly what to make that day. Totals recalc live.
@@ -120,7 +120,7 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
   // selected day, with the day-split), any adjustments applied, grouped by
   // category in bake order. Real CSV the floor can open and print.
   function exportBakeSheet() {
-    const header = ["Category", "Product", "Current bake", "Engine plan", "Change", "Stores", isWeek ? "Confirmed" : "Baked"];
+    const header = ["Category", "Product", "Current bake", "Suggested bake", "Difference", "Stores", isWeek ? "Confirmed" : "Baked"];
     const body: string[] = [];
     for (const g of groups) {
       for (const l of g.rows) {
@@ -167,7 +167,7 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
     if (!grp.length) return;
     setHistory((h) => [...h, grp]);
     setEng({ ...orig });
-    showToast("Reset — every line back to the engine plan");
+    showToast("Reset — every line back to the plan");
   }
   function undo() {
     if (!isWeek || !history.length) return;
@@ -267,7 +267,7 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
       {helpOpen && (
         <div className="help">
           <span className="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 16v-5M12 8h.01" /></svg></span>
-          <div><b>How this sheet works:</b> each row is one product. <b>Baking now</b> is the current run. <b>Engine plan</b> is what to make, sized to real sales. Happy with a line? Tick <b>✓</b>. Disagree? Nudge it with <b>−/+</b>, or reset. Flip to a single day above to hand the floor just that day&apos;s bake.</div>
+          <div><b>How this sheet works:</b> each row is one product. <b>Baking now</b> is the current run. <b>Suggested bake</b> is what to make, sized to real sales. Happy with a line? Tick <b>✓</b>. Disagree? Nudge it with <b>−/+</b>, or reset. Flip to a single day above to hand the floor just that day&apos;s bake.</div>
           <span className="x" onClick={() => setHelpOpen(false)}>✕</span>
         </div>
       )}
@@ -279,7 +279,7 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
         </label>
         <button type="button" className={`tgl ${unappOnly ? "on" : ""}`} onClick={() => setUnappOnly((u) => !u)}>{isWeek ? "To confirm only" : "Not baked yet"}</button>
         {isWeek && <button type="button" className="tgl" onClick={undo} disabled={history.length === 0}>↶ Undo last</button>}
-        {isWeek && <button type="button" className="tgl reset" onClick={resetAll} disabled={!dirty}>↺ Reset to engine</button>}
+        {isWeek && <button type="button" className="tgl reset" onClick={resetAll} disabled={!dirty}>↺ Reset</button>}
         <button type="button" className="tgl link" onClick={collapseAll}>{allCollapsed ? "Expand all" : "Collapse all"}</button>
       </div>
 
@@ -287,8 +287,8 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
         <div className="colhead"><div className="grid">
           <div>Product</div>
           <div className="r hide">Baking now</div>
-          <div className="c">{isWeek ? "Engine plan" : "Bake today"}</div>
-          <div className="r">Change</div>
+          <div className="c">{isWeek ? "Suggested bake" : "Bake today"}</div>
+          <div className="r">Difference</div>
           <div className="r hide">Stores</div>
           <div className="c">{isWeek ? "Confirm" : "Baked"}</div>
         </div></div>

@@ -12,7 +12,7 @@ export default async function ProductionPage() {
       <div className="head">
         <h1>Production</h1>
         {lines.length ? (
-          <div className="meta">This week&apos;s bake plan · engine-sized · {lines.length} lines</div>
+          <div className="meta">This week&apos;s bake plan · {lines.length} lines</div>
         ) : null}
       </div>
 
@@ -23,8 +23,8 @@ export default async function ProductionPage() {
         <div className="panel">
           <div style={{ fontFamily: "var(--serif)", fontSize: 18, marginBottom: 8 }}>Bake plan is warming up</div>
           <div style={{ color: "var(--ink2)", maxWidth: 560, lineHeight: 1.6 }}>
-            The bake plan totals the engine&apos;s per-store orders into a factory sheet — how much of each product to make.
-            It lights up here as the plan is written on the mature Woolworths feed.
+            The bake plan totals each store&apos;s orders into a factory sheet — how much of each product to make.
+            It lights up here as the plan is written on the Woolworths feed.
           </div>
         </div>
       )}

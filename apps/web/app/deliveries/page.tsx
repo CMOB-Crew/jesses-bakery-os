@@ -26,7 +26,7 @@ export default async function DeliveriesPage() {
         <div className="panel">
           <div style={{ fontFamily: "var(--serif)", fontSize: 18, marginBottom: 8 }}>Order sheet is warming up</div>
           <div style={{ color: "var(--ink2)", maxWidth: 560, lineHeight: 1.6 }}>
-            The delivery order sheet is generated from the plan on the mature Woolworths feed.
+            The delivery order sheet is generated from the plan on the Woolworths feed.
             It lights up here store-by-store as the plan is written.
           </div>
         </div>

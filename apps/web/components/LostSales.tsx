@@ -6,7 +6,7 @@ import type { LostSales } from "@/lib/queries";
  * Lost sales / stockouts — the availability mirror of waste, live from
  * v_store_week.stockout_days. Reported waste doesn't exist (Waste_Qty is
  * all-zero), so inferred sellouts are the only read on lost demand. Sized
- * "lift" fixes come from the engine plan where a store is under-supplied.
+ * "lift" fixes come from the plan where a store is under-supplied.
  * ------------------------------------------------------------------ */
 
 const CONF = { high: { label: "High confidence", c: "var(--green-t)", b: "var(--green-b)" }, medium: { label: "Worth a look", c: "var(--amber-t)", b: "var(--amber-b)" } };
@@ -32,8 +32,8 @@ export default function LostSales({ data }: { data: LostSales }) {
           <div className="panel intro">
             <div className="itxt">
               The mirror of waste — where stores <b>sell out early</b> and turn demand away. It reads from the on-hand ledger
-              (a stockout day = the shelf hit zero with nothing left to expire). No stockouts flagged this week; as the ledger
-              accumulates across Coles and Harris Farm, sellouts surface here with a sized fix.
+              (a sold-out day = the shelf hit zero with nothing left to expire). No sell-outs flagged this week; as the ledger
+              accumulates across Coles and Harris Farm, sell-outs surface here with a sized fix.
             </div>
           </div>
           <div className="strip">
@@ -50,7 +50,7 @@ export default function LostSales({ data }: { data: LostSales }) {
         <div className="itxt">
           The mirror of waste. Waste is baking too much; <b>lost sales is selling out early</b> and turning demand away —
           invisible on the reports because retailers only send what <i>sold</i>, never what someone wanted and couldn&apos;t get.
-          These come straight from the on-hand ledger: a stockout day is the shelf hitting zero before the next drop.
+          These come straight from the on-hand ledger: a sold-out day is the shelf hitting zero before the next drop.
         </div>
       </div>
 
@@ -128,8 +128,8 @@ export default function LostSales({ data }: { data: LostSales }) {
       )}
 
       <div className="foot" style={{ marginTop: 16 }}>
-        Live from the on-hand ledger. Lost units are estimated from sell-through across the stockout days; the sized fix
-        comes from the engine plan where a store has one. Lost revenue turns on when the price feed lands (Invoice_Cost).
+        Live from the on-hand ledger. Lost units are estimated from sell-through across the sold-out days; the sized fix
+        comes from the plan where a store has one. Lost revenue turns on when the price feed lands (Invoice_Cost).
       </div>
 
       <style>{`

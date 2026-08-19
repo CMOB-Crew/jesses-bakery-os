@@ -11,7 +11,7 @@ async function loadFacts(): Promise<AssistantFacts> {
     return {
       wastePct: net.waste_pct == null ? null : Number(net.waste_pct),
       // "Need attention" = red (waste >30% or repeat stockouts), matching the
-      // dashboards, the store list, and the answer engine's own "56 stores need
+      // dashboards, the store list, and the assistant's own "56 stores need
       // attention". Amber is "to watch", a separate bucket — don't fold it in
       // here, or the fact card reads 74 while the answer beside it reads 56.
       storesAttention: Number(net.red) || 0,

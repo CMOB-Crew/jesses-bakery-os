@@ -10,7 +10,7 @@ export default async function SettingsPage() {
     <>
       <div className="head">
         <h1>Settings</h1>
-        <div className="meta">How the engine sizes every order — every number is a lever</div>
+        <div className="meta">How the plan sizes every order — every number is a lever</div>
       </div>
       <SettingsPanel scenarios={scenarios} />
     </>
