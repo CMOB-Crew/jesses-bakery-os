@@ -28,8 +28,18 @@ export default async function Overview() {
   // Overview keeps its "unlocks with the cost feed" placeholders until then.
   let revenue: { salesWk: number; wasteWk: number } | null = null;
   if (revMap.size > 0) {
-    let salesWk = 0, wasteWk = 0;
-    for (const r of revMap.values()) { salesWk += r.revenue_wk; wasteWk += r.waste_revenue_wk; }
+    let salesWk = 0;
+    for (const r of revMap.values()) salesWk += r.revenue_wk;
+    // Waste $ is inferred (delivered − sold) valued at each store's unit revenue —
+    // the reported `wastage` table is empty in prod, so v_store_revenue_week's
+    // waste_revenue_wk reads 0. This matches how waste is inferred everywhere else.
+    let wasteWk = 0;
+    for (const s of stores) {
+      const rev = revMap.get(s.store_id);
+      if (rev?.avg_unit_revenue != null) {
+        wasteWk += Math.max(0, Number(s.total_sent) - Number(s.total_sold)) * rev.avg_unit_revenue;
+      }
+    }
     revenue = { salesWk: Math.round(salesWk), wasteWk: Math.round(wasteWk) };
   }
 
