@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Launches, LaunchCohort, LiveLaunch, PipelineStore, ProductLaunch } from "@/lib/queries";
+import type { Launches, LaunchCohort, LaunchTrial, LiveLaunch, PipelineStore, ProductLaunch, TrialVerdict } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
 import { markStoreLive } from "@/app/launches/actions";
 
@@ -40,8 +40,16 @@ const num = (n: number) => n.toLocaleString("en-AU");
 const sellThrough = (l: LiveLaunch): number | null =>
   l.total_sent > 0 ? Math.round((1000 * l.total_sold) / l.total_sent) / 10 : null;
 
+const VERDICT: Record<TrialVerdict, { label: string; cls: string }> = {
+  expand: { label: "Expand", cls: "v-expand" },
+  continue: { label: "Continue", cls: "v-continue" },
+  modify: { label: "Modify", cls: "v-modify" },
+  remove: { label: "Remove", cls: "v-remove" },
+  early: { label: "Too early", cls: "v-early" },
+};
+
 export default function LaunchesView({ launches, productLaunches = [] }: { launches: Launches; productLaunches?: ProductLaunch[] }) {
-  const { cohorts, live, pipelineCount, liveCount } = launches;
+  const { cohorts, live, trials = [], pipelineCount, liveCount } = launches;
   const nextLive = cohorts.find((c) => c.go_live_at)?.go_live_at ?? null;
 
   return (
@@ -61,7 +69,20 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
         <div className="tile"><div className="tn">{nextLive ? fmtDate(nextLive) : "—"}</div><div className="tl">Next planned go-live</div></div>
       </div>
 
-      <div className="section-h"><span className="tick" />Coming up<Link href="/new-store" className="add-launch">+ New store launch</Link></div>
+      <div className="section-h"><span className="tick" />Trial performance<span className="sh-note">expand · continue · modify · remove, after ~4 weeks</span></div>
+      {trials.length === 0 ? (
+        <div className="panel empty slim">
+          No trials to report yet. The moment a rollout goes live, its stores group into a trial here — units per store per
+          day, sell-through, waste and week-on-week growth — and after about four weeks it calls whether to <b>expand</b>,
+          <b> continue</b>, <b>modify</b> or <b>remove</b>.
+        </div>
+      ) : (
+        <div className="trials">
+          {trials.map((t) => <TrialCard key={t.key} t={t} />)}
+        </div>
+      )}
+
+      <div className="section-h" style={{ marginTop: 26 }}><span className="tick" />Coming up<Link href="/new-store" className="add-launch">+ New store launch</Link></div>
       {cohorts.length === 0 ? (
         <div className="panel empty">
           Nothing in the pipeline right now. When you add a new store on <Link href="/new-store">New store</Link> and set a
@@ -160,6 +181,24 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
         .lau .lr-open{font-size:13px;font-weight:600;color:var(--crust-deep,var(--espresso))}
         .lau .pr-sold{font-size:12px;font-weight:700;color:var(--ink2);background:var(--line2);border-radius:999px;padding:4px 10px;white-space:nowrap}
 
+        .lau .sh-note{margin-left:10px;font-size:12px;color:var(--muted);font-weight:400}
+        .lau .met .mv.up{color:var(--green-t)}
+        .lau .met .mv.down{color:var(--red-t,#a4372a)}
+
+        .lau .trials{display:flex;flex-direction:column;gap:12px;margin-top:2px}
+        .lau .tc{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:15px 18px}
+        .lau .tc-head{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-bottom:13px}
+        .lau .tc-title{font-family:var(--serif);font-size:16.5px;font-weight:600}
+        .lau .tc-sub{font-size:12.5px;color:var(--muted);margin-left:auto}
+        .lau .tc-badge{font-size:11.5px;font-weight:700;letter-spacing:.02em;border-radius:999px;padding:4px 12px;text-transform:uppercase}
+        .lau .tc-badge.v-expand{color:#2f6b34;background:#e3efd9}
+        .lau .tc-badge.v-continue{color:#2b5573;background:#dfeaf3}
+        .lau .tc-badge.v-modify{color:#8a5714;background:#f6ead2}
+        .lau .tc-badge.v-remove{color:#a4372a;background:#f3ddd8}
+        .lau .tc-badge.v-early{color:var(--muted);background:var(--line2)}
+        .lau .tc-mets{display:flex;gap:26px;flex-wrap:wrap}
+        .lau .tc-reason{margin-top:13px;padding-top:11px;border-top:1px solid var(--line2);font-size:12.5px;color:var(--ink2);line-height:1.5}
+
         .lau .next{margin-top:22px;border-style:dashed}
         .lau .next .nh{font-family:var(--serif);font-size:15px;font-weight:600;margin-bottom:5px}
         .lau .next .nt{font-size:13.5px;line-height:1.6;color:var(--ink2)}
@@ -169,6 +208,32 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
 
         @media (max-width:1080px){ .lau .strip{grid-template-columns:1fr 1fr} .lau .co-sub{margin-left:0;width:100%} }
       `}</style>
+    </div>
+  );
+}
+
+function TrialCard({ t }: { t: LaunchTrial }) {
+  const v = VERDICT[t.verdict];
+  const growth =
+    t.salesGrowth == null ? "—" : `${t.salesGrowth >= 0 ? "▲" : "▼"} ${Math.abs(t.salesGrowth)}%`;
+  return (
+    <div className="tc">
+      <div className="tc-head">
+        <span className="tc-title">{t.label}</span>
+        <span className={`tc-badge ${v.cls}`}>{v.label}</span>
+        <span className="tc-sub">
+          {t.storeCount} {t.storeCount === 1 ? "store" : "stores"} · {t.retailers || "—"} · {t.weeksLive} {t.weeksLive === 1 ? "week" : "weeks"} in
+        </span>
+      </div>
+      <div className="tc-mets">
+        <div className="met"><div className="mv">{t.storeCount}</div><div className="ml">Stores</div></div>
+        <div className="met"><div className="mv">{t.unitsPerStorePerDay != null ? `~${num(t.unitsPerStorePerDay)}` : "—"}</div><div className="ml">Units/store/day</div></div>
+        <div className="met"><div className="mv">{t.sellThrough != null ? `${t.sellThrough}%` : "—"}</div><div className="ml">Sell-through</div></div>
+        <div className="met"><div className="mv">{t.wastePct != null ? `${t.wastePct}%` : "—"}</div><div className="ml">Waste</div></div>
+        <div className="met"><div className={`mv${t.salesGrowth == null ? "" : t.salesGrowth >= 0 ? " up" : " down"}`}>{growth}</div><div className="ml">Sales growth</div></div>
+        <div className="met"><div className="mv">{t.hasData ? `${t.growingStores}/${t.storeCount}` : "—"}</div><div className="ml">Holding / growing</div></div>
+      </div>
+      <div className="tc-reason">{t.verdictReason}</div>
     </div>
   );
 }

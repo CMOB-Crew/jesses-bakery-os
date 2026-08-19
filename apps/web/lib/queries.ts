@@ -808,11 +808,110 @@ export type LaunchCohort = {
   key: string; label: string; region: string | null; go_live_at: Date | null;
   stores: PipelineStore[];
 };
+// Trial-report verdict for a launch cohort after it has had time to prove out.
+//   early    — under the 4-week read window, still learning
+//   expand   — strong sell-through, low waste, holding/growing -> roll out more
+//   continue — healthy, keep as is
+//   modify   — mixed (waste creeping, or sales slipping) -> adjust the range/size
+//   remove   — not working (weak sell-through / high waste / falling) -> pull back
+export type TrialVerdict = "early" | "expand" | "continue" | "modify" | "remove";
+export type LaunchTrial = {
+  key: string; label: string; region: string | null; retailers: string;
+  storeCount: number; daysLive: number; weeksLive: number;
+  unitsPerStorePerDay: number | null; sellThrough: number | null;
+  wastePct: number | null; salesGrowth: number | null;
+  growingStores: number; hasData: boolean;
+  verdict: TrialVerdict; verdictReason: string;
+};
 export type Launches = {
   pipeline: PipelineStore[]; cohorts: LaunchCohort[]; live: LiveLaunch[];
+  trials: LaunchTrial[];
   pipelineCount: number; liveCount: number;
 };
-const EMPTY_LAUNCHES: Launches = { pipeline: [], cohorts: [], live: [], pipelineCount: 0, liveCount: 0 };
+const EMPTY_LAUNCHES: Launches = { pipeline: [], cohorts: [], live: [], trials: [], pipelineCount: 0, liveCount: 0 };
+
+// Read window: a launch only gets a real verdict once it has had ~4 weeks to
+// settle (Simona's "after 4–6 weeks" rule). Before that it's "early".
+const TRIAL_READ_DAYS = 28;
+
+// Pure recommendation from the aggregate signals. Ordered worst-first so a
+// clear problem is never dressed up as "continue". Nulls are treated as
+// non-blocking (no data on that axis rather than a bad reading), except
+// sell-through: with nothing sold-vs-sent yet there's nothing to judge.
+export function trialVerdict(
+  daysLive: number,
+  sellThrough: number | null,
+  wastePct: number | null,
+  salesGrowth: number | null,
+): { verdict: TrialVerdict; reason: string } {
+  if (daysLive < TRIAL_READ_DAYS) {
+    const left = TRIAL_READ_DAYS - daysLive;
+    return { verdict: "early", reason: `Still learning — ~${left} more day${left === 1 ? "" : "s"} before a read` };
+  }
+  if (sellThrough == null) {
+    return { verdict: "early", reason: "Waiting on enough sales to judge" };
+  }
+  const w = wastePct;
+  const g = salesGrowth;
+  if (sellThrough < 45 || (w != null && w > 35) || (g != null && g <= -25)) {
+    return { verdict: "remove", reason: "Weak demand for the space — pull back or rework before spreading it" };
+  }
+  if (sellThrough >= 85 && (w == null || w < 15) && (g == null || g >= -2)) {
+    return { verdict: "expand", reason: "Selling through with low waste — a strong candidate to roll out wider" };
+  }
+  if ((w != null && w >= 22) || (g != null && g < 0)) {
+    return { verdict: "modify", reason: "Working but leaky — tune the range or delivery size before expanding" };
+  }
+  return { verdict: "continue", reason: "Healthy trial — keep it running as is" };
+}
+
+// Build the trial report from the live-launch stores: group into cohorts (same
+// region + same launch week, so two separate rollouts to one region stay apart),
+// aggregate the tracked metrics, and attach a verdict. Pure — no DB — so the
+// thresholds are easy to reason about and test.
+export function buildTrials(live: LiveLaunch[]): LaunchTrial[] {
+  const groups = new Map<string, LiveLaunch[]>();
+  for (const l of live) {
+    // Launch "week" bucket from onboarded_at, so a cohort is one rollout event.
+    const onb = l.onboarded_at ? new Date(l.onboarded_at) : null;
+    const wk = onb ? Math.floor(onb.getTime() / (7 * 864e5)) : 0;
+    const key = `${l.region ?? "Unassigned"}|${wk}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(l);
+  }
+
+  const trials: LaunchTrial[] = [];
+  for (const [key, stores] of groups) {
+    const storeCount = stores.length;
+    const daysLive = Math.max(...stores.map((s) => s.days_live ?? 0));
+    const sent = stores.reduce((a, s) => a + s.total_sent, 0);
+    const sold = stores.reduce((a, s) => a + s.total_sold, 0);
+    const soldPrev = stores.reduce((a, s) => a + s.total_sold_prev, 0);
+    const hasData = sent > 0 || sold > 0;
+
+    const sellThrough = sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null;
+    const wastePct = sent > 0 ? Math.round((1000 * Math.max(0, sent - sold)) / sent) / 10 : null;
+    const salesGrowth = soldPrev > 0 ? Math.round((1000 * (sold - soldPrev)) / soldPrev) / 10 : null;
+    // Units per store per day: cohort units spread over store-days observed.
+    const storeDays = stores.reduce((a, s) => a + Math.min(7, Math.max(1, s.days_live ?? 1)), 0);
+    const unitsPerStorePerDay = sold > 0 && storeDays > 0 ? Math.round((10 * sold) / storeDays) / 10 : null;
+    // Repeat-performance proxy: stores holding or growing week-on-week.
+    const growingStores = stores.filter((s) => s.total_sold >= s.total_sold_prev && s.total_sold > 0).length;
+
+    const { verdict, reason } = trialVerdict(daysLive, sellThrough, hasData ? wastePct : null, salesGrowth);
+    const retailers = [...new Set(stores.map((s) => s.retailer).filter(Boolean))]
+      .map((r) => ({ woolworths: "Woolworths", coles: "Coles", harris_farm: "Harris Farm", invoice: "Invoice" }[r] ?? r))
+      .join(", ");
+
+    trials.push({
+      key, label: stores[0].region ?? "Unassigned", region: stores[0].region, retailers,
+      storeCount, daysLive, weeksLive: Math.max(1, Math.round(daysLive / 7)),
+      unitsPerStorePerDay, sellThrough, wastePct, salesGrowth, growingStores,
+      hasData, verdict, verdictReason: hasData ? reason : "Gathering data — no sales in yet",
+    });
+  }
+  // Most-recently-launched first.
+  return trials.sort((a, b) => a.daysLive - b.daysLive);
+}
 
 // Pipeline reads ONLY the base stores table, so it can never be taken down by a
 // mismatch in the deployed v_store_week shape.
@@ -915,7 +1014,8 @@ export async function getLaunches(): Promise<Launches> {
       return ta - tb;
     });
 
-    return { pipeline, cohorts, live, pipelineCount: pipeline.length, liveCount: live.length };
+    const trials = buildTrials(live);
+    return { pipeline, cohorts, live, trials, pipelineCount: pipeline.length, liveCount: live.length };
   } catch {
     return EMPTY_LAUNCHES;
   }
