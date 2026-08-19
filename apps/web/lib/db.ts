@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import type { UserClaims } from "./auth";
 
 // Single shared connection. In dev, Next.js hot-reload can re-run module
 // init many times, so we cache the client on globalThis to avoid leaking
@@ -30,3 +31,36 @@ export const sql =
   });
 
 if (process.env.NODE_ENV !== "production") global.__sql = sql;
+
+// ---------------------------------------------------------------------------
+// Auth/RLS foundation -- the ONE enforced data-access wrapper (Fred's crux).
+//
+// Once RLS is on (migration 014) and AUTH_ENFORCED=1, every query that must
+// respect a user's row policies has to run through here. It:
+//   1. opens a single transaction (pooled connections are shared, so identity
+//      must be scoped to the transaction, not the session),
+//   2. injects the *verified* claims transaction-locally --
+//      set_config('request.jwt.claims', <json>, true). The `true` is Fred's #1
+//      gotcha: session-level (false) persists on the pooled connection and leaks
+//      the previous user's identity into the next request,
+//   3. runs the caller's work against that transaction-scoped `tx`, which
+//      exposes the same tagged-template API as `sql`.
+//
+// Anything that skips this wrapper runs with NO request.jwt.claims set, so
+// auth.uid() is null and RLS returns zero rows -- fails closed, never silently
+// wide open. Reads that are legitimately public (or run by the engine/service
+// role) stay on `sql` directly.
+//
+// Inert today: no caller invokes runAsUser until the login flow is wired and
+// AUTH_ENFORCED=1, so the live app is unchanged.
+// ---------------------------------------------------------------------------
+export async function runAsUser<T>(
+  claims: UserClaims,
+  work: (tx: typeof sql) => Promise<T>,
+): Promise<T> {
+  const json = JSON.stringify(claims);
+  return sql.begin(async (tx) => {
+    await tx`select set_config('request.jwt.claims', ${json}, true)`;
+    return work(tx as unknown as typeof sql);
+  }) as Promise<T>;
+}
