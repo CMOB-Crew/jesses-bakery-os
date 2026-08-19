@@ -16,7 +16,7 @@ const strip = (name: string) => name.replace(/^(Coles|Woolworths|Harris Farm)\s+
 
 export async function answerQuestion(qRaw: string): Promise<Answer> {
   const q = (qRaw || "").toLowerCase().trim();
-  if (!q) return { headline: "Ask about waste, stockouts, sales, or which stores need attention." };
+  if (!q) return { headline: "Ask about waste, sell-outs, sales, or which stores need attention." };
 
   const title = (t: string) => t.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -32,9 +32,9 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
     const bal = rows.find((r) => r.scenario === "balanced");
     if (cur && bal) {
       return {
-        headline: `The engine cuts Woolworths waste from ${cur.waste_pct}% to ${bal.waste_pct}% at a balanced setting — about ${bal.units_saved_wk.toLocaleString("en-AU")} loaves a week (~${(bal.units_saved_wk * 52).toLocaleString("en-AU")} a year). Push to the lean setting and it drops under 20%.`,
+        headline: `The plan cuts Woolworths waste from ${cur.waste_pct}% to ${bal.waste_pct}% at a balanced setting — about ${bal.units_saved_wk.toLocaleString("en-AU")} loaves a week (~${(bal.units_saved_wk * 52).toLocaleString("en-AU")} a year). Push to the lean setting and it drops under 20%.`,
         bars: rows.map((r) => ({ label: r.label, value: r.waste_pct ?? 0, suffix: "%" })),
-        note: "Woolworths mature feed. Dollar savings unlock once we have cost-per-product.",
+        note: "Woolworths feed. Dollar savings unlock once we have cost-per-product.",
         sql: "select label, waste_pct, units_saved_wk from engine_projection order by ord;",
       };
     }
@@ -55,7 +55,7 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
     if (rows.length) {
       const t = rows[0];
       return {
-        headline: `${title(t.name)} is the most over-supplied line — sending ${t.sent.toLocaleString("en-AU")} a week across the worst stores where ${t.sold.toLocaleString("en-AU")} sells. The engine would send ${t.rec.toLocaleString("en-AU")}.`,
+        headline: `${title(t.name)} is the most over-supplied line — sending ${t.sent.toLocaleString("en-AU")} a week across the worst stores where ${t.sold.toLocaleString("en-AU")} sells. The plan would send ${t.rec.toLocaleString("en-AU")}.`,
         bars: rows.map((r) => ({ label: title(r.name), value: r.trim })),
         note: "Ranked by units to trim across the worst-waste Woolworths stores. Open a store for its full order.",
         sql: "select name, sum(sent) sent, sum(recommended) rec from store_reco group by name order by sum(sent-recommended) desc;",
@@ -76,16 +76,16 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
     };
   }
 
-  // ---- stockouts / sold out ----
-  if (q.includes("stockout") || q.includes("stock out") || q.includes("sold out") || q.includes("sunday")) {
+  // ---- sell-outs / sold out ----
+  if (q.includes("sell-out") || q.includes("sell out") || q.includes("sellout") || q.includes("stockout") || q.includes("stock out") || q.includes("sold out") || q.includes("sunday")) {
     const rows = await sql<{ name: string; stockout_days: number }[]>`
       select name, stockout_days from v_store_week
       where stockout_days > 0 order by stockout_days desc limit 6`;
-    if (!rows.length) return { headline: "No stockouts recorded this week — supply is keeping up." };
+    if (!rows.length) return { headline: "No sell-outs recorded this week — supply is keeping up." };
     return {
-      headline: `${rows.length}+ stores hit stockouts this week. Worst: ${rows.slice(0, 3).map((r) => `${r.name} (${r.stockout_days})`).join(", ")}.`,
+      headline: `${rows.length}+ stores sold out this week. Worst: ${rows.slice(0, 3).map((r) => `${r.name} (${r.stockout_days})`).join(", ")}.`,
       bars: rows.map((r) => ({ label: strip(r.name), value: r.stockout_days })),
-      note: "A stockout day = the shelf ran to zero with nothing left to expire — likely lost sales.",
+      note: "A sold-out day = the shelf ran to zero with nothing left to expire — likely lost sales.",
       sql: "select name, stockout_days from v_store_week where stockout_days>0 order by stockout_days desc;",
     };
   }
@@ -133,6 +133,6 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
   }
 
   return {
-    headline: "I can answer waste, stockouts, sales trends, regions, and which stores need attention. Try one of the suggestions.",
+    headline: "I can answer waste, sell-outs, sales trends, regions, and which stores need attention. Try one of the suggestions.",
   };
 }
