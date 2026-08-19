@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import type { UserClaims } from "@/lib/auth";
 
 // Auth/RLS foundation -- Phase B (login flow), slice 1.
@@ -50,7 +51,10 @@ export async function createSupabaseServerClient() {
 // The verified signed-in user's claims, ready to hand to runAsUser once the
 // data path is enforced. getUser() re-validates the token with the Auth server
 // (not just the cookie), matching Fred's gotcha #3: verify before you trust.
-export async function getSessionClaims(): Promise<UserClaims | null> {
+// Wrapped in React `cache` so it runs at most once per request even though the
+// enforced data wrapper (lib/db.ts `q`) calls it on every query -- one token
+// verification per request, not per statement.
+export const getSessionClaims = cache(async (): Promise<UserClaims | null> => {
   const supabase = await createSupabaseServerClient();
   if (!supabase) return null;
   const {
@@ -62,4 +66,4 @@ export async function getSessionClaims(): Promise<UserClaims | null> {
     role: "authenticated",
     email: user.email ?? undefined,
   };
-}
+});

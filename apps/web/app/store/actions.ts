@@ -1,6 +1,6 @@
 "use server";
 
-import { sql } from "@/lib/db";
+import { q as sql } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 
 // Write-back layer, slice 1: persist the per-product overrides Simona sets on the

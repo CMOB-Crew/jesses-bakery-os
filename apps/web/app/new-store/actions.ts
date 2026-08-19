@@ -1,6 +1,6 @@
 "use server";
 
-import { sql } from "@/lib/db";
+import { q as sql } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 
 // Retailer ids used by the New store form -> the DB retailer_type enum.

@@ -1,6 +1,6 @@
 "use server";
 
-import { sql } from "@/lib/db";
+import { q as sql } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 
 export type LaunchActionResult = { ok: true } | { ok: false; error: string };

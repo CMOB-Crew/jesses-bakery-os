@@ -1,5 +1,5 @@
 import "server-only";
-import { sql } from "./db";
+import { q as sql } from "./db";
 
 /**
  * Deterministic NL assistant core. The question is routed by keyword to a

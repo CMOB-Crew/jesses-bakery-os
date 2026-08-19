@@ -1,5 +1,6 @@
 import postgres from "postgres";
-import type { UserClaims } from "./auth";
+import { AUTH_ENFORCED, type UserClaims } from "./auth";
+import { getSessionClaims } from "./supabase/server";
 
 // Single shared connection. In dev, Next.js hot-reload can re-run module
 // init many times, so we cache the client on globalThis to avoid leaking
@@ -63,4 +64,37 @@ export async function runAsUser<T>(
     await tx`select set_config('request.jwt.claims', ${json}, true)`;
     return work(tx as unknown as typeof sql);
   }) as Promise<T>;
+}
+
+// ---------------------------------------------------------------------------
+// The ONE enforced data-access entry point (Auth Phase B, slice 2).
+//
+// queries.ts / ask.ts / the write actions import THIS as `sql`
+// (`import { q as sql } from "@/lib/db"`), so every existing `sql`...`` call
+// routes through here with no call-site changes.
+//
+//   - AUTH_ENFORCED unset  (today's live site AND the demo): pass straight
+//     through to the shared connection. Byte-for-byte the old behaviour.
+//   - AUTH_ENFORCED = 1:    resolve the signed-in user (verified + memoized once
+//     per request) and run the statement inside runAsUser, so RLS sees
+//     auth.uid(). No session -> return empty: fails CLOSED, never silently open.
+//
+// Safe because there is no postgres.js fragment composition anywhere in the
+// query layer -- every call site is a flat, awaited tagged template.
+// ---------------------------------------------------------------------------
+export function q<T = unknown>(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): Promise<T> {
+  const run = (client: typeof sql) =>
+    (client as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<T>)(
+      strings,
+      ...values,
+    );
+  if (!AUTH_ENFORCED) return run(sql);
+  return (async () => {
+    const claims = await getSessionClaims();
+    if (!claims) return [] as unknown as T; // fail closed: no user -> no rows
+    return runAsUser(claims, (tx) => run(tx));
+  })();
 }

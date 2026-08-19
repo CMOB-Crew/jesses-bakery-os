@@ -1,5 +1,5 @@
 import "server-only";
-import { sql } from "./db";
+import { q as sql } from "./db";
 
 export type Status = "red" | "amber" | "green";
 
