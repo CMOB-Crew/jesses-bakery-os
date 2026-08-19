@@ -103,12 +103,26 @@ export default function DemoTour() {
       }
       tip.style.top = top + "px"; tip.style.left = left + "px";
     }
+    // Poll for an element up to maxMs before giving up — the data pages render
+    // their content after a DB fetch, so an anchor may not exist the instant the
+    // tour tries to start. This keeps the spotlight reliable on slow/cold loads.
+    function waitFor(sel: string, maxMs: number, cb: (el: HTMLElement | null) => void) {
+      const first = q(sel);
+      if (first) { cb(first); return; }
+      const t0 = Date.now();
+      const iv = setInterval(() => {
+        const el = q(sel);
+        if (el || Date.now() - t0 > maxMs) { clearInterval(iv); cb(el); }
+      }, 120);
+    }
     function render() {
       if (!hole) { hole = document.createElement("div"); hole.className = "dt-hole"; document.body.appendChild(hole); }
       if (!tip) { tip = document.createElement("div"); tip.className = "dt-tip"; document.body.appendChild(tip); }
-      const s = steps[i]; const t = q(s.sel);
-      if (t) t.scrollIntoView({ behavior: "smooth", block: "center" });
-      setTimeout(() => place(t, s), t ? 260 : 0);
+      const s = steps[i];
+      waitFor(s.sel, 8000, (t) => {
+        if (t) t.scrollIntoView({ behavior: "smooth", block: "center" });
+        setTimeout(() => place(t, s), t ? 300 : 0);
+      });
     }
     function start() { i = 0; render(); }
 
@@ -124,7 +138,9 @@ export default function DemoTour() {
     if (path === "/") {
       let seen = false;
       try { seen = sessionStorage.getItem("jb_demo_tour") === "1"; } catch {}
-      if (!seen) setTimeout(start, 600);
+      // Wait for the first anchor (the hero) to actually render before starting,
+      // so step 1 spotlights it instead of floating while the page data loads.
+      if (!seen) waitFor(steps[0].sel, 12000, () => start());
     }
     return () => { window.removeEventListener("resize", onResize); done(); launch.remove(); style.remove(); };
   }, []);
