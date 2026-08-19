@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek } from "@/lib/queries";
+import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek } from "@/lib/queries";
 import type { StoreWeek } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
 import RecCard from "@/components/RecCard";
@@ -18,11 +18,20 @@ function fmtDate(d: Date) {
 }
 
 export default async function Overview() {
-  const [net, regions, recs, asOf, feeds, engine, stores] = await Promise.all([
-    getNetwork(), getRegions(), getRecommendations(3), getAsOf(), getFeedStatus(), getEngineProjection(), getStoreWeek(),
+  const [net, regions, recs, asOf, feeds, engine, stores, revMap] = await Promise.all([
+    getNetwork(), getRegions(), getRecommendations(3), getAsOf(), getFeedStatus(), getEngineProjection(), getStoreWeek(), getStoreRevenueWeek(),
   ]);
 
   const stale = feeds.find((f) => f.status === "stale");
+
+  // Network dollar layer (Invoice_Cost). Null until the extract is loaded, so the
+  // Overview keeps its "unlocks with the cost feed" placeholders until then.
+  let revenue: { salesWk: number; wasteWk: number } | null = null;
+  if (revMap.size > 0) {
+    let salesWk = 0, wasteWk = 0;
+    for (const r of revMap.values()) { salesWk += r.revenue_wk; wasteWk += r.waste_revenue_wk; }
+    revenue = { salesWk: Math.round(salesWk), wasteWk: Math.round(wasteWk) };
+  }
 
   // Honest status counts: a store with nothing delivered AND nothing sold has no
   // loaded feed yet (Coles/Harris) — it is NOT "on track". Count it separately as
@@ -68,7 +77,7 @@ export default async function Overview() {
 
       <EnginePanel scenarios={engine} />
 
-      <TodayDashboard stores={stores} net={net} asOf={fmtDate(asOf)} />
+      <TodayDashboard stores={stores} net={net} asOf={fmtDate(asOf)} revenue={revenue} />
 
       {recs.length > 0 && (
         <>

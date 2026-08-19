@@ -18,6 +18,14 @@ export default function LostSales({ data }: { data: LostSales }) {
   const storesFlagged = useMemo(() => new Set(open.map((l) => l.store)).size, [open]);
   const repeatCount = open.filter((l) => l.repeat).length;
   const highCount = open.filter((l) => l.conf === "high").length;
+  // Lost revenue only once every open sellout has a reading (the Invoice_Cost
+  // feed is loaded); otherwise null and the tile keeps its "$ —" placeholder.
+  const lostRevenueWk = useMemo(
+    () => (open.length > 0 && open.every((l) => l.lostRevenueWk != null)
+      ? open.reduce((a, l) => a + (l.lostRevenueWk ?? 0), 0)
+      : null),
+    [open],
+  );
 
   function apply(id: string) { setResolved((r) => ({ ...r, [id]: "applied" })); }
   function dismiss(id: string) { setResolved((r) => ({ ...r, [id]: "dismissed" })); }
@@ -57,7 +65,9 @@ export default function LostSales({ data }: { data: LostSales }) {
       <div className="strip">
         <div className="tile"><div className="tn">{totalLostWk}<span className="u"> units/wk</span></div><div className="tl">Estimated lost sales</div></div>
         <div className="tile"><div className="tn">{storesFlagged}</div><div className="tl">Stores flagged</div></div>
-        <div className="tile"><div className="tn dim">$ —</div><div className="tl">Lost revenue / wk · lights up with the price feed</div></div>
+        {lostRevenueWk != null
+          ? <div className="tile"><div className="tn">${lostRevenueWk.toLocaleString("en-AU")}<span className="u"> /wk</span></div><div className="tl">Lost revenue / wk · from the Woolworths price feed</div></div>
+          : <div className="tile"><div className="tn dim">$ —</div><div className="tl">Lost revenue / wk · lights up with the price feed</div></div>}
         <div className="tile"><div className="tn amber">{repeatCount}</div><div className="tl">Repeat sellouts · 3+ days out</div></div>
       </div>
 
@@ -89,7 +99,7 @@ export default function LostSales({ data }: { data: LostSales }) {
             <div className="lc-top">
               <span className="lc-title">{l.store}</span>
               <span className="lc-conf" style={{ background: CONF[l.conf].b, color: CONF[l.conf].c }}>{CONF[l.conf].label}</span>
-              <span className="lc-risk">~{l.lostWk} units/wk lost</span>
+              <span className="lc-risk">~{l.lostWk} units/wk lost{l.lostRevenueWk != null ? ` · ~$${l.lostRevenueWk.toLocaleString("en-AU")}` : ""}</span>
             </div>
             <div className="lc-sub">{l.product} · {l.retailer} · {l.region}</div>
             <div className="lc-pattern">{l.pattern}</div>

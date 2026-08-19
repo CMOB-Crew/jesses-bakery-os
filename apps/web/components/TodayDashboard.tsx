@@ -7,7 +7,7 @@ const nf = (n: number) => n.toLocaleString("en-AU");
 // the exception lists she asked for — Needs attention, Opportunities, Best
 // performers, Biggest losses. Real numbers where we have them; the dollar
 // figures are honest placeholders until the cost feed is wired in.
-export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWeek[]; net: NetworkWeek; asOf: string }) {
+export default function TodayDashboard({ stores, net, asOf, revenue = null }: { stores: StoreWeek[]; net: NetworkWeek; asOf: string; revenue?: { salesWk: number; wasteWk: number } | null }) {
   const rows = stores.map((s) => {
     const sold = Number(s.total_sold) || 0;
     const sent = Number(s.total_sent) || 0;
@@ -74,13 +74,21 @@ export default function TodayDashboard({ stores, net, asOf }: { stores: StoreWee
         <div className="t-tile"><div className="tv g">{netSellThrough == null ? "—" : `${netSellThrough}%`}</div><div className="tl">Sell-through</div></div>
         <div className="t-tile"><div className={`tv ${netWaste != null && netWaste <= 20 ? "g" : "a"}`}>{netWaste == null ? "—" : `${netWaste}%`}</div><div className="tl">Network waste</div></div>
       </div>
-      <div className="t-locked">
-        <span className="lk">🔒 Unlocks with the cost feed</span>
-        <span className="lkm">Sales this week</span>
-        <span className="lkm">Estimated waste $</span>
-        <span className="lkm">Profit</span>
-        <span className="lknote">the per-unit figures already sit in the retailer data</span>
-      </div>
+      {revenue ? (
+        <div className="t-strip" style={{ marginTop: 12 }}>
+          <div className="t-tile"><div className="tv">${nf(revenue.salesWk)}</div><div className="tl">Sales this week · revenue</div></div>
+          <div className="t-tile"><div className="tv a">${nf(revenue.wasteWk)}</div><div className="tl">Waste this week · $ (revenue-weighted)</div></div>
+          <div className="t-tile"><div className="tv dim">$ —</div><div className="tl">Profit · needs Simona&apos;s production cost</div></div>
+        </div>
+      ) : (
+        <div className="t-locked">
+          <span className="lk">🔒 Unlocks with the cost feed</span>
+          <span className="lkm">Sales this week</span>
+          <span className="lkm">Estimated waste $</span>
+          <span className="lkm">Profit</span>
+          <span className="lknote">the per-unit figures already sit in the retailer data</span>
+        </div>
+      )}
 
       <div className="t-actions">
         <div className="ta-h">

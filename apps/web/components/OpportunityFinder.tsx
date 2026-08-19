@@ -61,8 +61,17 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
       <div className="headline">
         <div className="hl-l">
           <div className="hl-lbl">Money on the table · this week</div>
-          <div className="hl-big">~{data.total}<span className="u"> units/wk</span></div>
-          <div className="hl-sub">across {data.opps.length} moves · <span className="dollar">revenue weighting lights up with the price feed</span></div>
+          {data.totalRevenue != null ? (
+            <>
+              <div className="hl-big">${data.totalRevenue.toLocaleString("en-AU")}<span className="u"> /wk</span></div>
+              <div className="hl-sub">across {data.opps.length} moves · <span className="dollar">~{data.total} units, valued on the Woolworths feed</span></div>
+            </>
+          ) : (
+            <>
+              <div className="hl-big">~{data.total}<span className="u"> units/wk</span></div>
+              <div className="hl-sub">across {data.opps.length} moves · <span className="dollar">revenue weighting lights up with the price feed</span></div>
+            </>
+          )}
         </div>
         <div className="hl-levers">
           <div className="lv"><div className="lv-n" style={{ color: LEVER_META.demand.c }}>{data.demandUnits}<small> u/wk</small></div><div className="lv-l">Capture demand</div></div>

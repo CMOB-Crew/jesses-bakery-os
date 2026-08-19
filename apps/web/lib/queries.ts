@@ -636,12 +636,16 @@ export async function getBenchmarks(): Promise<Benchmarks> {
 export type OppLever = "demand" | "waste" | "range" | "rebalance";
 export type Opp = {
   id: string; lever: OppLever; store: string; region: string; product: string;
-  situation: string; move: string; gain: number; conf: "high" | "medium";
+  situation: string; move: string; gain: number; gainRevenue: number | null; conf: "high" | "medium";
 };
-export type Opportunities = { opps: Opp[]; total: number; wasteUnits: number; demandUnits: number; hasData: boolean };
+export type Opportunities = { opps: Opp[]; total: number; totalRevenue: number | null; wasteUnits: number; demandUnits: number; hasData: boolean };
 
 export async function getOpportunities(): Promise<Opportunities> {
   const stores = await getStoreWeek();
+  // Revenue overlay: empty until Invoice_Cost loads, so gainRevenue stays null and
+  // the page keeps units + the "revenue weighting lights up with the feed" note.
+  const revByStore = await getStoreRevenueWeek();
+  const unitRev = (storeId: string) => revByStore.get(storeId)?.avg_unit_revenue ?? null;
   const opps: Opp[] = [];
 
   // Trim waste — over-delivering stores, sized from store_reco where present.
@@ -659,7 +663,9 @@ export async function getOpportunities(): Promise<Opportunities> {
       move: top
         ? `Trim ${titleCase(top.product_name)} ${top.sent} → ${top.recommended} to match real sell-through.`
         : `Right-size the drops to recent same-weekday demand.`,
-      gain: Number(s.total_wasted), conf: s.status === "red" ? "high" : "medium",
+      gain: Number(s.total_wasted),
+      gainRevenue: unitRev(s.store_id) != null ? Math.round(Number(s.total_wasted) * unitRev(s.store_id)!) : null,
+      conf: s.status === "red" ? "high" : "medium",
     });
   }
 
@@ -674,14 +680,21 @@ export async function getOpportunities(): Promise<Opportunities> {
       id: `d-${s.store_id}`, lever: "demand", store: s.name, region: s.region ?? "—", product: "peak lines",
       situation: `${s.stockout_days} stockout day${Number(s.stockout_days) === 1 ? "" : "s"} this week — running out before the next drop.`,
       move: `Lift the send on the peak days, or review the run cadence.`,
-      gain: lost, conf: "medium",
+      gain: lost,
+      gainRevenue: unitRev(s.store_id) != null ? Math.round(lost * unitRev(s.store_id)!) : null,
+      conf: "medium",
     });
   }
 
   opps.sort((a, b) => b.gain - a.gain);
   const wasteUnits = opps.filter((o) => o.lever === "waste").reduce((a, o) => a + o.gain, 0);
   const demandUnits = opps.filter((o) => o.lever === "demand").reduce((a, o) => a + o.gain, 0);
-  return { opps, total: wasteUnits + demandUnits, wasteUnits, demandUnits, hasData: opps.length > 0 };
+  // Total $ at stake only when every opp has a reading, so the headline dollar
+  // figure is never a misleading partial. Null -> UI stays on units.
+  const totalRevenue = opps.length > 0 && opps.every((o) => o.gainRevenue != null)
+    ? opps.reduce((a, o) => a + (o.gainRevenue ?? 0), 0)
+    : null;
+  return { opps, total: wasteUnits + demandUnits, totalRevenue, wasteUnits, demandUnits, hasData: opps.length > 0 };
 }
 
 // ---------------------------------------------------------------------
@@ -694,17 +707,50 @@ export async function getOpportunities(): Promise<Opportunities> {
 // ---------------------------------------------------------------------
 export type Stockout = {
   id: string; store: string; retailer: string; region: string; product: string;
-  pattern: string; lostWk: number; current: number | null; suggested: number | null; conf: "high" | "medium"; repeat: boolean;
+  pattern: string; lostWk: number; lostRevenueWk: number | null;
+  current: number | null; suggested: number | null; conf: "high" | "medium"; repeat: boolean;
 };
-export type LostSales = { losses: Stockout[]; totalLostWk: number; storesFlagged: number; repeatCount: number; hasData: boolean };
+export type LostSales = {
+  losses: Stockout[]; totalLostWk: number; totalLostRevenueWk: number | null;
+  storesFlagged: number; repeatCount: number; hasData: boolean;
+};
+
+// Revenue layer (Invoice_Cost). Per-store trailing-week revenue + revenue-weighted
+// waste + average unit revenue, from v_store_revenue_week. Returns an EMPTY map
+// until sales_daily.invoice_cost is loaded (the view yields no rows), so every
+// caller degrades cleanly to units-only. Never throws.
+export type StoreRevenue = { revenue_wk: number; waste_revenue_wk: number; avg_unit_revenue: number | null };
+export async function getStoreRevenueWeek(): Promise<Map<string, StoreRevenue>> {
+  try {
+    const rows = await sql<{ store_id: string; revenue_wk: string | null; waste_revenue_wk: string | null; avg_unit_revenue: string | null }[]>`
+      select store_id, revenue_wk, waste_revenue_wk, avg_unit_revenue from v_store_revenue_week`;
+    const m = new Map<string, StoreRevenue>();
+    for (const r of rows) {
+      m.set(r.store_id, {
+        revenue_wk: Number(r.revenue_wk) || 0,
+        waste_revenue_wk: Number(r.waste_revenue_wk) || 0,
+        avg_unit_revenue: r.avg_unit_revenue == null ? null : Number(r.avg_unit_revenue),
+      });
+    }
+    return m;
+  } catch {
+    return new Map();
+  }
+}
 
 export async function getStockouts(): Promise<LostSales> {
   const stores = await getStoreWeek();
+  // Revenue overlay: empty until the Invoice_Cost extract is loaded, so lost
+  // revenue stays null and the UI keeps its "$ —, lights up with the price feed"
+  // placeholder. The moment the feed lands this fills in with no code change.
+  const revByStore = await getStoreRevenueWeek();
   const cand = stores.filter((s) => Number(s.stockout_days) > 0);
   const losses: Stockout[] = [];
   for (const s of cand) {
     const days = Number(s.stockout_days);
     const lostWk = Math.max(1, Math.round((Number(s.total_sold) / 7) * days * 0.5));
+    const unitRev = revByStore.get(s.store_id)?.avg_unit_revenue ?? null;
+    const lostRevenueWk = unitRev != null ? Math.round(lostWk * unitRev) : null;
     const recos = await getStoreRecos(s.store_id);
     const under = recos.filter((r) => r.recommended > r.sent).sort((a, b) => (b.recommended - b.sent) - (a.recommended - a.sent))[0];
     losses.push({
@@ -713,13 +759,19 @@ export async function getStockouts(): Promise<LostSales> {
       pattern: under
         ? `Ran out on ${days} day${days === 1 ? "" : "s"} this week — ${titleCase(under.product_name)} short before the next drop.`
         : `Ran out on ${days} day${days === 1 ? "" : "s"} this week — running dry before the next delivery.`,
-      lostWk, current: under ? under.sent : null, suggested: under ? under.recommended : null,
+      lostWk, lostRevenueWk, current: under ? under.sent : null, suggested: under ? under.recommended : null,
       conf: days >= 3 ? "high" : "medium", repeat: days >= 3,
     });
   }
   losses.sort((a, b) => b.lostWk - a.lostWk);
+  // Total lost revenue only when we have a reading for every flagged store, so we
+  // never show a misleadingly-low partial dollar figure. Null -> UI stays on "$ —".
+  const revCount = losses.filter((l) => l.lostRevenueWk != null).length;
+  const totalLostRevenueWk = losses.length > 0 && revCount === losses.length
+    ? losses.reduce((a, l) => a + (l.lostRevenueWk ?? 0), 0)
+    : null;
   return {
-    losses, totalLostWk: losses.reduce((a, l) => a + l.lostWk, 0),
+    losses, totalLostWk: losses.reduce((a, l) => a + l.lostWk, 0), totalLostRevenueWk,
     storesFlagged: losses.length, repeatCount: losses.filter((l) => l.repeat).length, hasData: losses.length > 0,
   };
 }
