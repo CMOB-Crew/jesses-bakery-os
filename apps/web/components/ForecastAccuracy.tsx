@@ -64,9 +64,11 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
       <div className="facc">
         <div className="panel intro">
           <div className="itxt">
-            This is the honest scoreboard: every forecast scored against what actually sold. It needs a few weeks of
-            sales history to backtest against — once the feeds have built up enough weeks, the network trend, per-store
-            accuracy and per-product difficulty all populate here automatically. Nothing to score yet.
+            The honest scoreboard: every forecast checked against what actually sold, so you can see whether the plan is
+            getting it right. This page is <b>built and ready</b> — it fills in the moment your full sales history is
+            loaded. Right now there&apos;s only today&apos;s snapshot to work from, so there&apos;s nothing to score yet;
+            with a few weeks of history behind it, the network trend, per-store accuracy and per-product difficulty all
+            appear here on their own.
           </div>
         </div>
         <div className="strip">
@@ -75,7 +77,7 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
           <div className="tile"><div className="tn dim">—</div><div className="tl">Change vs prior weeks</div></div>
           <div className="tile"><div className="tn dim">—</div><div className="tl">Stores at or above the 85% target</div></div>
         </div>
-        <div className="emptyhint">Backtesting needs at least a few weeks of sales per store — this fills in automatically as the Woolworths ledger deepens and the Coles / Harris Farm feeds come online.</div>
+        <div className="emptyhint">Waiting on data, not on more building — the scoreboard switches on the moment your historical sales are loaded.</div>
         <style>{faccCss}</style>
       </div>
     );

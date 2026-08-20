@@ -70,9 +70,11 @@ export default function LostSales({ data }: { data: LostSales }) {
         <>
           <div className="panel intro">
             <div className="itxt">
-              The mirror of waste — where stores <b>sell out early</b> and turn demand away. It reads from the on-hand ledger
-              (a sold-out day = the shelf hit zero with nothing left to expire). No sell-outs flagged this week; as the ledger
-              accumulates across Coles and Harris Farm, sell-outs surface here with a sized fix.
+              The mirror of waste — where stores <b>sell out early</b> and turn demand away, the sales the reports never
+              show because retailers only send what <i>sold</i>, never what someone wanted and couldn&apos;t get. This page
+              is <b>built and ready</b>; it fills in the moment your full sales history is loaded. On today&apos;s snapshot
+              alone there are no sell-outs to flag — once there&apos;s history behind it, every store that runs dry before
+              its next drop shows up here with a sized fix.
             </div>
           </div>
           <div className="strip">
@@ -81,7 +83,7 @@ export default function LostSales({ data }: { data: LostSales }) {
             <div className="tile"><div className="tn dim">$ —</div><div className="tl">Lost revenue / wk · lights up with the price feed</div></div>
             <div className="tile"><div className="tn dim">—</div><div className="tl">Repeat sellouts · 3+ days out</div></div>
           </div>
-          <div className="emptyhint">Nothing to action this week — the moment a store runs dry before its next drop, the sellout and a sized fix appear here.</div>
+          <div className="emptyhint">Waiting on data, not on more building — sell-outs and their sized fixes appear here the moment your historical sales are loaded.</div>
         </>
       ) : (
       <>
