@@ -14,6 +14,23 @@ export type Answer = { headline: string; bars?: Bar[]; note?: string; sql?: stri
 
 const strip = (name: string) => name.replace(/^(Coles|Woolworths|Harris Farm)\s+/i, "");
 
+// Find the store a question is asking about by name. Scores each store on how
+// many of its distinctive name tokens (>=4 chars, retailer prefix removed)
+// appear in the question, weighted by token length, so "how's mascot doing"
+// resolves to Woolworths Mascot. Requires a solid hit (>=4) to avoid matching
+// on stray short words.
+function matchStore<T extends { name: string }>(q: string, stores: T[]): T | null {
+  let best: T | null = null;
+  let bestScore = 0;
+  for (const s of stores) {
+    const toks = strip(s.name).toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 4);
+    let score = 0;
+    for (const t of toks) if (q.includes(t)) score += t.length;
+    if (score > bestScore) { bestScore = score; best = s; }
+  }
+  return bestScore >= 4 ? best : null;
+}
+
 export async function answerQuestion(qRaw: string): Promise<Answer> {
   const q = (qRaw || "").toLowerCase().trim();
   if (!q) return { headline: "Ask about waste, sell-outs, sales, or which stores need attention." };
@@ -137,7 +154,52 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
     };
   }
 
+  // ---- best performers / stores doing well ----
+  if (
+    q.includes("best") || q.includes("top perform") || q.includes("doing well") ||
+    q.includes("strongest") || q.includes("high perform") || q.includes("star store")
+  ) {
+    const rows = await sql<{ name: string; waste_pct: number | null; st: number | null }[]>`
+      select name, waste_pct,
+             case when total_sent > 0 then round(100.0 * total_sold / total_sent, 0) end as st
+      from v_store_week
+      where status = 'green' and total_sent > 0
+      order by st desc nulls last, waste_pct asc nulls last limit 5`;
+    if (!rows.length) return { headline: "No standout performers flagged on track this week yet." };
+    return {
+      headline: `Your best performers this week: ${rows.slice(0, 3).map((r) => `${strip(r.name)} (${r.st}% sell-through)`).join(", ")}. Low waste, high sell-through — these are the ones worth learning from, not just the ones to fix.`,
+      bars: rows.map((r) => ({ label: strip(r.name), value: r.st ?? 0, suffix: "%" })),
+      note: "Ranked by sell-through among stores on track. Open one to see what it's doing right.",
+      sql: "select name, round(100.0*total_sold/total_sent,0) sell_through from v_store_week where status='green' order by sell_through desc limit 5;",
+    };
+  }
+
+  // ---- a specific store by name (e.g. "how's Mascot doing?") ----
+  {
+    const stores = await sql<{ name: string; store_id: string; waste_pct: number | null; stockout_days: number; total_sold: number; total_sent: number; status: string }[]>`
+      select name, store_id::text as store_id, waste_pct, stockout_days, total_sold, total_sent, status
+      from v_store_week`;
+    const hit = matchStore(q, stores);
+    if (hit) {
+      const st = hit.total_sent > 0 ? Math.round((100 * hit.total_sold) / hit.total_sent) : null;
+      const verdict =
+        hit.status === "red" ? "needs attention" :
+        hit.status === "amber" ? "one to watch" :
+        hit.status === "green" ? "on track" : "no data loaded yet";
+      const bits = [
+        hit.waste_pct != null ? `${hit.waste_pct}% waste` : null,
+        st != null ? `${st}% sell-through` : null,
+        hit.stockout_days > 0 ? `sold out ${hit.stockout_days} day${hit.stockout_days === 1 ? "" : "s"}` : null,
+      ].filter(Boolean);
+      return {
+        headline: `${hit.name}: ${verdict}${bits.length ? ` — ${bits.join(", ")}` : ""}. Sold ${hit.total_sold.toLocaleString("en-AU")} units this week.`,
+        note: "Open the store for its full product list and the recommended fix.",
+        sql: `select name, waste_pct, stockout_days, total_sold from v_store_week where name = '${hit.name.replace(/'/g, "''")}';`,
+      };
+    }
+  }
+
   return {
-    headline: "I can answer waste, sell-outs, sales trends, regions, and which stores need attention. Try one of the suggestions.",
+    headline: "I can answer waste, sell-outs, sales, best and worst stores, a specific store by name, products to cut, and regions. Try one of the suggestions.",
   };
 }

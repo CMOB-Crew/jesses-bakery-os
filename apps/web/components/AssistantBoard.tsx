@@ -20,6 +20,7 @@ const QCARDS: { key: string; q: string; label: string; tag: string; bg: string; 
   { key: "waste", q: "Where is my waste worst?", label: "Where is my waste worst?", tag: "Waste", bg: "var(--red-b)", stroke: "#9c3520", icon: <><path d="M10.3 3.9l-8 13.8A1.5 1.5 0 0 0 3.6 20h16.8a1.5 1.5 0 0 0 1.3-2.3l-8-13.8a1.5 1.5 0 0 0-2.6 0z" /><path d="M12 9v4M12 17h.01" /></> },
   { key: "cut", q: "What should we cut?", label: "What should we cut?", tag: "Products", bg: "#f0e2cc", stroke: "#8a5714", icon: <path d="M4 7c0-2 2-3 4-3s4 1 4 3-2 3-4 3-4-1-4-3zM12 7c0-2 2-3 4-3s4 1 4 3-2 3-4 3-4-1-4-3zM4 7v8a4 4 0 0 0 4 4h8a4 4 0 0 0 4-4V7" /> },
   { key: "stores", q: "Which stores need attention?", label: "Which stores need attention?", tag: "Stores", bg: "var(--amber-b)", stroke: "#7c5308", icon: <path d="M3 9l1-5h16l1 5M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9M4 9h16M9 20v-6h6v6" /> },
+  { key: "best", q: "Who are my best performers?", label: "Who are my best performers?", tag: "Top stores", bg: "var(--green-b)", stroke: "#356630", icon: <path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 21l1.4-6.8L2.2 9.6l6.9-.7L12 2z" /> },
   { key: "stockouts", q: "Any Sunday sell-out risk?", label: "Any Sunday sell-out risk?", tag: "Sell-outs", bg: "var(--amber-b)", stroke: "#7c5308", icon: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></> },
   { key: "bake", q: "What should we bake less of?", label: "What should we bake less of?", tag: "Production", bg: "#e7efe1", stroke: "#356630", icon: <path d="M3 21h18M4 21V9l5-3 5 3v12M14 21V11l6-3v13" /> },
 ];
@@ -91,7 +92,7 @@ export default function AssistantBoard({ facts }: { facts: AssistantFacts }) {
                 <svg viewBox="0 0 40 40"><defs><linearGradient id="lg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#c98a34" /><stop offset="1" stopColor="#9a6414" /></linearGradient></defs><circle cx="20" cy="20" r="19" fill="url(#lg2)" /><path d="M10 25c0-6 4.5-9 10-9s10 3 10 9c0 2.2-1.6 3.4-3.4 3.4H13.4C11.6 28.4 10 27.2 10 25z" fill="#fbf0d8" /><path d="M16 21l-2 4.5M20 20l-2 5.5M24 21l-2 4.5" stroke="#b0741c" strokeWidth="1.5" strokeLinecap="round" fill="none" /></svg>
               </div>
               <h3>Hi Simona — ask me anything</h3>
-              <p>I can see this week&apos;s live data across all your stores — waste, savings, what to cut, which stores need attention, Sunday sell-outs. Ask away, or tap a suggestion on the right.</p>
+              <p>I can see this week&apos;s live data across all your stores — waste, savings, what to cut, your best and worst stores, Sunday sell-outs, or how any single store is doing (just name it, e.g. &ldquo;how&apos;s Mascot?&rdquo;). Ask away, or tap a suggestion on the right.</p>
               <div className="tagline">Handmade fresh daily in Sydney</div>
             </div>
           )}
