@@ -1,11 +1,11 @@
-import { getProductionPlan, getWeekdayShape } from "@/lib/queries";
+import { getProductionPlan, getWeekdayShape, getRunState } from "@/lib/queries";
 import ProductionBoard from "@/components/ProductionBoard";
 
 export const metadata = { title: "Production · Jesse's Bakery OS" };
 export const dynamic = "force-dynamic"; // render per request; keep off the flaky build-time prerender path
 
 export default async function ProductionPage() {
-  const [lines, shape] = await Promise.all([getProductionPlan(), getWeekdayShape()]);
+  const [lines, shape, saved] = await Promise.all([getProductionPlan(), getWeekdayShape(), getRunState("production")]);
 
   return (
     <>
@@ -17,7 +17,7 @@ export default async function ProductionPage() {
       </div>
 
       {lines.length ? (
-        <ProductionBoard lines={lines} shape={shape} />
+        <ProductionBoard lines={lines} shape={shape} saved={saved} />
       ) : (
         // Empty until the plan is loaded — keep it honest, don't show a blank grid.
         <div className="panel">

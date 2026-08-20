@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { setRunState } from "@/app/run-state-actions";
 import type { ProductionLine, WeekdayShape } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
@@ -33,7 +34,7 @@ type Day = "week" | number;
 // works down it by bread type, nudging any Engine-plan number (−/+ appear on
 // hover), resetting or undoing, and ticking each line to confirm. Flip to a
 // single day to hand the floor exactly what to make that day. Totals recalc live.
-export default function ProductionBoard({ lines: raw, shape = null }: { lines: ProductionLine[]; shape?: WeekdayShape | null }) {
+export default function ProductionBoard({ lines: raw, shape = null, saved = {} }: { lines: ProductionLine[]; shape?: WeekdayShape | null; saved?: Record<string, boolean> }) {
   // Day-split curve (Mon..Sun) — measured from real sell-through when we have
   // it (reindexed from the Sun..Sat shape), else the seed. Same shape the
   // Deliveries board and Seasonality calendar use — the factory bakes to the
@@ -76,7 +77,10 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
 
   const [day, setDay] = useState<Day>("week");
   const [eng, setEng] = useState<Record<string, number>>(orig);
-  const [approved, setApproved] = useState<Record<string, boolean>>({});
+  const [approved, setApproved] = useState<Record<string, boolean>>(saved);
+  const [, startSave] = useTransition();
+  // Persist the week-approval set so ticks survive a reload (migration 017).
+  const persistApproved = (next: Record<string, boolean>) => startSave(async () => { await setRunState("production", next); });
   const [baked, setBaked] = useState<Record<string, Record<string, boolean>>>({});
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [term, setTerm] = useState("");
@@ -180,13 +184,13 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
     setHistory((h) => h.slice(0, -1));
   }
   function toggleDone(name: string) {
-    if (isWeek) setApproved((a) => ({ ...a, [name]: !a[name] }));
+    if (isWeek) { const next = { ...approved, [name]: !approved[name] }; setApproved(next); persistApproved(next); }
     else setBaked((b) => { const k = String(day); return { ...b, [k]: { ...b[k], [name]: !b[k]?.[name] } }; });
   }
   function doneCat(category: string) {
     const rows = groups.find((g) => g.category === category)?.rows ?? [];
     const all = rows.every((l) => isDone(l.name));
-    if (isWeek) setApproved((a) => { const n = { ...a }; rows.forEach((l) => { n[l.name] = !all; }); return n; });
+    if (isWeek) { const next = { ...approved }; rows.forEach((l) => { next[l.name] = !all; }); setApproved(next); persistApproved(next); }
     else setBaked((b) => { const k = String(day); const n = { ...(b[k] ?? {}) }; rows.forEach((l) => { n[l.name] = !all; }); return { ...b, [k]: n }; });
   }
   function toggleCat(category: string) {
@@ -368,7 +372,7 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
 
       <div className="foot">
         {isWeek ? (
-          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Your edits and confirmations here are a working draft — they reset if you reload;</b> saving them and printing &amp; locking the sheet for the floor is the next build phase. Daily splits are {shape ? "sized from the measured weekday shape" : "modelled from typical day-of-week demand"} until the daily plan is wired — the weekly totals are exact.</>
+          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Your line confirmations save and stay across reloads;</b> the −/+ quantity nudges are a working draft, and printing &amp; locking the sheet for the floor is the next build phase. Daily splits are {shape ? "sized from the measured weekday shape" : "modelled from typical day-of-week demand"} until the daily plan is wired — the weekly totals are exact.</>
         ) : (
           <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Tick each line as it&apos;s baked, or export the sheet for the bench. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is {shape ? "sized from the measured weekday shape" : "modelled from typical demand"} until the daily plan is wired.</>
         )}
@@ -379,7 +383,7 @@ export default function ProductionBoard({ lines: raw, shape = null }: { lines: P
         <div className="sp">
           <button type="button" className="btn" onClick={exportBakeSheet}>↧ {isWeek ? "Export bake sheet" : `Export ${dayShort} sheet`}</button>
           <button type="button" className="btn primary" onClick={() => {
-            if (isWeek) { setApproved(Object.fromEntries(lines.map((l) => [l.name, true]))); showToast(`All ${total} lines confirmed ✓ — draft only; saving + printing the sheet for the floor is the next build phase`); }
+            if (isWeek) { const next = Object.fromEntries(lines.map((l) => [l.name, true])); setApproved(next); persistApproved(next); showToast(`All ${total} lines confirmed ✓ — saved`); }
             else { setBaked((b) => ({ ...b, [String(day)]: Object.fromEntries(lines.map((l) => [l.name, true])) })); showToast(`All lines marked baked for ${dayShort} ✓`); }
           }}>✓ {isWeek ? "Confirm all" : "Mark all baked"}</button>
         </div>

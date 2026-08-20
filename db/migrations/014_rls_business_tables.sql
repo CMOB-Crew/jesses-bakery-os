@@ -43,7 +43,7 @@ declare
     'delivery_photos','wastage','on_hand_ledger','replenishment_plans',
     'events','packing_records','ingredient_receipts','task_checklists',
     'store_product_overrides','store_product_ranging','store_settings',
-    'app_settings'
+    'app_settings','daily_run_state'
   ];
 begin
   foreach t in array biz loop

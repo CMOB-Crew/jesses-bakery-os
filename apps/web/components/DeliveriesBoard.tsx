@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState, useTransition } from "react";
+import { setRunState } from "@/app/run-state-actions";
 import Link from "next/link";
 import type { DeliveryLine, DeliveryDetailLine, WeekdayShape } from "@/lib/queries";
 
@@ -22,7 +23,7 @@ const SEED_DOWMULT = [0.85, 0.85, 0.95, 1, 1.3, 1.55, 1.4];
 // hover), resetting or undoing, and ticking each store to approve. Each store
 // opens a per-product breakdown inline. Totals recalc live. Nothing sends to the
 // bakery until she signs it off.
-export default function DeliveriesBoard({ lines, detail = [], shape = null }: { lines: DeliveryLine[]; detail?: DeliveryDetailLine[]; shape?: WeekdayShape | null }) {
+export default function DeliveriesBoard({ lines, detail = [], shape = null, saved = {} }: { lines: DeliveryLine[]; detail?: DeliveryDetailLine[]; shape?: WeekdayShape | null; saved?: Record<string, boolean> }) {
   // Day-split curve (Mon..Sun). Measured from real sell-through when we have it,
   // reindexed from the Sun..Sat shape; else the seed curve. This is the same
   // weekend uplift the Seasonality calendar shows — one shape across the app.
@@ -57,7 +58,10 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null }: { 
   }, [lines]);
 
   const [eng, setEng] = useState<Record<string, number>>(orig);
-  const [approved, setApproved] = useState<Record<string, boolean>>({});
+  const [approved, setApproved] = useState<Record<string, boolean>>(saved);
+  const [, startSave] = useTransition();
+  // Persist the approval set so ticks survive a reload (migration 017).
+  const persistApproved = (next: Record<string, boolean>) => startSave(async () => { await setRunState("deliveries", next); });
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [term, setTerm] = useState("");
   const [unappOnly, setUnappOnly] = useState(false);
@@ -145,12 +149,17 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null }: { 
     setHistory((h) => h.slice(0, -1));
   }
   function toggleApprove(id: string) {
-    setApproved((a) => ({ ...a, [id]: !a[id] }));
+    const next = { ...approved, [id]: !approved[id] };
+    setApproved(next);
+    persistApproved(next);
   }
   function approveRegion(region: string) {
     const rows = groups.find((g) => g.region === region)?.rows ?? [];
     const all = rows.every((l) => approved[l.store_id]);
-    setApproved((a) => { const n = { ...a }; rows.forEach((l) => { n[l.store_id] = !all; }); return n; });
+    const next = { ...approved };
+    rows.forEach((l) => { next[l.store_id] = !all; });
+    setApproved(next);
+    persistApproved(next);
   }
   function toggleRegion(region: string) {
     setCollapsed((c) => ({ ...c, [region]: !c[region] }));
@@ -352,7 +361,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null }: { 
 
       <div className="foot">
         {isWeek
-          ? <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you change it. Click a store to see its per-product breakdown. Tick to approve. Your edits and approvals here are a working draft — they reset if you reload; saving them and sending to the bakery is the next build phase. Switch to a day above to see just that day&apos;s drop — the buffer is already baked into every number.</>
+          ? <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you change it. Click a store to see its per-product breakdown. Tick to approve. Your store approvals save and stay across reloads; the quantity nudges are a working draft, and sending the run to the bakery is the next build phase. Switch to a day above to see just that day&apos;s drop — the buffer is already baked into every number.</>
           : <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Click a store for its per-product breakdown, or tick to approve. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is {shape ? "sized from the measured weekday shape" : "modelled from typical demand"} until the daily plan is wired.</>}
       </div>
 
@@ -360,7 +369,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null }: { 
         <div className="prog"><b>{apprCount}</b> of {total} approved · trimming <span className="tr">{nf(Math.max(0, trim))}</span> loaves {isWeek ? "this week" : dayShort}</div>
         <div className="sp">
           <button type="button" className="btn" onClick={exportRunSheet}>↓ Export run sheet</button>
-          <button type="button" className="btn primary" onClick={() => { setApproved(Object.fromEntries(lines.map((l) => [l.store_id, true]))); showToast(`All ${total} orders approved ✓ — draft only; saving + sending to the bakery is the next build phase`); }}>✓ Approve all</button>
+          <button type="button" className="btn primary" onClick={() => { const next = Object.fromEntries(lines.map((l) => [l.store_id, true])); setApproved(next); persistApproved(next); showToast(`All ${total} orders approved ✓ — saved`); }}>✓ Approve all</button>
         </div>
       </div>
 

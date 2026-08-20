@@ -466,6 +466,18 @@ export async function getAppSettings(): Promise<AppSettings> {
   }
 }
 
+// Today's saved approval set for a run board (migration 017). itemId -> bool.
+// Empty fallback so the board just starts unapproved if the table isn't there.
+export async function getRunState(surface: string): Promise<Record<string, boolean>> {
+  try {
+    const rows = await sql<{ approved: Record<string, boolean> }[]>`
+      select approved from daily_run_state where surface = ${surface} and day = current_date`;
+    return rows[0]?.approved ?? {};
+  } catch {
+    return {};
+  }
+}
+
 export type DailyBar = { sale_date: Date; dow: string; sold: number; sent: number };
 export async function getStoreDaily(id: string): Promise<DailyBar[]> {
   try {
