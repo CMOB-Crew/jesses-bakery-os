@@ -128,12 +128,16 @@ export async function getDeliveryPlan(): Promise<DeliveryLine[]> {
   try {
     return await sql<DeliveryLine[]>`
       select s.id as store_id, s.name, reg.name as region,
-             sum(r.sent)::int as sent, sum(r.recommended)::int as recommended
+             sum(r.sent)::int as sent,
+             sum(coalesce(o.qty, r.recommended))::int as recommended
       from store_reco r
       join stores s on s.id = r.store_id
       left join regions reg on reg.id = s.region_id
+      left join store_product_overrides o
+        on o.store_id = r.store_id and o.product_id = r.product_id
+        and (o.mode = 'perm' or o.ends_on is null or o.ends_on >= current_date)
       group by s.id, s.name, reg.name
-      order by sum(r.sent - r.recommended) desc`;
+      order by sum(r.sent - coalesce(o.qty, r.recommended)) desc`;
   } catch {
     return [];
   }
@@ -142,16 +146,23 @@ export async function getDeliveryPlan(): Promise<DeliveryLine[]> {
 // Per-store, per-product delivery lines — powers the expandable product
 // breakdown under each store on the Deliveries sheet (Simona: "a dropdown to
 // see per-product without opening the full profile").
-export type DeliveryDetailLine = { store_id: string; product_name: string; sent: number; recommended: number };
+export type DeliveryDetailLine = { store_id: string; product_id: string; product_name: string; sent: number; recommended: number };
 export async function getDeliveryDetail(): Promise<DeliveryDetailLine[]> {
   try {
+    // `recommended` is the FINAL delivery: a manual override wins over the engine
+    // number, so store-profile adjustments (and delivery-sheet edits, which save
+    // as overrides) flow through here. Falls back to the engine rec when unset.
     return await sql<DeliveryDetailLine[]>`
-      select r.store_id, p.name as product_name,
-             sum(r.sent)::int as sent, sum(r.recommended)::int as recommended
+      select r.store_id, p.id::text as product_id, p.name as product_name,
+             sum(r.sent)::int as sent,
+             sum(coalesce(o.qty, r.recommended))::int as recommended
       from store_reco r
       join products p on p.id = r.product_id
-      group by r.store_id, p.name
-      order by sum(r.sent - r.recommended) desc`;
+      left join store_product_overrides o
+        on o.store_id = r.store_id and o.product_id = r.product_id
+        and (o.mode = 'perm' or o.ends_on is null or o.ends_on >= current_date)
+      group by r.store_id, p.id, p.name
+      order by sum(r.sent - coalesce(o.qty, r.recommended)) desc`;
   } catch {
     return [];
   }
@@ -164,9 +175,13 @@ export async function getProductionPlan(): Promise<ProductionLine[]> {
   try {
     return await sql<ProductionLine[]>`
       select p.name, p.category::text as category,
-             sum(r.sent)::int as sent, sum(r.recommended)::int as recommended,
+             sum(r.sent)::int as sent,
+             sum(coalesce(o.qty, r.recommended))::int as recommended,
              count(distinct r.store_id)::int as stores
       from store_reco r join products p on p.id = r.product_id
+      left join store_product_overrides o
+        on o.store_id = r.store_id and o.product_id = r.product_id
+        and (o.mode = 'perm' or o.ends_on is null or o.ends_on >= current_date)
       group by p.name, p.category
       order by sum(r.sent) desc`;
   } catch {

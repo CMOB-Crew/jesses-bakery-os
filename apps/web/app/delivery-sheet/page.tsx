@@ -14,7 +14,7 @@ export default async function DeliverySheetPage() {
         <h1>Delivery sheet</h1>
         <div className="meta">
           <Link href="/deliveries" style={{ color: "var(--crust-deep)", fontWeight: 600 }}>← Calm view</Link>
-          <span style={{ marginLeft: 12 }}>store × product grid · a working draft until write-back to packers &amp; production is wired</span>
+          <span style={{ marginLeft: 12 }}>store × product grid · edits save as store adjustments and flow to the plan</span>
         </div>
       </div>
       <DeliverySheet plan={plan} detail={detail} />

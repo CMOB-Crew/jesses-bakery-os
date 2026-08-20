@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { setStoreOverride } from "@/app/store/actions";
 import type { DeliveryLine, DeliveryDetailLine } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
@@ -41,16 +42,35 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
   }, [detail]);
   const [cells, setCells] = useState<Record<string, number>>(initial);
   const [flash, setFlash] = useState<string | null>(null);
-  // Honest status: edits live in the browser only (write-back is next phase), so
-  // never claim "saved" or "sent to packers & production" — that would be false.
-  const [saved, setSaved] = useState("Working draft · resets on reload");
+  const [saved, setSaved] = useState("Edits save as store adjustments");
+  const [, startSave] = useTransition();
+
+  // Product name -> id, so a cell edit can be saved against the right product.
+  const nameToId = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const d of detail) m[d.product_name] = d.product_id;
+    return m;
+  }, [detail]);
 
   const cell = (sid: string, p: string) => cells[`${sid}::${p}`] ?? 0;
   function setCell(sid: string, p: string, val: number) {
     const n = Math.max(0, Math.floor(Number(val) || 0));
     setCells((c) => ({ ...c, [`${sid}::${p}`]: n }));
     setFlash(`${sid}::${p}`);
-    setSaved("Draft updated · not yet sent to packers & production");
+  }
+  // Save one cell as a store override (perm). A delivery cell IS the final
+  // delivery for a store/product, so it persists through the same override
+  // system as the store profile — one source of truth. Runs on blur, not on
+  // every keystroke.
+  function persistCell(sid: string, p: string) {
+    const pid = nameToId[p];
+    if (!pid) return;
+    const qty = cells[`${sid}::${p}`] ?? 0;
+    startSave(async () => {
+      const res = await setStoreOverride({ storeId: sid, productId: pid, qty, mode: "perm" });
+      if (res.ok) setSaved(res.readonly ? "Preview only — this demo doesn't save changes" : "Saved ✓");
+      else setSaved(`Couldn't save: ${res.error}`);
+    });
   }
 
   const rowTotal = (sid: string) => products.reduce((a, p) => a + cell(sid, p), 0);
@@ -104,6 +124,7 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
                             inputMode="numeric"
                             onChange={(e) => setCell(s.store_id, p, parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)}
                             onFocus={(e) => e.currentTarget.select()}
+                            onBlur={() => persistCell(s.store_id, p)}
                           />
                         </td>
                       );
@@ -146,7 +167,7 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
               <div className="sub"><span>Bakery team total</span><span>{nf(bkTotal)}</span></div>
             </div>
           </div>
-          <div className="note">Change any cell — the production totals update instantly. Sourdough is baked <b>2 days ahead</b> (lead time 2 days); everything else is baked the day before. Editing is live in this build; writing the run back to packers &amp; production is the next phase.</div>
+          <div className="note">Change any cell — the production totals update instantly. Sourdough is baked <b>2 days ahead</b> (lead time 2 days); everything else is baked the day before. Each cell edit saves as an adjustment on that store — it flows through to the store profile, the deliveries view and production. Sending the finalised run to packers is the next phase.</div>
         </div>
       </div>
 
