@@ -469,6 +469,17 @@ export async function getStoreServiceLevel(id: string): Promise<string | null> {
   }
 }
 
+// Per-store "last visited" date (migration 019), YYYY-MM-DD or null.
+export async function getStoreLastVisit(id: string): Promise<string | null> {
+  try {
+    const rows = await sql<{ last_visit_on: string | null }[]>`
+      select last_visit_on::text as last_visit_on from store_settings where store_id = ${id}::uuid`;
+    return rows[0]?.last_visit_on ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Global app config (migration 016) as a key -> JSON value map. Falls back to
 // empty (UI uses its defaults) if the table isn't present yet.
 export type AppSettings = Record<string, unknown>;

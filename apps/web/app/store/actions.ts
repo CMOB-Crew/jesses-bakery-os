@@ -140,6 +140,30 @@ export async function setStoreRanging(storeId: string, productId: string, ranged
   }
 }
 
+// Persist the store's "last visited" date (migration 019). Simona keeps this
+// current herself; an empty string clears it. Stored on store_settings, so a new
+// row leaves service_level null (nullable) and re-saving only touches the date.
+export async function setStoreLastVisit(storeId: string, dateStr: string): Promise<OverrideResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
+  try {
+    const sid = (storeId ?? "").trim();
+    if (!sid) return { ok: false, error: "Missing store." };
+    const d = (dateStr ?? "").trim() || null;
+    if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, error: "Use a YYYY-MM-DD date." };
+    if (d && d > new Date().toISOString().slice(0, 10)) return { ok: false, error: "Visit date can't be in the future." };
+    await sql`
+      insert into store_settings (store_id, last_visit_on, updated_at, updated_by)
+      values (${sid}::uuid, ${d}::date, now(), 'app')
+      on conflict (store_id) do update set
+        last_visit_on = excluded.last_visit_on, updated_at = now(), updated_by = excluded.updated_by`;
+    revalidatePath(`/store/${sid}`);
+    revalidatePath("/stores");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not save the visit date." };
+  }
+}
+
 // Write-back slice 2: persist the per-store service-level dial (migration 015).
 export async function setStoreServiceLevel(storeId: string, level: string): Promise<OverrideResult> {
   if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };

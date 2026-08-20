@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import StoreBars from "@/components/StoreBars";
 import type { StoreWeek, StoreReco, DailyBar, StoreOverride } from "@/lib/queries";
-import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel } from "@/app/store/actions";
+import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel, setStoreLastVisit } from "@/app/store/actions";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 
@@ -40,6 +40,8 @@ export default function StoreProfile({
   overrides = [],
   ranging = [],
   serviceLevel = null,
+  lastVisit = null,
+  today = "",
 }: {
   store: StoreWeek;
   recos: StoreReco[];
@@ -48,6 +50,8 @@ export default function StoreProfile({
   overrides?: StoreOverride[];
   ranging?: { product_id: string; ranged: boolean }[];
   serviceLevel?: string | null;
+  lastVisit?: string | null;
+  today?: string;
 }) {
   // Coerce every DB number up front (waste_pct/shelf_max arrive as strings).
   const wastePct = store.waste_pct == null ? null : Number(store.waste_pct);
@@ -77,6 +81,7 @@ export default function StoreProfile({
   const [dial, setDial] = useState<"lean" | "balanced" | "service">(
     serviceLevel === "lean" || serviceLevel === "service" ? serviceLevel : "balanced",
   );
+  const [visit, setVisit] = useState<string>(lastVisit ?? "");
   const [ranged, setRanged] = useState<Record<string, boolean>>(() => {
     // Default everything ranged, then apply saved choices (migration 015),
     // keyed by product name to match the row map.
@@ -114,6 +119,28 @@ export default function StoreProfile({
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3000);
+  }
+
+  // Last-visit date. Optimistic + revert on failure, like the dial. `today` comes
+  // in from the server (the page is force-dynamic, so it's this request's date) —
+  // reading the clock during a client render is impure and the React-compiler lint
+  // rejects it. `new Date("YYYY-MM-DD")` is pure, so the day-delta is fine here.
+  const OVERDUE_DAYS = 30;
+  const visitDays =
+    visit && today
+      ? Math.floor((new Date(today + "T00:00:00").getTime() - new Date(visit + "T00:00:00").getTime()) / 86_400_000)
+      : null;
+  const visitOverdue = visitDays != null && visitDays > OVERDUE_DAYS;
+  function saveVisit(v: string) {
+    const prev = visit;
+    setVisit(v);
+    startSave(async () => {
+      const res = await setStoreLastVisit(store.store_id, v);
+      if (res.ok) {
+        if (res.readonly) showToast("Visit date noted — preview only (this demo doesn't save changes)");
+        else { showToast(v ? `Last visit set to ${v} — saved` : "Visit date cleared — saved"); router.refresh(); }
+      } else { setVisit(prev); showToast(`Couldn't save the visit date: ${res.error}`); }
+    });
   }
 
   // Persist an adjustment to the store record. Optimistic: reflect it in the UI
@@ -327,6 +354,29 @@ export default function StoreProfile({
         </div>
       </div>
 
+      <div className="visitrow">
+        <div className="dial-l">
+          <div className="dl-t">Last store visit</div>
+          <div className="dl-s">Record when you last visited this store — it flags overdue after {OVERDUE_DAYS} days so none slip through.</div>
+        </div>
+        <div className="visit-ctl">
+          <input
+            className="visit-date"
+            type="date"
+            value={visit}
+            max={today || undefined}
+            onChange={(e) => saveVisit(e.target.value)}
+            aria-label="Last store visit date"
+          />
+          {visit
+            ? visitDays == null
+              ? <span className="visit-chip ok">Recorded</span>
+              : <span className={`visit-chip ${visitOverdue ? "over" : "ok"}`}>{visitOverdue ? `Overdue · ${visitDays}d` : `Visited ${visitDays}d ago`}</span>
+            : <span className="visit-chip over">Not recorded</span>}
+          {visit && <button type="button" className="visit-clear" onClick={() => saveVisit("")}>Clear</button>}
+        </div>
+      </div>
+
       <div className="ph">
         <div className="ph-t">Products &amp; ranging <span className="cnt">{rangedCount}/{rows.length} ranged</span></div>
         <div className="ph-cap">
@@ -478,6 +528,14 @@ export default function StoreProfile({
       .sprof .seg button:hover{color:var(--ink2)}
       .sprof .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(60,45,30,.16)}
       .sprof .seg button small{display:block;font-size:10px;font-weight:600;color:var(--green-t);margin-top:1px}
+      .sprof .visitrow{display:flex;align-items:center;gap:18px;background:var(--surface);border:1px solid var(--line2);border-radius:12px;padding:14px 18px;margin-bottom:18px;flex-wrap:wrap}
+      .sprof .visit-ctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+      .sprof .visit-date{font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 11px;cursor:pointer}
+      .sprof .visit-chip{font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap}
+      .sprof .visit-chip.ok{background:var(--green-b);color:var(--green-t)}
+      .sprof .visit-chip.over{background:var(--amber-b);color:var(--amber-t)}
+      .sprof .visit-clear{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;font-family:inherit}
+      .sprof .visit-clear:hover{color:var(--ink2);background:#f6f0e6}
       .sprof .ph{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap}
       .sprof .ph-t{font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);font-weight:700;display:flex;align-items:center;gap:10px}
       .sprof .ph-t .cnt{background:#efe6d3;color:var(--ink2);border-radius:999px;font-size:11px;letter-spacing:0;padding:2px 9px;font-weight:700}
