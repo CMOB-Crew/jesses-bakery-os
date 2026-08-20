@@ -1,7 +1,8 @@
 "use client";
-import { useRef, useState } from "react";
+import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import type { Opportunities, OppLever } from "@/lib/queries";
+import { applyStockoutFixes } from "@/app/store/actions";
 
 /* ------------------------------------------------------------------ *
  * Opportunity finder — one ranked "where's the next dollar" list, live
@@ -32,6 +33,29 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3400);
+  }
+
+  // Persist the queued moves as store overrides in one go (the same write as a
+  // single Adjust), so they flow into the delivery + production plan. Only moves
+  // with a sized target (store+product+suggested) can be written -- trim/capture
+  // moves have one; range/rebalance don't yet, so they stay queued and are noted.
+  const [saving, startSave] = useTransition();
+  function addToPlan() {
+    const targets = data.opps.filter((o) => queued[o.id] && o.store_id && o.product_id && o.suggested != null);
+    if (!targets.length) { showToast("Queue a move with a sized target first (trim or capture)"); return; }
+    const fixes = targets.map((o) => ({ storeId: o.store_id as string, productId: o.product_id as string, qty: o.suggested as number }));
+    const skipped = queuedCount - targets.length;
+    startSave(async () => {
+      const res = await applyStockoutFixes(fixes);
+      if (res.ok) {
+        setQueued({});
+        showToast(res.readonly
+          ? `Added ${res.count} move${res.count === 1 ? "" : "s"} — preview only (this demo doesn't save changes)`
+          : `Added ${res.count} move${res.count === 1 ? "" : "s"} to the plan — saved${skipped ? ` · ${skipped} need a sized target` : ""}`);
+      } else {
+        showToast(`Couldn't add: ${res.error}`);
+      }
+    });
   }
 
   if (!data.hasData) {
@@ -86,11 +110,8 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
         {queuedCount > 0 && (
           <div className="queuebar">
             <span>{queuedCount} queued · ~{queuedUnits} units/wk</span>
-            <button
-              className="addplan"
-              onClick={() => showToast(`Queued ${queuedCount} move${queuedCount === 1 ? "" : "s"} (~${queuedUnits} units/wk) — writing them into this week's plan is the next build phase`)}
-            >
-              Add to this week&apos;s plan
+            <button className="addplan" onClick={addToPlan} disabled={saving}>
+              {saving ? "Adding…" : "Add to this week's plan"}
             </button>
           </div>
         )}
@@ -157,6 +178,7 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
         .opps .queuebar{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:13px;font-weight:600;color:var(--ink2)}
         .opps .addplan{background:var(--green);border:1px solid var(--green);color:#fff;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
         .opps .addplan:hover{background:#548050}
+        .opps .addplan:disabled{opacity:.6;cursor:default}
 
         .opps .list{display:flex;flex-direction:column;gap:12px}
         .opps .opp{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:16px 18px;display:flex;gap:16px;align-items:flex-start;transition:box-shadow .15s}
