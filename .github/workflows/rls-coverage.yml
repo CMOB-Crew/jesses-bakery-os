@@ -1,0 +1,58 @@
+name: RLS coverage
+
+# Structural guard (Fred, 014 review): applies every migration to a throwaway
+# Postgres in numeric order, then fails if any public base table is missing
+# row-level security. Stops a new table from silently shipping without RLS.
+on:
+  pull_request:
+    paths:
+      - 'db/migrations/**'
+      - 'db/checks/**'
+      - '.github/workflows/rls-coverage.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'db/migrations/**'
+      - 'db/checks/**'
+  workflow_dispatch:
+
+jobs:
+  rls-coverage:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jbo_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: jbo_ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Supabase auth stub (CI only)
+        run: psql -v ON_ERROR_STOP=1 -f db/checks/ci-auth-stub.sql
+
+      - name: Apply migrations in numeric order
+        run: |
+          for f in $(ls db/migrations/*.sql | sort); do
+            echo ">>> applying $f"
+            psql -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      - name: Verify RLS coverage
+        run: bash db/checks/verify-rls-coverage.sh

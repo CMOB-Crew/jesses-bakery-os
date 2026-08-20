@@ -18,8 +18,9 @@
 --   role NULL      -> no access (deny-by-default; policies below never match).
 --   admin/manager/office -> full business read + write (Simona is 'manager').
 --   driver         -> read the delivery surface only (run-scoping is a follow-up,
---                     flagged below -- baseline here is read deliveries + write
---                     their own delivery photos).
+--                     flagged below -- baseline here is read deliveries + ADD
+--                     delivery photos; no update/delete on photos, so proof of
+--                     delivery can't be removed).
 --   engine         -> writes store_reco/replenishment_plans under its OWN db role
 --                     with BYPASSRLS (see the Supabase setup checklist), so it is
 --                     deliberately NOT granted through these policies.
@@ -36,14 +37,18 @@
 do $$
 declare
   t text;
+  -- Only tables that exist by this migration (001-011). The write-back tables
+  -- (store_product_ranging/store_settings/app_settings/daily_run_state) are
+  -- created by 015-017, so they're covered in 018 -- keeping them out of here
+  -- means the migration set applies cleanly in numeric order (a fresh/CI apply
+  -- of 014 before 015-017 would otherwise fail on a not-yet-created table).
   biz text[] := array[
     'regions','runs','products','pricing_tiers','product_prices',
     'stores','store_run_overrides','standing_orders','sales_daily',
     'sales_intraday','feed_status_log','deliveries','delivery_items',
     'delivery_photos','wastage','on_hand_ledger','replenishment_plans',
     'events','packing_records','ingredient_receipts','task_checklists',
-    'store_product_overrides','store_product_ranging','store_settings',
-    'app_settings','daily_run_state'
+    'store_product_overrides'
   ];
 begin
   foreach t in array biz loop
@@ -81,11 +86,20 @@ drop policy if exists driver_read_stores on stores;
 create policy driver_read_stores on stores
   for select using (public.current_app_role() = 'driver');
 
+-- Insert + read only, deliberately NOT "for all". A proof-of-delivery photo is
+-- evidence: a driver may add one and see delivery photos, but must not be able to
+-- UPDATE or DELETE a photo (their own or anyone else's) -- that would let a driver
+-- remove evidence of a drop they missed. Admin/manager/office keep full access via
+-- biz_all above, so nothing legitimate breaks. (Fred, 014 review, 20 Aug 2026.)
 drop policy if exists driver_photos on delivery_photos;
-create policy driver_photos on delivery_photos
-  for all
-  using      (public.current_app_role() = 'driver')
-  with check (public.current_app_role() = 'driver');
+drop policy if exists driver_photos_insert on delivery_photos;
+drop policy if exists driver_photos_read on delivery_photos;
+
+create policy driver_photos_insert on delivery_photos
+  for insert with check (public.current_app_role() = 'driver');
+
+create policy driver_photos_read on delivery_photos
+  for select using (public.current_app_role() = 'driver');
 
 -- ---------------------------------------------------------------------------
 -- Legacy identity table (app_users): holds pin_hash -> admin-only, no business
