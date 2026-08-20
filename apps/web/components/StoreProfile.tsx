@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import StoreBars from "@/components/StoreBars";
 import type { StoreWeek, StoreReco, DailyBar, StoreOverride } from "@/lib/queries";
 import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel } from "@/app/store/actions";
@@ -104,6 +104,11 @@ export default function StoreProfile({
   const [editing, setEditing] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A suggestion routed in from Lost sales / Opportunities via
+  // ?stage=<productId>&to=<qty>. Shown as a confirm-first banner rather than
+  // auto-applied, so the cap guard + Simona's review stay in the loop.
+  const search = useSearchParams();
+  const [stageDone, setStageDone] = useState(false);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -192,8 +197,23 @@ export default function StoreProfile({
     { k: "Sales growth", v: growth == null ? "—" : `${growth >= 0 ? "▲" : "▼"} ${Math.abs(growth)}%`, cls: growth == null ? undefined : growth >= 0 ? "g" : "r" },
   ];
 
+  const stagePid = search.get("stage");
+  const stageTo = Number(search.get("to"));
+  const stageRow = !stageDone && stagePid && Number.isFinite(stageTo) ? rows.find((r) => r.pid === stagePid) : undefined;
+
   return (
     <section className="sprof">
+      {stageRow && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "var(--amber-b)", border: "1px solid var(--amber)", borderRadius: 12, padding: "12px 16px", marginBottom: 14 }}>
+          <div style={{ fontSize: 13.5, color: "var(--ink2)" }}>
+            <b style={{ color: "var(--amber-t)" }}>Suggested fix</b> — set <b>{stageRow.name}</b> to <b>{stageTo}</b> <span style={{ color: "var(--muted)" }}>(now {eff(stageRow)})</span>. Applies as an adjustment on this store, capped at the shelf limit.
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <button type="button" onClick={() => { applyOverride(stageRow, { qty: stageTo, mode: "perm" }); setStageDone(true); }} style={{ font: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "7px 14px", borderRadius: 8, border: "1px solid var(--ink)", background: "var(--ink)", color: "#fff" }}>Apply</button>
+            <button type="button" onClick={() => setStageDone(true)} style={{ font: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer", padding: "7px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "#fff", color: "var(--ink2)" }}>Dismiss</button>
+          </div>
+        </div>
+      )}
       <div className="hero">
         <div className="hero-l">
           <div className="nm">{store.name}</div>

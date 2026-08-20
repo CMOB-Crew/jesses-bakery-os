@@ -744,7 +744,8 @@ export async function getOpportunities(): Promise<Opportunities> {
 // on-hand ledger fully populates across Coles + Harris.
 // ---------------------------------------------------------------------
 export type Stockout = {
-  id: string; store: string; retailer: string; region: string; product: string;
+  id: string; store_id: string; store: string; retailer: string; region: string;
+  product: string; product_id: string | null;
   pattern: string; lostWk: number; lostRevenueWk: number | null;
   current: number | null; suggested: number | null; conf: "high" | "medium"; repeat: boolean;
 };
@@ -792,8 +793,8 @@ export async function getStockouts(): Promise<LostSales> {
     const recos = await getStoreRecos(s.store_id);
     const under = recos.filter((r) => r.recommended > r.sent).sort((a, b) => (b.recommended - b.sent) - (a.recommended - a.sent))[0];
     losses.push({
-      id: `so-${s.store_id}`, store: s.name, retailer: s.retailer, region: s.region ?? "—",
-      product: under ? titleCase(under.product_name) : "peak lines",
+      id: `so-${s.store_id}`, store_id: s.store_id, store: s.name, retailer: s.retailer, region: s.region ?? "—",
+      product: under ? titleCase(under.product_name) : "peak lines", product_id: under ? under.product_id : null,
       pattern: under
         ? `Ran out on ${days} day${days === 1 ? "" : "s"} this week — ${titleCase(under.product_name)} short before the next drop.`
         : `Ran out on ${days} day${days === 1 ? "" : "s"} this week — running dry before the next delivery.`,

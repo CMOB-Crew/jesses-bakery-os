@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import type { LostSales } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -112,7 +113,11 @@ export default function LostSales({ data }: { data: LostSales }) {
               </span>
             </div>
             <div className="lc-btns">
-              <button className="btn approve" onClick={() => apply(l.id)}>Apply fix</button>
+              {l.store_id && l.product_id && l.suggested != null ? (
+                <Link className="btn approve" href={`/store/${l.store_id}?stage=${l.product_id}&to=${l.suggested}`}>Apply fix</Link>
+              ) : (
+                <button className="btn approve" onClick={() => apply(l.id)}>Apply fix</button>
+              )}
               <button className="btn" onClick={() => dismiss(l.id)}>Dismiss</button>
             </div>
           </div>
