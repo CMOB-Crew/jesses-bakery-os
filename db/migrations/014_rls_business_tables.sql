@@ -42,7 +42,8 @@ declare
     'sales_intraday','feed_status_log','deliveries','delivery_items',
     'delivery_photos','wastage','on_hand_ledger','replenishment_plans',
     'events','packing_records','ingredient_receipts','task_checklists',
-    'store_product_overrides','store_product_ranging','store_settings'
+    'store_product_overrides','store_product_ranging','store_settings',
+    'app_settings'
   ];
 begin
   foreach t in array biz loop

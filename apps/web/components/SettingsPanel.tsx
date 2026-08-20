@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import type { EngineScenario } from "@/lib/queries";
+import { useMemo, useRef, useState, useTransition } from "react";
+import type { EngineScenario, AppSettings } from "@/lib/queries";
+import { saveSetting } from "@/app/settings/actions";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 // Null-safe first word. Guards prerender: if the plan_projection feed is slow
@@ -31,17 +32,27 @@ const FACTORS0: Factor[] = [
   { key: "weather", name: "Weather", note: "Cold snaps lift bread (toasties, soup). Needs a weather feed — off until wired.", weight: "Low", on: false },
 ];
 
-export default function SettingsPanel({ scenarios }: { scenarios: EngineScenario[] }) {
+export default function SettingsPanel({ scenarios, settings = {} }: { scenarios: EngineScenario[]; settings?: AppSettings }) {
   const engines = useMemo(() => scenarios.filter((s) => s.scenario !== "current").sort((a, b) => a.ord - b.ord), [scenarios]);
-  const [sel, setSel] = useState("balanced");
+  const [, startSave] = useTransition();
+
+  // Saved config (migration 016) hydrates the controls; missing keys fall back
+  // to the built-in defaults.
+  const svc = (settings.service_level ?? {}) as { level?: string };
+  const savedMins = (settings.product_minimums ?? {}) as Record<string, number>;
+  const savedSizes = settings.size_baskets as Size[] | undefined;
+  const sl = (settings.shelf_lead ?? {}) as { shelfDays?: number; pullDays?: number; sdLead?: number; otherLead?: number };
+  const savedFactors = (settings.seasonality_factors ?? {}) as Record<string, boolean>;
+
+  const [sel, setSel] = useState(svc.level ?? "balanced");
   const [scope, setScope] = useState<"network" | "store" | "product">("network");
-  const [mins, setMins] = useState<Record<string, number>>(() => Object.fromEntries(CORE_BASKET.map((p) => [p, 2])));
-  const [sizes, setSizes] = useState<Size[]>(SIZES0);
-  const [shelfDays, setShelfDays] = useState(6);
-  const [pullDays, setPullDays] = useState(2);
-  const [sdLead, setSdLead] = useState(2);
-  const [otherLead, setOtherLead] = useState(1);
-  const [factors, setFactors] = useState<Factor[]>(FACTORS0);
+  const [mins, setMins] = useState<Record<string, number>>(() => ({ ...Object.fromEntries(CORE_BASKET.map((p) => [p, 2])), ...savedMins }));
+  const [sizes, setSizes] = useState<Size[]>(() => (Array.isArray(savedSizes) && savedSizes.length ? savedSizes : SIZES0));
+  const [shelfDays, setShelfDays] = useState(sl.shelfDays ?? 6);
+  const [pullDays, setPullDays] = useState(sl.pullDays ?? 2);
+  const [sdLead, setSdLead] = useState(sl.sdLead ?? 2);
+  const [otherLead, setOtherLead] = useState(sl.otherLead ?? 1);
+  const [factors, setFactors] = useState<Factor[]>(() => FACTORS0.map((f) => (f.key in savedFactors ? { ...f, on: savedFactors[f.key] } : f)));
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -52,14 +63,32 @@ export default function SettingsPanel({ scenarios }: { scenarios: EngineScenario
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   }
-  const setMin = (p: string, d: number) => { setMins((m) => ({ ...m, [p]: Math.max(0, (m[p] ?? 2) + d) })); ping("Minimum updated — saving to the settings is the next phase"); };
+  // Persist one config group and report honestly (saved / preview-only / error).
+  function persist(key: string, value: unknown, label: string) {
+    startSave(async () => {
+      const res = await saveSetting(key, value);
+      if (res.ok) ping(res.readonly ? `${label} — preview only (this demo doesn't save changes)` : `${label} — saved`);
+      else ping(`Couldn't save: ${res.error}`);
+    });
+  }
+  const setMin = (p: string, d: number) => {
+    const next = { ...mins, [p]: Math.max(0, (mins[p] ?? 2) + d) };
+    setMins(next);
+    persist("product_minimums", next, "Minimum updated");
+  };
   const setSize = (k: string, field: "cap" | "fill", v: number) => setSizes((ss) => ss.map((s) => (s.key === k ? { ...s, [field]: Math.max(0, v) } : s)));
-  const toggleFactor = (k: string) => { setFactors((fs) => fs.map((f) => (f.key === k ? { ...f, on: !f.on } : f))); ping("Factor toggled — the plan picks this up next phase"); };
+  const persistSizes = () => persist("size_baskets", sizes, "Size basket updated");
+  const persistShelfLead = () => persist("shelf_lead", { shelfDays, pullDays, sdLead, otherLead }, "Shelf & lead updated");
+  const toggleFactor = (k: string) => {
+    const next = factors.map((f) => (f.key === k ? { ...f, on: !f.on } : f));
+    setFactors(next);
+    persist("seasonality_factors", Object.fromEntries(next.map((f) => [f.key, f.on])), "Factor toggled");
+  };
 
   return (
     <section className="setp">
       <div className="lead-panel">
-        The plan is not a black box — every number here is a lever you control. This is exactly how it decides what to bake and send. Nothing is guessed; defaults come from Jesse&apos;s and Simona&apos;s calls, and change the moment you say so. <b>Editing is live in this build; writing config back to the plan is the next phase.</b>
+        The plan is not a black box — every number here is a lever you control. This is exactly how it decides what to bake and send. Nothing is guessed; defaults come from Jesse&apos;s and Simona&apos;s calls, and change the moment you say so. <b>Every change here saves to the plan&apos;s config.</b>
       </div>
 
       {/* SERVICE LEVEL */}
@@ -75,7 +104,7 @@ export default function SettingsPanel({ scenarios }: { scenarios: EngineScenario
         </div>
         <div className="dial">
           {engines.map((e) => (
-            <button key={e.scenario} type="button" className={`dbtn ${e.scenario === sel ? "on" : ""}`} onClick={() => { setSel(e.scenario); ping(`Service level set to ${firstWord(e.label)} (${scope}) — applies to the plan next phase`); }}>
+            <button key={e.scenario} type="button" className={`dbtn ${e.scenario === sel ? "on" : ""}`} onClick={() => { setSel(e.scenario); persist("service_level", { level: e.scenario }, `Service level set to ${firstWord(e.label)}`); }}>
               <span className="dl">{firstWord(e.label)}{e.scenario === "balanced" && <small>default</small>}</span>
               <span className="dv">{e.waste_pct}% <i>waste</i></span>
               <span className="dv2">{e.lost_sales_pct ?? "—"}% lost · {nf(Number(e.units_saved_wk) || 0)}/wk</span>
@@ -110,10 +139,10 @@ export default function SettingsPanel({ scenarios }: { scenarios: EngineScenario
           <div className="sizecard" key={s.key}>
             <div className="sh"><span className="badge">{s.key}</span>{s.label}</div>
             <label className="fld">Shelf capacity
-              <input value={s.cap} inputMode="numeric" onChange={(e) => setSize(s.key, "cap", parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={() => ping("Size basket updated — saved to config next phase")} />
+              <input value={s.cap} inputMode="numeric" onChange={(e) => setSize(s.key, "cap", parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistSizes} />
             </label>
             <label className="fld">New-store starter fill
-              <input value={s.fill} inputMode="numeric" onChange={(e) => setSize(s.key, "fill", parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={() => ping("Size basket updated — saved to config next phase")} />
+              <input value={s.fill} inputMode="numeric" onChange={(e) => setSize(s.key, "fill", parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistSizes} />
             </label>
             <div className="fillbar"><i style={{ width: `${s.cap > 0 ? Math.min(100, (s.fill / s.cap) * 100) : 0}%` }} /></div>
             <div className="fillnote">Seeds at {s.cap > 0 ? Math.round((s.fill / s.cap) * 100) : 0}% — headroom to grow as sales build.</div>
@@ -126,10 +155,10 @@ export default function SettingsPanel({ scenarios }: { scenarios: EngineScenario
       <div className="sec"><span className="tick" />Shelf life &amp; lead time</div>
       <div className="card">
         <div className="fldgrid">
-          <label className="fld2">Total shelf life (days)<input value={shelfDays} inputMode="numeric" onChange={(e) => setShelfDays(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={() => ping("Shelf life updated — saved next phase")} /></label>
-          <label className="fld2">Pull-off before expiry (days)<input value={pullDays} inputMode="numeric" onChange={(e) => setPullDays(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={() => ping("Pull-off updated — saved next phase")} /></label>
-          <label className="fld2">Sourdough lead time (days)<input value={sdLead} inputMode="numeric" onChange={(e) => setSdLead(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={() => ping("Lead time updated — saved next phase")} /></label>
-          <label className="fld2">Everything-else lead time (days)<input value={otherLead} inputMode="numeric" onChange={(e) => setOtherLead(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={() => ping("Lead time updated — saved next phase")} /></label>
+          <label className="fld2">Total shelf life (days)<input value={shelfDays} inputMode="numeric" onChange={(e) => setShelfDays(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistShelfLead} /></label>
+          <label className="fld2">Pull-off before expiry (days)<input value={pullDays} inputMode="numeric" onChange={(e) => setPullDays(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistShelfLead} /></label>
+          <label className="fld2">Sourdough lead time (days)<input value={sdLead} inputMode="numeric" onChange={(e) => setSdLead(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistShelfLead} /></label>
+          <label className="fld2">Everything-else lead time (days)<input value={otherLead} inputMode="numeric" onChange={(e) => setOtherLead(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistShelfLead} /></label>
         </div>
         <div className="hint">Day 1 is the day it leaves the bakery, so {shelfDays} total = {Math.max(0, shelfDays - 1)} sellable days on shelf. Daily-delivery stores pull stock with ≤{pullDays} days left; every-second-day stores pull the whole previous drop.</div>
       </div>
@@ -152,7 +181,7 @@ export default function SettingsPanel({ scenarios }: { scenarios: EngineScenario
       <div className="sec"><span className="tick" />Feed coverage</div>
       <div className="card">
         <div className="feed"><b className="g">● Woolworths</b> — live feed, live on plan. Full per-store, per-product orders.</div>
-        <div className="feed"><b className="a">● Coles &amp; Harris Farm</b> — feeds still filling in the ledger. They light up automatically as sales data lands; nothing to configure. This is also what unlocks the dollar &amp; profit figures across the app.</div>
+        <div className="feed"><b className="a">● Coles &amp; Harris Farm</b> — feeds still filling in the ledger. They light up automatically as sales data lands; nothing to configure. Sales and waste $ are already live from the cost feed — these feeds filling extends them network-wide (profit unlocks with per-product cost).</div>
       </div>
 
       {toast && <div className="settoast">{toast}</div>}

@@ -454,6 +454,18 @@ export async function getStoreServiceLevel(id: string): Promise<string | null> {
   }
 }
 
+// Global app config (migration 016) as a key -> JSON value map. Falls back to
+// empty (UI uses its defaults) if the table isn't present yet.
+export type AppSettings = Record<string, unknown>;
+export async function getAppSettings(): Promise<AppSettings> {
+  try {
+    const rows = await sql<{ key: string; value: unknown }[]>`select key, value from app_settings`;
+    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  } catch {
+    return {};
+  }
+}
+
 export type DailyBar = { sale_date: Date; dow: string; sold: number; sent: number };
 export async function getStoreDaily(id: string): Promise<DailyBar[]> {
   try {
