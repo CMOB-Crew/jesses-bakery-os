@@ -57,6 +57,40 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
     }
   }
 
+  // ---- a product category (bagels / sourdough / challah ...) ----
+  // Placed before the waste/sales intents so "how's sourdough waste" resolves to
+  // the category rollup rather than the network waste ranking.
+  {
+    const CATS: { kw: string[]; cat: string; label: string }[] = [
+      { kw: ["sourdough"], cat: "sourdough", label: "Sourdough" },
+      { kw: ["bagel"], cat: "bagel", label: "Bagels" },
+      { kw: ["challah"], cat: "challah", label: "Challah" },
+      { kw: ["pita"], cat: "pita", label: "Pita" },
+      { kw: ["babka", "pastry"], cat: "pastry", label: "Pastry" },
+      { kw: ["cake"], cat: "cake", label: "Cakes" },
+    ];
+    const catHit = CATS.find((c) => c.kw.some((k) => q.includes(k)));
+    if (catHit) {
+      const perProd = await sql<{ name: string; sent: number; sold: number; rec: number }[]>`
+        select p.name, sum(r.sent)::int sent, sum(r.sold)::int sold, sum(r.recommended)::int rec
+        from store_reco r join products p on p.id = r.product_id
+        where p.category = ${catHit.cat}::product_category
+        group by p.name order by sum(r.sent) desc limit 6`;
+      if (perProd.length) {
+        const sent = perProd.reduce((a, r) => a + r.sent, 0);
+        const sold = perProd.reduce((a, r) => a + r.sold, 0);
+        const rec = perProd.reduce((a, r) => a + r.rec, 0);
+        const st = sent > 0 ? Math.round((100 * sold) / sent) : 0;
+        return {
+          headline: `${catHit.label}: sending ${sent.toLocaleString("en-AU")} a week across ${perProd.length} line${perProd.length === 1 ? "" : "s"}, ${sold.toLocaleString("en-AU")} sells — ${st}% sell-through. The plan would send ${rec.toLocaleString("en-AU")}.`,
+          bars: perProd.map((r) => ({ label: title(r.name), value: r.sent })),
+          note: `${catHit.label} lines by weekly send. Open Products for the full per-line waste and difference.`,
+          sql: `select p.name, sum(r.sent) sent, sum(r.sold) sold from store_reco r join products p on p.id=r.product_id where p.category='${catHit.cat}' group by p.name;`,
+        };
+      }
+    }
+  }
+
   // ---- most over-supplied products / what to cut ----
   if (
     q.includes("product") || q.includes("what to cut") || q.includes("what should we cut") ||
