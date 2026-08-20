@@ -212,6 +212,37 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
     };
   }
 
+  // ---- what's going to a specific store this week (its delivery) ----
+  // Needs a delivery cue + a store name, so it beats the generic store lookup
+  // below for "what's going to Bondi?" but leaves "how's Bondi?" to it.
+  if (
+    q.includes("going to") || q.includes("deliver") || q.includes("delivery") ||
+    q.includes("sending") || q.includes("send to") || q.includes("this week to") ||
+    q.includes("order for") || q.includes("what's going") || q.includes("whats going")
+  ) {
+    const stores = await sql<{ name: string; store_id: string }[]>`select name, store_id::text as store_id from v_store_week`;
+    const hit = matchStore(q, stores);
+    if (hit) {
+      const lines = await sql<{ name: string; qty: number }[]>`
+        select p.name, coalesce(o.qty, r.recommended)::int as qty
+        from store_reco r
+        join products p on p.id = r.product_id
+        left join store_product_overrides o
+          on o.store_id = r.store_id and o.product_id = r.product_id
+          and (o.mode = 'perm' or o.ends_on is null or o.ends_on >= current_date)
+        where r.store_id = ${hit.store_id}::uuid
+        order by qty desc limit 8`;
+      if (lines.length) {
+        return {
+          headline: `${hit.name} — biggest lines this week: ${lines.slice(0, 3).map((l) => `${title(l.name)} (${l.qty})`).join(", ")}.`,
+          bars: lines.map((l) => ({ label: title(l.name), value: l.qty })),
+          note: "The plan's recommended send with any adjustments folded in — top lines shown. Open the store for the full order and to change a line.",
+          sql: `select p.name, coalesce(o.qty,r.recommended) qty from store_reco r join products p on p.id=r.product_id left join store_product_overrides o on o.store_id=r.store_id and o.product_id=r.product_id where r.store_id='${hit.store_id}' order by qty desc;`,
+        };
+      }
+    }
+  }
+
   // ---- a specific store by name (e.g. "how's Mascot doing?") ----
   {
     const stores = await sql<{ name: string; store_id: string; waste_pct: number | null; stockout_days: number; total_sold: number; total_sent: number; status: string }[]>`
