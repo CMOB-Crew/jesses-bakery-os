@@ -480,6 +480,17 @@ export async function getStoreLastVisit(id: string): Promise<string | null> {
   }
 }
 
+// Per-store profile photo (migration 020) as a JPEG data URL, or null.
+export async function getStorePhoto(id: string): Promise<string | null> {
+  try {
+    const rows = await sql<{ photo_url: string | null }[]>`
+      select photo_url from store_settings where store_id = ${id}::uuid`;
+    return rows[0]?.photo_url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Global app config (migration 016) as a key -> JSON value map. Falls back to
 // empty (UI uses its defaults) if the table isn't present yet.
 export type AppSettings = Record<string, unknown>;

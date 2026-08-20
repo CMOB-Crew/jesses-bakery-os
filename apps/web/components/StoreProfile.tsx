@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import StoreBars from "@/components/StoreBars";
 import type { StoreWeek, StoreReco, DailyBar, StoreOverride } from "@/lib/queries";
-import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel, setStoreLastVisit } from "@/app/store/actions";
+import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel, setStoreLastVisit, setStorePhoto } from "@/app/store/actions";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 
@@ -42,6 +42,7 @@ export default function StoreProfile({
   serviceLevel = null,
   lastVisit = null,
   today = "",
+  photo = null,
 }: {
   store: StoreWeek;
   recos: StoreReco[];
@@ -52,6 +53,7 @@ export default function StoreProfile({
   serviceLevel?: string | null;
   lastVisit?: string | null;
   today?: string;
+  photo?: string | null;
 }) {
   // Coerce every DB number up front (waste_pct/shelf_max arrive as strings).
   const wastePct = store.waste_pct == null ? null : Number(store.waste_pct);
@@ -141,6 +143,66 @@ export default function StoreProfile({
         else { showToast(v ? `Last visit set to ${v} — saved` : "Visit date cleared — saved"); router.refresh(); }
       } else { setVisit(prev); showToast(`Couldn't save the visit date: ${res.error}`); }
     });
+  }
+
+  // Store profile photo (migration 020). Simona picks an image; we resize it in
+  // the browser to a small JPEG data URL (so the DB row stays light and there's
+  // no storage bucket to stand up), then save. Optimistic + revert like the rest.
+  const [pic, setPic] = useState<string | null>(photo);
+  const [picBusy, setPicBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  // Draw the chosen file onto a canvas capped at 640px on its long edge and
+  // export a compressed JPEG. Keeps a phone photo down to ~100KB.
+  function resizeToDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const MAX = 640;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        const ctx = c.getContext("2d");
+        if (!ctx) { reject(new Error("no canvas")); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("bad image")); };
+      img.src = url;
+    });
+  }
+
+  function savePhoto(next: string | null) {
+    const prev = pic;
+    setPic(next);
+    startSave(async () => {
+      const res = await setStorePhoto(store.store_id, next ?? "");
+      if (res.ok) {
+        if (res.readonly) showToast("Photo added — preview only (this demo doesn't save changes)");
+        else { showToast(next ? "Store photo saved" : "Store photo removed"); router.refresh(); }
+      } else { setPic(prev); showToast(`Couldn't save the photo: ${res.error}`); }
+    });
+  }
+
+  async function onPickPhoto(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let the same file be re-picked later
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { showToast("Please choose an image file."); return; }
+    if (file.size > 20_000_000) { showToast("That image is very large — try one under 20MB."); return; }
+    setPicBusy(true);
+    try {
+      const dataUrl = await resizeToDataUrl(file);
+      savePhoto(dataUrl);
+    } catch {
+      showToast("Couldn't read that image — try a different one.");
+    } finally {
+      setPicBusy(false);
+    }
   }
 
   // Persist an adjustment to the store record. Optimistic: reflect it in the UI
@@ -242,6 +304,21 @@ export default function StoreProfile({
         </div>
       )}
       <div className="hero">
+        <div className="storephoto">
+          <input ref={fileRef} type="file" accept="image/*" onChange={onPickPhoto} hidden aria-hidden="true" />
+          {pic
+            // eslint-disable-next-line @next/next/no-img-element -- data: URL, next/image can't optimise it
+            ? <img className="sp-img" src={pic} alt={`${store.name} storefront`} />
+            : <button type="button" className="sp-ph" onClick={() => fileRef.current?.click()} disabled={picBusy} aria-label="Add store photo">
+                <span className="sp-ico">＋</span><span className="sp-cap">{picBusy ? "Working…" : "Add photo"}</span>
+              </button>}
+          {pic && (
+            <div className="sp-btns">
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={picBusy}>{picBusy ? "Working…" : "Change"}</button>
+              <button type="button" className="sp-rm" onClick={() => savePhoto(null)} disabled={picBusy}>Remove</button>
+            </div>
+          )}
+        </div>
         <div className="hero-l">
           <div className="nm">{store.name}</div>
           <div className="sub">
@@ -470,6 +547,17 @@ export default function StoreProfile({
       <style>{`
       .sprof{display:block;padding-bottom:40px}
       .sprof .hero{display:flex;align-items:flex-start;gap:16px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:20px 24px;margin-bottom:14px;flex-wrap:wrap}
+      .sprof .storephoto{display:flex;flex-direction:column;align-items:center;gap:6px}
+      .sprof .sp-img{width:76px;height:76px;border-radius:14px;object-fit:cover;border:1px solid var(--line);display:block;box-shadow:var(--sh)}
+      .sprof .sp-ph{width:76px;height:76px;border-radius:14px;border:1px dashed var(--line);background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;color:var(--muted);font:inherit;transition:border-color .15s,color .15s}
+      .sprof .sp-ph:hover:not(:disabled){border-color:var(--ink);color:var(--ink2)}
+      .sprof .sp-ph:disabled{cursor:default;opacity:.7}
+      .sprof .sp-ico{font-size:20px;line-height:1}
+      .sprof .sp-cap{font-size:10.5px;font-weight:600;letter-spacing:.02em}
+      .sprof .sp-btns{display:flex;gap:8px}
+      .sprof .sp-btns button{font:inherit;font-size:11px;font-weight:600;cursor:pointer;background:0;border:0;color:var(--ink2);padding:0;text-decoration:underline;text-underline-offset:2px}
+      .sprof .sp-btns button:disabled{cursor:default;opacity:.6;text-decoration:none}
+      .sprof .sp-btns .sp-rm{color:var(--muted)}
       .sprof .hero-l{flex:1;min-width:220px}
       .sprof .nm{font-family:var(--serif);font-size:24px;font-weight:600;letter-spacing:-.3px}
       .sprof .sub{display:flex;align-items:center;gap:9px;margin-top:9px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}

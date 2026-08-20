@@ -164,6 +164,33 @@ export async function setStoreLastVisit(storeId: string, dateStr: string): Promi
   }
 }
 
+// Persist the store's profile photo (migration 020). The client resizes the
+// image to a small JPEG data URL before calling this, so we just validate the
+// shape and cap the size, then store it. An empty string clears the photo.
+const MAX_PHOTO_CHARS = 1_400_000; // ~1MB of image after base64 (~33% overhead)
+export async function setStorePhoto(storeId: string, dataUrl: string): Promise<OverrideResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
+  try {
+    const sid = (storeId ?? "").trim();
+    if (!sid) return { ok: false, error: "Missing store." };
+    const raw = (dataUrl ?? "").trim();
+    const url = raw || null;
+    if (url) {
+      if (!/^data:image\/(jpeg|png|webp);base64,/.test(url)) return { ok: false, error: "That doesn't look like an image." };
+      if (url.length > MAX_PHOTO_CHARS) return { ok: false, error: "Image is too large — try a smaller photo." };
+    }
+    await sql`
+      insert into store_settings (store_id, photo_url, updated_at, updated_by)
+      values (${sid}::uuid, ${url}, now(), 'app')
+      on conflict (store_id) do update set
+        photo_url = excluded.photo_url, updated_at = now(), updated_by = excluded.updated_by`;
+    revalidatePath(`/store/${sid}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not save the photo." };
+  }
+}
+
 // Write-back slice 2: persist the per-store service-level dial (migration 015).
 export async function setStoreServiceLevel(storeId: string, level: string): Promise<OverrideResult> {
   if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
