@@ -76,3 +76,44 @@ export async function clearStoreOverride(storeId: string, productId: string): Pr
     return { ok: false, error: msg };
   }
 }
+
+// Write-back slice 2: persist product ranging (in/out) for a store (migration
+// 015). Upsert one row per (store, product); absence of a row means ranged by
+// default, so we only store explicit choices.
+export async function setStoreRanging(storeId: string, productId: string, ranged: boolean): Promise<OverrideResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
+  try {
+    const sid = (storeId ?? "").trim();
+    const pid = (productId ?? "").trim();
+    if (!sid || !pid) return { ok: false, error: "Missing store or product." };
+    await sql`
+      insert into store_product_ranging (store_id, product_id, ranged, updated_at, updated_by)
+      values (${sid}::uuid, ${pid}::uuid, ${ranged}, now(), 'app')
+      on conflict (store_id, product_id) do update set
+        ranged = excluded.ranged, updated_at = now(), updated_by = excluded.updated_by`;
+    revalidatePath(`/store/${sid}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not save ranging." };
+  }
+}
+
+// Write-back slice 2: persist the per-store service-level dial (migration 015).
+export async function setStoreServiceLevel(storeId: string, level: string): Promise<OverrideResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
+  try {
+    const sid = (storeId ?? "").trim();
+    if (!sid) return { ok: false, error: "Missing store." };
+    const lvl = ["lean", "balanced", "service"].includes(level) ? level : null;
+    if (!lvl) return { ok: false, error: "Invalid service level." };
+    await sql`
+      insert into store_settings (store_id, service_level, updated_at, updated_by)
+      values (${sid}::uuid, ${lvl}, now(), 'app')
+      on conflict (store_id) do update set
+        service_level = excluded.service_level, updated_at = now(), updated_by = excluded.updated_by`;
+    revalidatePath(`/store/${sid}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not save service level." };
+  }
+}

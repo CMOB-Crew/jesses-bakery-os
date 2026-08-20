@@ -428,6 +428,32 @@ export async function getStoreOverrides(id: string): Promise<StoreOverride[]> {
   }
 }
 
+// Saved product ranging (in/out) for a store (migration 015). A row is an
+// explicit choice; absence means ranged by default. Falls back to empty (all
+// ranged) if the table isn't present yet.
+export type StoreRanging = { product_id: string; ranged: boolean };
+export async function getStoreRanging(id: string): Promise<StoreRanging[]> {
+  try {
+    return await sql<StoreRanging[]>`
+      select product_id::text as product_id, ranged
+      from store_product_ranging where store_id = ${id}::uuid`;
+  } catch {
+    return [];
+  }
+}
+
+// Saved per-store service level (migration 015). Null = not set, UI defaults to
+// "balanced".
+export async function getStoreServiceLevel(id: string): Promise<string | null> {
+  try {
+    const rows = await sql<{ service_level: string | null }[]>`
+      select service_level from store_settings where store_id = ${id}::uuid`;
+    return rows[0]?.service_level ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export type DailyBar = { sale_date: Date; dow: string; sold: number; sent: number };
 export async function getStoreDaily(id: string): Promise<DailyBar[]> {
   try {

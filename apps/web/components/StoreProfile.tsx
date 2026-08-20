@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import StoreBars from "@/components/StoreBars";
 import type { StoreWeek, StoreReco, DailyBar, StoreOverride } from "@/lib/queries";
-import { setStoreOverride, clearStoreOverride } from "@/app/store/actions";
+import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel } from "@/app/store/actions";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 
@@ -38,12 +38,16 @@ export default function StoreProfile({
   daily,
   peer,
   overrides = [],
+  ranging = [],
+  serviceLevel = null,
 }: {
   store: StoreWeek;
   recos: StoreReco[];
   daily: DailyBar[];
   peer?: PeerStat;
   overrides?: StoreOverride[];
+  ranging?: { product_id: string; ranged: boolean }[];
+  serviceLevel?: string | null;
 }) {
   // Coerce every DB number up front (waste_pct/shelf_max arrive as strings).
   const wastePct = store.waste_pct == null ? null : Number(store.waste_pct);
@@ -70,8 +74,20 @@ export default function StoreProfile({
 
   const router = useRouter();
   const [, startSave] = useTransition();
-  const [dial, setDial] = useState<"lean" | "balanced" | "service">("balanced");
-  const [ranged, setRanged] = useState<Record<string, boolean>>(() => Object.fromEntries(rows.map((r) => [r.name, true])));
+  const [dial, setDial] = useState<"lean" | "balanced" | "service">(
+    serviceLevel === "lean" || serviceLevel === "service" ? serviceLevel : "balanced",
+  );
+  const [ranged, setRanged] = useState<Record<string, boolean>>(() => {
+    // Default everything ranged, then apply saved choices (migration 015),
+    // keyed by product name to match the row map.
+    const base = Object.fromEntries(rows.map((r) => [r.name, true]));
+    const nameById = new Map(recos.map((r) => [r.product_id, r.product_name]));
+    for (const rg of ranging) {
+      const name = nameById.get(rg.product_id);
+      if (name) base[name] = rg.ranged;
+    }
+    return base;
+  });
   // Hydrate saved overrides (migration 011) as the starting adjustments, keyed by
   // product name to match the row map. So a change Simona made yesterday is
   // already showing when she opens the profile today.
@@ -146,7 +162,20 @@ export default function StoreProfile({
   const overCap = cap != null && !capStale && capTotal > cap;
 
   function toggleRanged(name: string) {
-    setRanged((s) => ({ ...s, [name]: !isRanged(name) }));
+    const next = !isRanged(name);
+    setRanged((s) => ({ ...s, [name]: next }));
+    const pid = rows.find((r) => r.name === name)?.pid;
+    if (!pid) return;
+    startSave(async () => {
+      const res = await setStoreRanging(store.store_id, pid, next);
+      if (res.ok) {
+        if (res.readonly) showToast(`${name} ${next ? "ranged in" : "ranged out"} — preview only (this demo doesn't save changes)`);
+        else { showToast(`${name} ${next ? "ranged in" : "ranged out"} — saved`); router.refresh(); }
+      } else {
+        setRanged((s) => ({ ...s, [name]: !next })); // revert on failure
+        showToast(`Couldn't update ranging for ${name}: ${res.error}`);
+      }
+    });
   }
 
   // Real metrics only — the dollar/accuracy figures move to a single "unlocks
@@ -260,7 +289,17 @@ export default function StoreProfile({
         </div>
         <div className="seg">
           {(["lean", "balanced", "service"] as const).map((s) => (
-            <button key={s} type="button" className={dial === s ? "on" : ""} onClick={() => { setDial(s); showToast(`Service level set to ${s} for ${store.name} — the plan retunes every line to match (wired next phase)`); }}>
+            <button key={s} type="button" className={dial === s ? "on" : ""} onClick={() => {
+              const prev = dial;
+              setDial(s);
+              startSave(async () => {
+                const res = await setStoreServiceLevel(store.store_id, s);
+                if (res.ok) {
+                  if (res.readonly) showToast(`Service level set to ${s} for ${store.name} — preview only (this demo doesn't save changes)`);
+                  else { showToast(`Service level set to ${s} for ${store.name} — saved`); router.refresh(); }
+                } else { setDial(prev); showToast(`Couldn't save service level: ${res.error}`); }
+              });
+            }}>
               {s[0].toUpperCase() + s.slice(1)}
               {s === "balanced" && <small>default</small>}
             </button>
@@ -353,7 +392,7 @@ export default function StoreProfile({
       )}
 
       <div className="foot">
-        This profile is the single source of truth — ranging, service level and adjustments set here shape the plan, with the shelf cap enforced and a warning on anything over it. <b>Per-product adjustments now save to the store record</b> and are here when you come back; ranging and service level are still live-only in this build.
+        This profile is the single source of truth — ranging, service level and adjustments set here shape the plan, with the shelf cap enforced and a warning on anything over it. <b>Adjustments, ranging and service level all save to the store record</b> now and are here when you come back.
       </div>
 
       {toast && <div className="toast">{toast}</div>}
