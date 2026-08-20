@@ -147,6 +147,7 @@ export default function NewStoreSetup({ regions = [] }: { regions?: string[] }) 
     const res = await createStore({
       name, retailer, region, storeNo, size, cap, timing,
       goLiveDate: goLiveDate || undefined,
+      service,
     });
     setSaving(false);
     setSaved(res.ok

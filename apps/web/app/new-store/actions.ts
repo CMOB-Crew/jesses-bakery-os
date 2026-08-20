@@ -18,6 +18,7 @@ export type CreateStoreInput = {
   cap?: number;          // shelf_max
   timing: "upcoming" | "live";
   goLiveDate?: string;   // YYYY-MM-DD (planned go-live when upcoming; actual when live)
+  service?: string;      // lean | balanced | generous (form) -> store_settings.service_level
 };
 export type CreateStoreResult = { ok: true; id: string } | { ok: false; error: string };
 
@@ -65,6 +66,20 @@ export async function createStore(input: CreateStoreInput): Promise<CreateStoreR
         (case when ${live} then coalesce(${date}::date, current_date) else null end)
       )
       returning id::text as id`;
+
+    // Persist the chosen service level so it's set on the store's profile from
+    // day one. The form's "generous" maps to the profile's "service" level
+    // (store_settings, migration 015). Non-fatal: a store still gets created if
+    // this write fails.
+    const svc = input.service === "lean" ? "lean" : input.service === "balanced" ? "balanced" : input.service === "generous" || input.service === "service" ? "service" : null;
+    if (svc) {
+      try {
+        await sql`
+          insert into store_settings (store_id, service_level, updated_at, updated_by)
+          values (${rows[0].id}::uuid, ${svc}, now(), 'app')
+          on conflict (store_id) do update set service_level = excluded.service_level, updated_at = now(), updated_by = excluded.updated_by`;
+      } catch { /* store is created regardless; service level is best-effort */ }
+    }
 
     revalidatePath("/launches");
     revalidatePath("/archive");
