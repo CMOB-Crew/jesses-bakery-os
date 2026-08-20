@@ -37,8 +37,9 @@ const TOURS: Record<string, Step[]> = {
 };
 
 const CSS = `
-.dt-hole{position:fixed;border-radius:14px;box-shadow:0 0 0 9999px rgba(28,20,12,.58);z-index:9970;transition:all .25s ease;pointer-events:none}
-.dt-tip{position:fixed;z-index:9971;width:320px;background:#fff;border-radius:14px;padding:18px 18px 14px;box-shadow:0 18px 46px #0005;transition:all .2s ease;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif}
+.dt-back{position:fixed;inset:0;z-index:9969;background:transparent;cursor:default}
+.dt-hole{position:fixed;border-radius:14px;box-shadow:0 0 0 9999px rgba(28,20,12,.58);z-index:9970;transition:opacity .2s ease;pointer-events:none}
+.dt-tip{position:fixed;z-index:9971;width:320px;background:#fff;border-radius:14px;padding:18px 18px 14px;box-shadow:0 18px 46px #0005;transition:top .18s ease,left .18s ease;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif}
 .dt-tip .s{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8a4f14;font-weight:700;margin-bottom:7px}
 .dt-tip .s i{width:20px;height:20px;border-radius:50%;background:#a7611c;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-style:normal}
 .dt-tip h4{font-family:Georgia,"Times New Roman",serif;font-size:18px;margin:0 0 6px;font-weight:600;color:#2c2118}
@@ -67,19 +68,47 @@ export default function DemoTour() {
     let i = 0;
     let hole: HTMLDivElement | null = null;
     let tip: HTMLDivElement | null = null;
+    let back: HTMLDivElement | null = null;
+    // The step currently on screen — so the scroll/resize listeners can re-align
+    // the spotlight to the same element without touching the tooltip content.
+    let shown: Step | null = null;
+    let ticking = false;
     const q = (s: string) => (s ? (document.querySelector(s) as HTMLElement | null) : null);
 
+    // Tear the whole tour down and mark it seen. Idempotent — safe to call from a
+    // backdrop click, Skip, Done, or unmount, however many times.
     function done() {
-      hole?.remove(); tip?.remove(); hole = null; tip = null;
+      hole?.remove(); tip?.remove(); back?.remove();
+      hole = null; tip = null; back = null; shown = null;
       try { sessionStorage.setItem("jb_demo_tour", "1"); } catch {}
     }
-    function place(t: HTMLElement | null, s: Step) {
+
+    // Position ONLY — the dark spotlight and the tooltip — for a step's target.
+    // Called on first show AND on every scroll/resize so the cut-out keeps
+    // tracking its element instead of stranding a full-screen dark overlay.
+    function position(t: HTMLElement | null) {
       if (!hole || !tip) return;
       const pad = 8;
       const r = t ? t.getBoundingClientRect() : { top: innerHeight / 2 - 40, left: innerWidth / 2 - 160, width: 320, height: 80, bottom: innerHeight / 2 + 40, right: innerWidth / 2 + 160 } as DOMRect;
       hole.style.top = r.top - pad + "px"; hole.style.left = r.left - pad + "px";
       hole.style.width = r.width + pad * 2 + "px"; hole.style.height = r.height + pad * 2 + "px";
       hole.style.opacity = t ? "1" : "0";
+      const tw = 320, th = tip.offsetHeight || 190, m = 14;
+      let top: number, left: number;
+      if (!t) { top = innerHeight / 2 - th / 2; left = innerWidth / 2 - tw / 2; }
+      else {
+        left = Math.min(Math.max(r.left, m), innerWidth - tw - m);
+        if (r.bottom + th + m < innerHeight) top = r.bottom + m;
+        else if (r.top - th - m > 0) top = r.top - th - m;
+        else { top = innerHeight - th - m; left = Math.min(r.right + m, innerWidth - tw - m); }
+      }
+      tip.style.top = top + "px"; tip.style.left = left + "px";
+    }
+
+    // Fill the tooltip's text + buttons for a step. Separate from position() so a
+    // scroll reposition never rebuilds the DOM (which would drop button handlers).
+    function content(s: Step) {
+      if (!tip) return;
       tip.innerHTML =
         `<div class="s"><i>✦</i>STEP ${i + 1} OF ${steps.length}</div><h4>${s.title}</h4><p>${s.body}</p>` +
         `<div class="n"><button class="skip">Skip tour</button><span class="sp"></span>` +
@@ -92,17 +121,8 @@ export default function DemoTour() {
         if (i === steps.length - 1) { if (s.next) { location.href = s.next; return; } done(); }
         else { i++; render(); }
       };
-      const tw = 320, th = tip.offsetHeight || 190, m = 14;
-      let top: number, left: number;
-      if (!t) { top = innerHeight / 2 - th / 2; left = innerWidth / 2 - tw / 2; }
-      else {
-        left = Math.min(Math.max(r.left, m), innerWidth - tw - m);
-        if (r.bottom + th + m < innerHeight) top = r.bottom + m;
-        else if (r.top - th - m > 0) top = r.top - th - m;
-        else { top = innerHeight - th - m; left = Math.min(r.right + m, innerWidth - tw - m); }
-      }
-      tip.style.top = top + "px"; tip.style.left = left + "px";
     }
+
     // Poll for an element up to maxMs before giving up — the data pages render
     // their content after a DB fetch, so an anchor may not exist the instant the
     // tour tries to start. This keeps the spotlight reliable on slow/cold loads.
@@ -115,19 +135,43 @@ export default function DemoTour() {
         if (el || Date.now() - t0 > maxMs) { clearInterval(iv); cb(el); }
       }, 120);
     }
+
     function render() {
+      // Backdrop first (below the hole) so a click anywhere off the tooltip
+      // dismisses the tour — the behaviour people expect from "click out", and
+      // what stops a half-open tour being relaunched into a broken state.
+      if (!back) {
+        back = document.createElement("div"); back.className = "dt-back";
+        back.onclick = done;
+        document.body.appendChild(back);
+      }
       if (!hole) { hole = document.createElement("div"); hole.className = "dt-hole"; document.body.appendChild(hole); }
       if (!tip) { tip = document.createElement("div"); tip.className = "dt-tip"; document.body.appendChild(tip); }
       const s = steps[i];
+      shown = s;
+      content(s);
       waitFor(s.sel, 8000, (t) => {
-        if (t) t.scrollIntoView({ behavior: "smooth", block: "center" });
-        setTimeout(() => place(t, s), t ? 300 : 0);
+        if (shown !== s) return; // a newer step/teardown happened while we waited
+        // Instant scroll (not smooth) so the rect we measure next is final — a
+        // smooth animation was the source of the mis-placed, stuck spotlight.
+        if (t) t.scrollIntoView({ behavior: "auto", block: "center" });
+        position(t);
       });
     }
     function start() { i = 0; render(); }
 
-    const onResize = () => { if (hole) place(q(steps[i].sel), steps[i]); };
-    window.addEventListener("resize", onResize);
+    // Keep the spotlight glued to its element through any scroll or resize,
+    // rAF-throttled. Re-queries the anchor each time in case the DOM changed.
+    const realign = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        if (hole && shown) position(q(shown.sel));
+      });
+    };
+    window.addEventListener("resize", realign);
+    window.addEventListener("scroll", realign, true);
 
     const launch = document.createElement("button");
     launch.className = "dt-launch";
@@ -142,7 +186,11 @@ export default function DemoTour() {
       // so step 1 spotlights it instead of floating while the page data loads.
       if (!seen) waitFor(steps[0].sel, 12000, () => start());
     }
-    return () => { window.removeEventListener("resize", onResize); done(); launch.remove(); style.remove(); };
+    return () => {
+      window.removeEventListener("resize", realign);
+      window.removeEventListener("scroll", realign, true);
+      done(); launch.remove(); style.remove();
+    };
   }, []);
   return null;
 }
