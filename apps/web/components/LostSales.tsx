@@ -1,7 +1,8 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import type { LostSales } from "@/lib/queries";
+import { applyStockoutFixes } from "@/app/store/actions";
 
 /* ------------------------------------------------------------------ *
  * Lost sales / stockouts — the availability mirror of waste, live from
@@ -18,7 +19,20 @@ export default function LostSales({ data }: { data: LostSales }) {
   const totalLostWk = useMemo(() => open.reduce((a, l) => a + l.lostWk, 0), [open]);
   const storesFlagged = useMemo(() => new Set(open.map((l) => l.store)).size, [open]);
   const repeatCount = open.filter((l) => l.repeat).length;
-  const highCount = open.filter((l) => l.conf === "high").length;
+  // Only high-confidence sellouts that carry a store+product+sized fix can be
+  // written; anything without a sized target stays a manual, per-card decision.
+  const highFixable = useMemo(
+    () => open.filter((l) => l.conf === "high" && l.store_id && l.product_id && l.suggested != null),
+    [open],
+  );
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [saving, startSave] = useTransition();
+  function showToast(m: string) {
+    setToast(m);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3600);
+  }
   // Lost revenue only once every open sellout has a reading (the Invoice_Cost
   // feed is loaded); otherwise null and the tile keeps its "$ —" placeholder.
   const lostRevenueWk = useMemo(
@@ -30,8 +44,24 @@ export default function LostSales({ data }: { data: LostSales }) {
 
   function apply(id: string) { setResolved((r) => ({ ...r, [id]: "applied" })); }
   function dismiss(id: string) { setResolved((r) => ({ ...r, [id]: "dismissed" })); }
+  // Persist every high-confidence sized fix at once — the same override write as
+  // a single Adjust, so all of them flow into the delivery + production plan.
   function applyAllHigh() {
-    setResolved((r) => { const n = { ...r }; for (const l of data.losses) if (l.conf === "high" && !n[l.id]) n[l.id] = "applied"; return n; });
+    const targets = highFixable;
+    if (!targets.length) return;
+    const fixes = targets.map((l) => ({ storeId: l.store_id as string, productId: l.product_id as string, qty: l.suggested as number }));
+    const ids = targets.map((l) => l.id);
+    startSave(async () => {
+      const res = await applyStockoutFixes(fixes);
+      if (res.ok) {
+        setResolved((r) => { const n = { ...r }; for (const id of ids) n[id] = "applied"; return n; });
+        showToast(res.readonly
+          ? `Applied ${res.count} fix${res.count === 1 ? "" : "es"} — preview only (this demo doesn't save changes)`
+          : `Applied ${res.count} fix${res.count === 1 ? "" : "es"} — saved to those stores' plans`);
+      } else {
+        showToast(`Couldn't apply: ${res.error}`);
+      }
+    });
   }
 
   return (
@@ -85,7 +115,11 @@ export default function LostSales({ data }: { data: LostSales }) {
 
       <div className="bulk">
         <div className="section-h"><span className="tick" />Sellouts to fix{open.length ? <span className="cnt">{open.length}</span> : null}</div>
-        {highCount > 0 && <button className="applyall" onClick={applyAllHigh}>Apply all {highCount} high-confidence fixes</button>}
+        {highFixable.length > 0 && (
+          <button className="applyall" onClick={applyAllHigh} disabled={saving}>
+            {saving ? "Applying…" : `Apply all ${highFixable.length} high-confidence fixes`}
+          </button>
+        )}
       </div>
 
       <div className="cards">
@@ -147,6 +181,8 @@ export default function LostSales({ data }: { data: LostSales }) {
         comes from the plan where a store has one. Lost revenue turns on when the price feed lands (Invoice_Cost).
       </div>
 
+      {toast && <div className="ltoast">{toast}</div>}
+
       <style>{`
         .losts .intro{margin-bottom:16px}
         .losts .intro .itxt{font-size:14.5px;line-height:1.65;color:var(--ink2)}
@@ -168,6 +204,8 @@ export default function LostSales({ data }: { data: LostSales }) {
         .losts .cnt{background:var(--red);color:#fff;border-radius:999px;font-size:11px;padding:1px 8px;font-weight:700;margin-left:9px}
         .losts .applyall{margin-left:auto;background:var(--green);border:1px solid var(--green);color:#fff;border-radius:10px;padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
         .losts .applyall:hover{background:#548050}
+        .losts .applyall:disabled{opacity:.6;cursor:default}
+        .losts .ltoast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:var(--espresso);color:#f6eddb;padding:12px 18px;border-radius:12px;box-shadow:var(--sh-pop);font-size:13.5px;font-weight:500;z-index:60;max-width:88vw;text-align:center}
 
         .losts .cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}
         .losts .lc{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:18px 20px;position:relative;overflow:hidden}

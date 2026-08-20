@@ -57,6 +57,48 @@ export async function setStoreOverride(input: OverrideInput): Promise<OverrideRe
   }
 }
 
+// Bulk-apply the suggested fixes from Lost sales in one go (Simona's "overall
+// stockout fix" ask). Each fix is a permanent per-(store,product) override, the
+// same write as a single Adjust, so they flow into the plan identically. Small N
+// (only the flagged sellouts), so a simple loop is fine.
+export type BulkFix = { storeId: string; productId: string; qty: number };
+export type BulkResult = { ok: true; count: number; readonly?: boolean } | { ok: false; error: string };
+
+export async function applyStockoutFixes(fixes: BulkFix[]): Promise<BulkResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, count: (fixes ?? []).length, readonly: true };
+  try {
+    const clean = (fixes ?? [])
+      .map((f) => ({ storeId: (f.storeId ?? "").trim(), productId: (f.productId ?? "").trim(), qty: Math.round(Number(f.qty)) }))
+      .filter((f) => f.storeId && f.productId && Number.isFinite(f.qty) && f.qty >= 0);
+    if (!clean.length) return { ok: false, error: "No valid fixes to apply." };
+
+    const stores = new Set<string>();
+    for (const f of clean) {
+      await sql`
+        insert into store_product_overrides
+          (store_id, product_id, qty, mode, starts_on, ends_on, updated_at, updated_by)
+        values (${f.storeId}::uuid, ${f.productId}::uuid, ${f.qty}::int, 'perm', null, null, now(), 'app')
+        on conflict (store_id, product_id) do update set
+          qty        = excluded.qty,
+          mode       = excluded.mode,
+          starts_on  = excluded.starts_on,
+          ends_on    = excluded.ends_on,
+          updated_at = now(),
+          updated_by = excluded.updated_by`;
+      stores.add(f.storeId);
+    }
+
+    for (const s of stores) revalidatePath(`/store/${s}`);
+    revalidatePath("/lost-sales");
+    revalidatePath("/deliveries");
+    revalidatePath("/delivery-sheet");
+    revalidatePath("/production");
+    return { ok: true, count: clean.length };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not apply the fixes." };
+  }
+}
+
 // Remove an override — the line reverts to the engine's recommended order.
 export async function clearStoreOverride(storeId: string, productId: string): Promise<OverrideResult> {
   if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
