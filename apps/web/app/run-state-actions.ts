@@ -1,6 +1,6 @@
 "use server";
 
-import { q as sql } from "@/lib/db";
+import { q as sql, sql as db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 
 // Persist the approval set for a run board (production / deliveries) for today
@@ -21,10 +21,13 @@ export async function setRunState(
     // Drop falsey entries so the stored set stays tidy.
     const clean: Record<string, boolean> = {};
     for (const [k, v] of Object.entries(approved ?? {})) if (v) clean[k] = true;
-    const json = JSON.stringify(clean);
+    // Encode via the driver's sql.json() (through the real client) so `approved`
+    // stores as a jsonb object. The old `${JSON.stringify(clean)}::jsonb` form
+    // stored it as a jsonb *string*, so reload read back a scalar and the ticks
+    // were lost. q() still runs the statement for RLS consistency.
     await sql`
       insert into daily_run_state (surface, day, approved, updated_at, updated_by)
-      values (${surface}, current_date, ${json}::jsonb, now(), 'app')
+      values (${surface}, current_date, ${db.json(clean)}, now(), 'app')
       on conflict (surface, day) do update set
         approved = excluded.approved, updated_at = now(), updated_by = excluded.updated_by`;
     revalidatePath(surface === "production" ? "/production" : "/deliveries");

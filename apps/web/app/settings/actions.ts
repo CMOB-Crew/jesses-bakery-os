@@ -1,6 +1,6 @@
 "use server";
 
-import { q as sql } from "@/lib/db";
+import { q as sql, sql as db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 
 // Write-back for the Settings page. Each config group (service level, per-product
@@ -21,12 +21,15 @@ export async function saveSetting(key: string, value: unknown): Promise<WriteRes
   try {
     const k = (key ?? "").trim();
     if (!ALLOWED.has(k)) return { ok: false, error: "Unknown setting." };
-    // q() (the enforced wrapper) is a plain tagged template, so pass JSON text
-    // and cast to jsonb rather than sql.json().
-    const json = JSON.stringify(value ?? null);
+    // Encode the JSONB value with the driver's json helper. The enforced wrapper
+    // q() runs the statement, but the value must go through the real client's
+    // sql.json() so objects AND arrays (size_baskets) serialise as a jsonb
+    // object/array. The old `${JSON.stringify(value)}::jsonb` form stored the
+    // value as a jsonb *string* (scalar), so key lookups came back null and the
+    // page always fell back to defaults.
     await sql`
       insert into app_settings (key, value, updated_at, updated_by)
-      values (${k}, ${json}::jsonb, now(), 'app')
+      values (${k}, ${db.json((value ?? null) as Parameters<typeof db.json>[0])}, now(), 'app')
       on conflict (key) do update set
         value = excluded.value, updated_at = now(), updated_by = excluded.updated_by`;
     revalidatePath("/settings");
