@@ -193,11 +193,15 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
     q.includes("best") || q.includes("top perform") || q.includes("doing well") ||
     q.includes("strongest") || q.includes("high perform") || q.includes("star store")
   ) {
+    // Exclude the direct-invoice channel: those stores invoice exactly what they
+    // sell (~100% sell-through, 0 waste by definition), so they'd trivially top
+    // the list and aren't a model for retail-shelf management. Retail standouts
+    // are the ones worth learning from -- same channel split the Benchmarks use.
     const rows = await sql<{ name: string; waste_pct: number | null; st: number | null }[]>`
       select name, waste_pct,
              case when total_sent > 0 then round(100.0 * total_sold / total_sent, 0) end as st
       from v_store_week
-      where status = 'green' and total_sent > 0
+      where status = 'green' and total_sent > 0 and retailer <> 'invoice'
       order by st desc nulls last, waste_pct asc nulls last limit 5`;
     if (!rows.length) return { headline: "No standout performers flagged on track this week yet." };
     return {
