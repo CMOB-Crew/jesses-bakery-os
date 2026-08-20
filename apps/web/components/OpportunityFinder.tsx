@@ -1,5 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
+import Link from "next/link";
 import type { Opportunities, OppLever } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -116,6 +117,9 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
               </div>
               <div className="oact">
                 <span className={`conf ${o.conf}`}>{o.conf === "high" ? "High confidence" : "Worth a look"}</span>
+                {o.store_id && o.product_id && o.suggested != null && (
+                  <Link className="qbtn" href={`/store/${o.store_id}?stage=${o.product_id}&to=${o.suggested}`} style={{ textDecoration: "none" }}>Apply →</Link>
+                )}
                 <button className={`qbtn${q ? " on" : ""}`} onClick={() => toggle(o.id)}>
                   {q ? "✓ Queued" : "Queue move"}
                 </button>

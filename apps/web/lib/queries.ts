@@ -702,6 +702,9 @@ export type OppLever = "demand" | "waste" | "range" | "rebalance";
 export type Opp = {
   id: string; lever: OppLever; store: string; region: string; product: string;
   situation: string; move: string; gain: number; gainRevenue: number | null; conf: "high" | "medium";
+  // Present on waste opps with a specific line to trim, so the card can route an
+  // "apply" to the store profile pre-staged (like Lost sales). Null on general ones.
+  store_id?: string; product_id?: string | null; suggested?: number | null;
 };
 export type Opportunities = { opps: Opp[]; total: number; totalRevenue: number | null; wasteUnits: number; demandUnits: number; hasData: boolean };
 
@@ -731,6 +734,7 @@ export async function getOpportunities(): Promise<Opportunities> {
       gain: Number(s.total_wasted),
       gainRevenue: unitRev(s.store_id) != null ? Math.round(Number(s.total_wasted) * unitRev(s.store_id)!) : null,
       conf: s.status === "red" ? "high" : "medium",
+      store_id: s.store_id, product_id: top ? top.product_id : null, suggested: top ? top.recommended : null,
     });
   }
 

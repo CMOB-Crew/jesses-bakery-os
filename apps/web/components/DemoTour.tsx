@@ -11,12 +11,12 @@ type Step = { sel: string; title: string; body: string; next?: string };
 const TOURS: Record<string, Step[]> = {
   "/": [
     { sel: ".hero", title: "Your morning glance", body: "Open this first each day. It tells you how many stores need attention today — the rest are running themselves. Exception-first: you only look at what needs you." },
-    { sel: ".enghero", title: "Waste this week vs. the plan", body: "Their old system runs ~32.5% waste. Sized to what actually sells, the plan takes it toward 22.5% — thousands of loaves a week saved." },
+    { sel: ".enghero", title: "Waste this week vs. the plan", body: "This panel shows this week's waste the old way versus the plan — sized to what actually sells. That gap is thousands of loaves a week saved." },
     { sel: ".today", title: "Today, and the action list", body: "Live coverage for the day, then the to-do list underneath — high wastage, lines that sold out, sudden drops and strong sellers, worst first." },
     { sel: ".side", title: "Everything's a click away", body: "Stores, Deliveries, Production, the Assistant and the rest live in the sidebar. Open Stores next.", next: "/stores" },
   ],
   "/stores": [
-    { sel: ".head", title: "Every store, sorted by who needs you", body: "All 265 active stores, worst-first. Filter to just the red “needs attention” ones, or flip to your best performers." },
+    { sel: ".head", title: "Every store, sorted by who needs you", body: "Every active store, worst-first. Filter to just the red “needs attention” ones, or flip to your best performers." },
     { sel: ".slist", title: "Click any store to open it", body: "Each row opens that store's full profile — the single screen where you range products, set service level and adjust deliveries.", next: "/deliveries" },
   ],
   "/deliveries": [
