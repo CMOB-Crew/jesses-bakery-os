@@ -75,6 +75,9 @@ export default function PackingApp() {
 
   return (
     <div className="packwrap">
+      <div style={{ background: "var(--amber-b)", border: "1px solid var(--amber)", color: "var(--amber-t)", borderRadius: 10, padding: "10px 14px", margin: "0 0 12px", fontSize: 13, fontWeight: 700 }}>
+        ⚠ Prototype — these are sample stores, not your live network. Nothing here saves yet; the real packing flow is a later build.
+      </div>
       <div className="cap">Packing app · iPad prototype. Big tick-off targets, a mandatory comment on any discrepancy, and every action stamped to the packer — the accountability the current PDF slips don&apos;t have.</div>
       <div className="pad"><div className="app">
         <div className="top">

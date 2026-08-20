@@ -69,6 +69,7 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
       select name, waste_pct, total_wasted from v_store_week
       where waste_pct is not null order by waste_pct desc limit 5`;
     const [net] = await sql<{ waste_pct: number }[]>`select waste_pct from v_network_week`;
+    if (!rows.length || !net) return { headline: "No waste data yet — it fills in as the retailer feeds land." };
     return {
       headline: `Waste is worst at ${rows[0].name} (${rows[0].waste_pct}%) this week. Network waste is ${net.waste_pct}%.`,
       bars: rows.map((r) => ({ label: strip(r.name), value: r.waste_pct ?? 0, suffix: "%" })),
@@ -95,12 +96,14 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
     const [n] = await sql<{ total_sold: number }[]>`select total_sold from v_network_week`;
     const [prev] = await sql<{ s: number }[]>`
       select coalesce(sum(total_sold_prev),0)::int s from v_store_week`;
-    const delta = prev.s ? Math.round((1000 * (n.total_sold - prev.s)) / prev.s) / 10 : 0;
+    if (!n) return { headline: "No sales loaded yet for this week — it lands with the retailer feed." };
+    const prevS = prev?.s ?? 0;
+    const delta = prevS ? Math.round((1000 * (n.total_sold - prevS)) / prevS) / 10 : 0;
     return {
-      headline: `Sales this week: ${n.total_sold.toLocaleString("en-AU")} units, ${delta >= 0 ? "up" : "down"} ${Math.abs(delta)}% on last week (${prev.s.toLocaleString("en-AU")}).`,
+      headline: `Sales this week: ${n.total_sold.toLocaleString("en-AU")} units${prevS ? `, ${delta >= 0 ? "up" : "down"} ${Math.abs(delta)}% on last week (${prevS.toLocaleString("en-AU")})` : ""}.`,
       bars: [
         { label: "This week", value: n.total_sold },
-        { label: "Last week", value: prev.s },
+        { label: "Last week", value: prevS },
       ],
       sql: "select sum(total_sold) this_week, sum(total_sold_prev) last_week from v_store_week;",
     };
@@ -112,6 +115,7 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
     const rows = await sql<{ name: string; total_wasted: number; waste_pct: number }[]>`
       select name, total_wasted, waste_pct from v_store_week
       where status = 'red' order by total_wasted desc limit 5`;
+    if (!net || !net.red || !rows.length) return { headline: "Everything's on track — no stores flagged red this week." };
     return {
       headline: `${net.red} stores need attention. Biggest waste: ${rows.slice(0, 3).map((r) => r.name).join(", ")}.`,
       bars: rows.map((r) => ({ label: strip(r.name), value: r.total_wasted })),
@@ -125,6 +129,7 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
     const rows = await sql<{ region: string; red: number; amber: number; waste_pct: number }[]>`
       select region, red, amber, waste_pct from v_region_week
       order by red*10+amber desc, waste_pct desc nulls last limit 5`;
+    if (!rows.length) return { headline: "No regional data yet — it fills in as store feeds land." };
     return {
       headline: `${rows[0].region} needs the most attention (${rows[0].red} stores red, ${rows[0].waste_pct}% waste).`,
       bars: rows.map((r) => ({ label: r.region, value: r.waste_pct ?? 0, suffix: "%" })),

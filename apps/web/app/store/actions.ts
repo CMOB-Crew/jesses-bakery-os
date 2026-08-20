@@ -14,14 +14,14 @@ export type OverrideInput = {
   from?: string;  // YYYY-MM-DD, temp only
   to?: string;    // YYYY-MM-DD, temp only
 };
-export type OverrideResult = { ok: true } | { ok: false; error: string };
+export type OverrideResult = { ok: true; readonly?: boolean } | { ok: false; error: string };
 
 // Upsert one override. One row per (store, product), so re-adjusting a line
 // replaces its previous override rather than stacking. A temp override with no
 // end date behaves like perm on read (never expires) — we still store the mode
 // the user chose so the UI shows it back correctly.
 export async function setStoreOverride(input: OverrideInput): Promise<OverrideResult> {
-  if (process.env.DEMO_READONLY === "1") return { ok: true };
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
   try {
     const storeId = (input.storeId ?? "").trim();
     const productId = (input.productId ?? "").trim();
@@ -59,7 +59,7 @@ export async function setStoreOverride(input: OverrideInput): Promise<OverrideRe
 
 // Remove an override — the line reverts to the engine's recommended order.
 export async function clearStoreOverride(storeId: string, productId: string): Promise<OverrideResult> {
-  if (process.env.DEMO_READONLY === "1") return { ok: true };
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
   try {
     const sid = (storeId ?? "").trim();
     const pid = (productId ?? "").trim();

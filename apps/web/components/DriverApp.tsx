@@ -177,6 +177,9 @@ export default function DriverApp() {
 
   return (
     <div className="drvwrap">
+      <div style={{ background: "var(--amber-b)", border: "1px solid var(--amber)", color: "var(--amber-t)", borderRadius: 10, padding: "10px 14px", margin: "0 0 12px", fontSize: 13, fontWeight: 700 }}>
+        ⚠ Prototype — these are sample stops, not your live runs. Nothing here saves yet; the real driver flow is a later build.
+      </div>
       <div className="cap">Driver app · phone prototype. Live-capture only (no gallery) via the camera — grant access to see your real camera, otherwise it falls back to a simulated capture so the flow always runs.</div>
       <div className="phone">
         <div className="notch" />

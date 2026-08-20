@@ -106,8 +106,12 @@ export default function StoreProfile({
         qty: next.qty, mode: next.mode, from: next.from, to: next.to,
       });
       if (res.ok) {
-        showToast(`${r.name} set to ${next.qty} (${next.mode === "perm" ? "permanent" : `resets after ${next.to || "the end date"}`}) — saved`);
-        router.refresh();
+        if (res.readonly) {
+          showToast(`${r.name} set to ${next.qty} — preview only (this demo doesn't save changes)`);
+        } else {
+          showToast(`${r.name} set to ${next.qty} (${next.mode === "perm" ? "permanent" : `resets after ${next.to || "the end date"}`}) — saved`);
+          router.refresh();
+        }
       } else {
         showToast(`Couldn't save ${r.name}: ${res.error}`);
       }
@@ -120,8 +124,12 @@ export default function StoreProfile({
     startSave(async () => {
       const res = await clearStoreOverride(store.store_id, r.pid);
       if (res.ok) {
-        showToast(`${r.name} back to the recommended order — saved`);
-        router.refresh();
+        if (res.readonly) {
+          showToast(`${r.name} back to the recommended order — preview only (this demo doesn't save changes)`);
+        } else {
+          showToast(`${r.name} back to the recommended order — saved`);
+          router.refresh();
+        }
       } else {
         showToast(`Couldn't remove ${r.name}: ${res.error}`);
       }
