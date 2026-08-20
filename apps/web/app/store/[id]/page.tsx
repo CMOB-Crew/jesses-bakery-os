@@ -44,13 +44,20 @@ function computePeer(store: StoreWeek, all: StoreWeek[]): PeerStat {
     peerWastes.length && Number.isFinite(thisWaste)
       ? Math.round((peerWastes.filter((w) => w > thisWaste).length / peerWastes.length) * 100)
       : null;
-  return {
-    basis,
-    count: peers.length,
-    medWaste: median(peerWastes),
-    medSellThrough: median(peers.map(stOf).filter((v): v is number => v != null)),
-    betterPct,
-  };
+  const medWaste = median(peerWastes);
+  const medSellThrough = median(peers.map(stOf).filter((v): v is number => v != null));
+  // Relative verdict (Simona's ask): score this store against its peer group on
+  // BOTH sell-through (higher = better) and waste (lower = better), never an
+  // absolute target. Beats peer median on both -> high performer; behind on both
+  // -> underperformer; mixed -> opportunity. Null when there's nothing to judge.
+  const thisSellThrough = stOf(store);
+  const wasteOk = medWaste != null && Number.isFinite(thisWaste) ? thisWaste <= medWaste : null;
+  const sellOk = medSellThrough != null && thisSellThrough != null ? thisSellThrough >= medSellThrough : null;
+  let verdict: PeerStat["verdict"] = null;
+  if (wasteOk != null && sellOk != null) verdict = wasteOk && sellOk ? "high" : !wasteOk && !sellOk ? "under" : "opportunity";
+  else if (wasteOk != null) verdict = wasteOk ? "high" : "under";
+  else if (sellOk != null) verdict = sellOk ? "high" : "under";
+  return { basis, count: peers.length, medWaste, medSellThrough, betterPct, verdict };
 }
 
 export default async function StorePage({ params }: { params: Promise<{ id: string }> }) {

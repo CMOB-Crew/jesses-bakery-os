@@ -29,6 +29,7 @@ export type PeerStat = {
   medWaste: number | null;
   medSellThrough: number | null;
   betterPct: number | null; // % of peers this store beats on waste (lower = better)
+  verdict: "high" | "opportunity" | "under" | null; // relative to the peer group, not an absolute target
 };
 
 export default function StoreProfile({
@@ -194,6 +195,12 @@ export default function StoreProfile({
       {peer && peer.count > 0 && (
         <div className="peerbar">
           <span className="pb-h">vs {peer.count} {peer.basis}</span>
+          {peer.verdict && (
+            <span className={`pb-v ${peer.verdict}`}>
+              <span className="pb-vdot" />
+              {peer.verdict === "high" ? "High performer" : peer.verdict === "opportunity" ? "Opportunity" : "Underperformer"}
+            </span>
+          )}
           {peer.medWaste != null && (
             <span className="pb-i">
               Waste <b>{wastePct == null ? "—" : `${wastePct}%`}</b>
@@ -381,6 +388,14 @@ export default function StoreProfile({
       .sprof .peerbar .pb-m{font-size:12px;color:var(--muted)}
       .sprof .peerbar .pb-d{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
       .sprof .peerbar .pb-d.good{color:var(--green-t)} .sprof .peerbar .pb-d.bad{color:var(--red-t)}
+      .sprof .peerbar .pb-v{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;letter-spacing:.2px;padding:3px 9px;border-radius:999px;border:1px solid}
+      .sprof .peerbar .pb-v .pb-vdot{width:7px;height:7px;border-radius:50%}
+      .sprof .peerbar .pb-v.high{color:var(--green-t);background:var(--green-b);border-color:var(--green)}
+      .sprof .peerbar .pb-v.high .pb-vdot{background:var(--green)}
+      .sprof .peerbar .pb-v.opportunity{color:var(--amber-t);background:var(--amber-b);border-color:var(--amber)}
+      .sprof .peerbar .pb-v.opportunity .pb-vdot{background:var(--amber)}
+      .sprof .peerbar .pb-v.under{color:var(--red-t);background:var(--red-b);border-color:var(--red)}
+      .sprof .peerbar .pb-v.under .pb-vdot{background:var(--red)}
       .sprof .softnote{font-size:11.5px;color:var(--faint);line-height:1.5;margin:8px 2px 18px}
       .sprof .chartcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:16px 18px;margin-bottom:16px}
       .sprof .cc-h{font-size:12.5px;color:var(--ink2);font-weight:600;margin-bottom:10px}
