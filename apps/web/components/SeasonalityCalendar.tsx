@@ -1,6 +1,8 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { WeekdayShape, SeasonEvent } from "@/lib/queries";
+import { setEventUplift, addSeasonalEvent } from "@/app/seasonality/actions";
 
 /* ------------------------------------------------------------------ *
  * Seasonality calendar — the events calendar the plan reads from.
@@ -167,8 +169,42 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
   const selEvents = sel ? eventsOn(sel) : [];
   const selMult = sel && selDow !== null ? dayMult(selDow, sel) : null;
 
+  const router = useRouter();
+  const [, startSave] = useTransition();
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ name: "", start: "", end: "", uplift: "0" });
+
   function bump(id: string, dir: number) {
-    setUplifts((u) => ({ ...u, [id]: (u[id] ?? 0) + dir }));
+    const nextVal = (uplifts[id] ?? 0) + dir;
+    setUplifts((u) => ({ ...u, [id]: nextVal }));
+    startSave(async () => {
+      const res = await setEventUplift(id, nextVal);
+      if (res.ok) {
+        if (res.readonly) showToast("Preview only — this demo doesn't save changes");
+      } else {
+        showToast(res.error);
+      }
+    });
+  }
+
+  function submitEvent() {
+    startSave(async () => {
+      const res = await addSeasonalEvent({
+        name: form.name, start: form.start, end: form.end, uplift: Number(form.uplift),
+      });
+      if (res.ok) {
+        if (res.readonly) {
+          showToast("Preview only — this demo doesn't save changes");
+        } else {
+          showToast(`"${form.name.trim()}" added to the calendar — saved`);
+          setForm({ name: "", start: "", end: "", uplift: "0" });
+          setAdding(false);
+          router.refresh();
+        }
+      } else {
+        showToast(res.error);
+      }
+    });
   }
 
   const [toast, setToast] = useState<string | null>(null);
@@ -305,12 +341,41 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
                 <div className="ev-note">{e.note}</div>
               </div>
             ))}
-            <button className="addev" onClick={() => showToast("Adding events and per-store overrides is the next build phase — the calendar here reads from the shared events table.")}>+ Add event or store-specific override</button>
+            {!adding ? (
+              <button className="addev" onClick={() => setAdding(true)}>+ Add event</button>
+            ) : (
+              <div style={{ padding: "12px 14px", borderTop: "1px solid var(--line2)", display: "flex", flexDirection: "column", gap: 8 }}>
+                <input
+                  placeholder="Event name (e.g. School holidays)"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  style={{ font: "inherit", fontSize: 13, padding: "7px 9px", border: "1px solid var(--line)", borderRadius: 8, background: "#fff", color: "var(--ink)" }}
+                />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, fontWeight: 700, color: "var(--muted)", flex: 1 }}>
+                    Start
+                    <input type="date" value={form.start} onChange={(e) => setForm((f) => ({ ...f, start: e.target.value }))} style={{ font: "inherit", fontSize: 13, padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 8, background: "#fff", color: "var(--ink)" }} />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, fontWeight: 700, color: "var(--muted)", flex: 1 }}>
+                    End
+                    <input type="date" value={form.end} onChange={(e) => setForm((f) => ({ ...f, end: e.target.value }))} style={{ font: "inherit", fontSize: 13, padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 8, background: "#fff", color: "var(--ink)" }} />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, fontWeight: 700, color: "var(--muted)", width: 80 }}>
+                    Uplift %
+                    <input type="number" value={form.uplift} onChange={(e) => setForm((f) => ({ ...f, uplift: e.target.value }))} style={{ font: "inherit", fontSize: 13, padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 8, background: "#fff", color: "var(--ink)", width: "100%" }} />
+                  </label>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="addev" onClick={submitEvent} style={{ flex: 1 }}>Save event</button>
+                  <button className="addev" onClick={() => { setAdding(false); setForm({ name: "", start: "", end: "", uplift: "0" }); }}>Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
           <div className="foot" style={{ marginTop: 12 }}>
             Seeded from Simona&apos;s 12 Aug session. Dates for the Jewish calendar are the plan&apos;s current
-            assumption — confirmed with her. Nudging an uplift previews it live; writing changes back to the shared
-            calendar is the next build phase.
+            assumption — confirmed with her. Nudging an uplift and adding events both save to the shared
+            calendar the forecast reads.
           </div>
         </div>
       </div>
