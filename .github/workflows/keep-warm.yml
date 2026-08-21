@@ -1,0 +1,21 @@
+name: Keep warm
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warm the pages
+        run: |
+          sites="https://jesses-bakery-os.netlify.app https://jessesbackerydemo.netlify.app"
+          paths="/ /stores /map /deliveries /production /lost-sales /opportunities /accuracy /benchmarks /launches"
+          for s in $sites; do
+            for p in $paths; do
+              code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$s$p" || echo "ERR")
+              echo "$code  $s$p"
+            done
+          done
