@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getDeliveryPlan, getDeliveryDetail, getWeekdayShape, getRunState } from "@/lib/queries";
+import { getDeliveryPlan, getDeliveryDetail, getWeekdayShape, getRunState, getRuns } from "@/lib/queries";
 import DeliveriesBoard from "@/components/DeliveriesBoard";
 
 export const metadata = { title: "Deliveries · Jesse's Bakery OS" };
@@ -8,7 +8,7 @@ export const metadata = { title: "Deliveries · Jesse's Bakery OS" };
 export const dynamic = "force-dynamic";
 
 export default async function DeliveriesPage() {
-  const [lines, detail, shape, saved] = await Promise.all([getDeliveryPlan(), getDeliveryDetail(), getWeekdayShape(), getRunState("deliveries")]);
+  const [lines, detail, shape, saved, runs] = await Promise.all([getDeliveryPlan(), getDeliveryDetail(), getWeekdayShape(), getRunState("deliveries"), getRuns()]);
 
   return (
     <>
@@ -20,7 +20,7 @@ export default async function DeliveriesPage() {
       </div>
 
       {lines.length ? (
-        <DeliveriesBoard lines={lines} detail={detail} shape={shape} saved={saved} />
+        <DeliveriesBoard lines={lines} detail={detail} shape={shape} saved={saved} runs={runs} />
       ) : (
         // Empty until the plan is loaded — keep it honest, don't show a blank grid.
         <div className="panel">

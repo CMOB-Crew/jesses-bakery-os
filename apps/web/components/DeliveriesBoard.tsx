@@ -3,7 +3,12 @@
 import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import { setRunState } from "@/app/run-state-actions";
 import Link from "next/link";
-import type { DeliveryLine, DeliveryDetailLine, WeekdayShape } from "@/lib/queries";
+import type { DeliveryLine, DeliveryDetailLine, WeekdayShape, RunOption } from "@/lib/queries";
+
+// weekday enum -> short label, in week order, for the run-day chips.
+const WD_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const WD_LABEL: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+const titleCaseRegion = (s: string) => (s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 const csvCell = (v: string | number) => {
@@ -23,7 +28,17 @@ const SEED_DOWMULT = [0.85, 0.85, 0.95, 1, 1.3, 1.55, 1.4];
 // hover), resetting or undoing, and ticking each store to approve. Each store
 // opens a per-product breakdown inline. Totals recalc live. Nothing sends to the
 // bakery until she signs it off.
-export default function DeliveriesBoard({ lines, detail = [], shape = null, saved = {} }: { lines: DeliveryLine[]; detail?: DeliveryDetailLine[]; shape?: WeekdayShape | null; saved?: Record<string, boolean> }) {
+export default function DeliveriesBoard({ lines, detail = [], shape = null, saved = {}, runs = [] }: { lines: DeliveryLine[]; detail?: DeliveryDetailLine[]; shape?: WeekdayShape | null; saved?: Record<string, boolean>; runs?: RunOption[] }) {
+  // Region -> its run's ordered day labels. Region IS the run in Simona's setup,
+  // so the delivery group header can show the run name + the days it goes out.
+  const runDays = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const r of runs) {
+      const days = WD_ORDER.filter((d) => r.days.includes(d)).map((d) => WD_LABEL[d]);
+      m.set(r.region.toUpperCase(), days);
+    }
+    return m;
+  }, [runs]);
   // Day-split curve (Mon..Sun). Measured from real sell-through when we have it,
   // reindexed from the Sun..Sat shape; else the seed curve. This is the same
   // weekend uplift the Seasonality calendar shows — one shape across the app.
@@ -275,8 +290,13 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
                 <div className="grid">
                   <div className="reg-name">
                     <span className="acc" />
-                    <span className="rn">{g.region}</span>
+                    <span className="rn">{titleCaseRegion(g.region)}<em className="runtag">run</em></span>
                     <span className="cnt">{g.rows.length}</span>
+                    {(runDays.get(g.region) ?? []).length > 0 && (
+                      <span className="rundays" title="This run's delivery days">
+                        {(runDays.get(g.region) ?? []).map((d) => <i key={d}>{d}</i>)}
+                      </span>
+                    )}
                     <button type="button" className="appall" onClick={(e) => { e.stopPropagation(); approveRegion(g.region); }}>Approve region</button>
                   </div>
                   <div className="reg-send hide">{nf(send)}</div>
@@ -445,7 +465,10 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
       .dcalm .reg-name{display:flex;align-items:center;gap:11px}
       .dcalm .reghead .acc{width:5px;height:22px;border-radius:4px;flex:none;background:var(--crust)}
       .dcalm .reghead .rn{font-family:var(--serif);font-size:15.5px;font-weight:600;letter-spacing:-.2px}
+      .dcalm .reghead .rn .runtag{font-family:var(--sans);font-style:normal;font-size:11px;font-weight:600;color:var(--faint);margin-left:6px}
       .dcalm .reghead .cnt{background:#efe6d3;color:var(--ink2);border-radius:999px;font-size:11px;font-weight:700;padding:2px 9px}
+      .dcalm .reghead .rundays{display:inline-flex;gap:4px}
+      .dcalm .reghead .rundays i{font-style:normal;font-size:10.5px;font-weight:700;color:var(--crust-deep);background:#f2e7d2;border-radius:5px;padding:2px 6px;letter-spacing:.02em}
       .dcalm .reg-send{text-align:right;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
       .dcalm .reg-eng{text-align:center;color:var(--ink);font-weight:700;font-size:14px;font-variant-numeric:tabular-nums}
       .dcalm .reg-chg{text-align:right;color:var(--crust-deep);font-weight:700;font-size:13px;font-variant-numeric:tabular-nums}
