@@ -10,7 +10,7 @@ export default function RecCard({ rec }: { rec: Recommendation }) {
   return (
     <div className={`rec ${s.status === "red" ? "" : "amber"}`} style={state === "dismissed" ? { opacity: 0.45 } : undefined}>
       <div className="r-top">
-        <span className="r-title">{s.name}</span>
+        <Link className="r-title" href={`/store/${s.store_id}`} style={{ color: "inherit", textDecoration: "none" }}>{s.name}</Link>
         <StatusTag status={s.status} />
         <span className="r-risk">~{rec.atStake.toLocaleString("en-AU")} units/wk at stake</span>
       </div>

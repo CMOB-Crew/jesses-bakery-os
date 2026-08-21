@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { setStoreOverride } from "@/app/store/actions";
 import type { DeliveryLine, DeliveryDetailLine } from "@/lib/queries";
 
@@ -113,7 +114,7 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
                 const tot = rowTotal(s.store_id);
                 return (
                   <tr key={s.store_id}>
-                    <td className="store"><span className="snm">{s.name}</span><small>{s.region ?? "—"}</small></td>
+                    <td className="store"><Link href={`/store/${s.store_id}`} className="snm">{s.name}</Link><small>{s.region ?? "—"}</small></td>
                     {products.map((p) => {
                       const k = `${s.store_id}::${p}`;
                       return (
@@ -188,7 +189,8 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
          name (e.g. "Woolworths Marrickville Metro Shopping Centre") so one outlier
          no longer blows the column wide and pushes every number far right. */
       .dsheet td.store{text-align:left;padding-left:16px;font-weight:600;font-size:13.5px;position:sticky;left:0;background:var(--card);white-space:nowrap;z-index:1;width:250px;min-width:250px;max-width:250px;border-right:1px solid var(--line)}
-      .dsheet td.store .snm{display:block;overflow:hidden;text-overflow:ellipsis}
+      .dsheet td.store .snm{display:block;overflow:hidden;text-overflow:ellipsis;color:inherit;text-decoration:none;cursor:pointer}
+      .dsheet td.store .snm:hover{text-decoration:underline}
       .dsheet td.store small{display:block;color:var(--muted);font-weight:400;font-size:11.5px;overflow:hidden;text-overflow:ellipsis}
       .dsheet tr:last-child td{border-bottom:none}
       /* Zebra rows + dimmed zeros keep a wide, dense grid readable. Cells read as

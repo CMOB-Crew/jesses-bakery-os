@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import type { ForecastAccuracyData, FaccStore } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -181,7 +182,7 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
           <tbody>
             {shown.map((s) => (
               <tr key={s.store_id}>
-                <td><div className="stn">{s.store}</div><div className="str">{s.region ?? "—"}</div></td>
+                <td><Link href={`/store/${s.store_id}`} className="stn">{s.store}</Link><div className="str">{s.region ?? "—"}</div></td>
                 <td className="num"><span className={`accpill ${accClass(s.acc)}`}>{s.acc}%</span></td>
                 <td>
                   <span className={`bias ${s.bias > 0 ? "over" : "under"}`}>
@@ -264,7 +265,8 @@ const faccCss = `
   .facc .trend{margin-top:6px;overflow:visible}
 
   .facc .section-h .cnt{margin-left:auto;font-size:11.5px;font-weight:500;color:var(--muted)}
-  .facc .stn{font-weight:600;font-size:13.5px}
+  .facc .stn{display:block;font-weight:600;font-size:13.5px;color:inherit;text-decoration:none;cursor:pointer}
+  .facc .stn:hover{text-decoration:underline}
   .facc .str{font-size:11.5px;color:var(--muted);margin-top:2px}
   .facc .accpill{display:inline-block;font-weight:700;font-size:12.5px;padding:3px 9px;border-radius:999px;font-variant-numeric:tabular-nums}
   .facc .accpill.green{background:var(--green-b);color:var(--green-t)}

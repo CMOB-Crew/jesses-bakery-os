@@ -127,7 +127,9 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
               <div className="obody">
                 <div className="o-top">
                   <span className="o-chip" style={{ background: m.b, color: m.c }}>{m.label}</span>
-                  <span className="o-store">{o.store}</span>
+                  {o.store_id
+                    ? <Link className="o-store" href={`/store/${o.store_id}`}>{o.store}</Link>
+                    : <span className="o-store">{o.store}</span>}
                   <span className="o-dot">·</span>
                   <span className="o-prod">{o.product}</span>
                   <span className="o-region">{o.region}</span>
@@ -189,6 +191,8 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
         .opps .o-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:7px}
         .opps .o-chip{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
         .opps .o-store{font-family:var(--serif);font-weight:600;font-size:15.5px}
+        a.o-store{color:inherit;text-decoration:none;cursor:pointer}
+        a.o-store:hover{text-decoration:underline}
         .opps .o-dot{color:var(--faint)}
         .opps .o-prod{font-size:13.5px;color:var(--ink2);font-weight:600}
         .opps .o-region{font-size:12px;color:var(--muted)}

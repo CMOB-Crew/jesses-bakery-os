@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import StatusTag from "@/components/StatusTag";
 import type { StoreWeek, Status } from "@/lib/queries";
 
@@ -64,6 +65,7 @@ const csvCell = (v: string | number | null) => {
 };
 
 export default function StoresList({ stores, showRegion = true, initialView }: { stores: StoreWeek[]; showRegion?: boolean; initialView?: string }) {
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<"all" | Eff>("all");
   const [region, setRegion] = useState("all");
@@ -226,8 +228,8 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
             </thead>
             <tbody>
               {rows.map((s) => (
-                <tr key={s.store_id} className="clk">
-                  <td className="strong"><Link href={`/store/${s.store_id}`}>{s.name}</Link></td>
+                <tr key={s.store_id} className="clk" onClick={() => router.push(`/store/${s.store_id}`)}>
+                  <td className="strong"><Link href={`/store/${s.store_id}`} onClick={(e) => e.stopPropagation()}>{s.name}</Link></td>
                   {showRegion && <td style={{ color: "var(--ink2)" }}>{s.region ?? "—"}</td>}
                   <td style={{ color: "var(--ink2)" }}>{retailerLabel(s.retailer)}</td>
                   <td><StatusTag status={effOf(s)} /></td>
@@ -280,6 +282,9 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
         .slist .csvbtn:disabled{opacity:.5;cursor:default}
         .slist .reset{border:none;background:none;color:var(--crust-deep);font-weight:600;font-size:12.5px;cursor:pointer;font-family:inherit;text-decoration:underline}
         .slist .nomatch{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px 20px;text-align:center;color:var(--ink2);font-size:14px}
+        /* Whole row opens the store — the name stays a real link (right-click / new tab), the rest of the row navigates on click. */
+        .slist tbody tr.clk{cursor:pointer}
+        .slist tbody tr.clk:hover{background:var(--surface)}
       `}</style>
     </div>
   );

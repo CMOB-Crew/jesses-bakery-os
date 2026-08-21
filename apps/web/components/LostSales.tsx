@@ -134,7 +134,9 @@ export default function LostSales({ data }: { data: LostSales }) {
         {open.map((l) => (
           <div className={`lc${l.conf === "medium" ? " amber" : ""}`} key={l.id}>
             <div className="lc-top">
-              <span className="lc-title">{l.store}</span>
+              {l.store_id
+                ? <Link className="lc-title" href={`/store/${l.store_id}`}>{l.store}</Link>
+                : <span className="lc-title">{l.store}</span>}
               <span className="lc-conf" style={{ background: CONF[l.conf].b, color: CONF[l.conf].c }}>{CONF[l.conf].label}</span>
               <span className="lc-risk">~{l.lostWk} units/wk lost{l.lostRevenueWk != null ? ` · ~$${l.lostRevenueWk.toLocaleString("en-AU")}` : ""}</span>
             </div>
@@ -214,7 +216,8 @@ export default function LostSales({ data }: { data: LostSales }) {
         .losts .lc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--red)}
         .losts .lc.amber::before{background:var(--amber)}
         .losts .lc-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:7px}
-        .losts .lc-title{font-family:var(--serif);font-weight:600;font-size:16px;letter-spacing:-.2px}
+        .losts .lc-title{font-family:var(--serif);font-weight:600;font-size:16px;letter-spacing:-.2px;color:inherit;text-decoration:none;cursor:pointer}
+        a.lc-title:hover{text-decoration:underline}
         .losts .lc-conf{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
         .losts .lc-risk{margin-left:auto;font-size:12px;color:var(--red-t);font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
         .losts .lc-sub{font-size:12.5px;color:var(--muted);margin-bottom:9px}

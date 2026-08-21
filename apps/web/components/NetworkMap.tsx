@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { MapStore } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -21,6 +22,7 @@ const hasData = (s: MapStore) => Number(s.sent) > 0 || Number(s.sold) > 0;
 const effOf = (s: MapStore): Kind => (hasData(s) ? (s.status as Kind) : "nodata");
 
 export default function NetworkMap({ stores }: { stores: MapStore[] }) {
+  const router = useRouter();
   const worst = [...stores].filter((s) => s.status === "red").sort((a, b) => Number(b.waste_pct ?? 0) - Number(a.waste_pct ?? 0));
   const [sel, setSel] = useState<MapStore | null>(worst[0] ?? stores[0] ?? null);
   const [hover, setHover] = useState<string | null>(null);
@@ -121,13 +123,13 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
               const nd = effOf(s) === "nodata";
               return (
                 <g key={s.store_id} style={{ cursor: "pointer" }}
-                   onMouseEnter={() => setHover(s.store_id)}
+                   onMouseEnter={() => { setHover(s.store_id); setSel(s); }}
                    onMouseMove={(e) => {
                      const r = wrapRef.current?.getBoundingClientRect();
                      if (r) setTip({ name: s.name, kind: effOf(s), x: Math.min(Math.max(e.clientX - r.left, 90), r.width - 90), y: e.clientY - r.top });
                    }}
                    onMouseLeave={() => { setHover(null); setTip(null); }}
-                   onClick={() => setSel(s)}>
+                   onClick={() => router.push(`/store/${s.store_id}`)}>
                   {on && <circle cx={x} cy={y} r={rr + 5} fill={COLOR[effOf(s)]} opacity="0.2" />}
                   {/* No-data dots are dimmed so the actionable red/amber/green pop. */}
                   <circle cx={x} cy={y} r={on ? rr + 1 : rr} fill={COLOR[effOf(s)]} stroke="#fff" strokeWidth="1.6" opacity={nd && !on ? 0.4 : 1} />
@@ -163,7 +165,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
 
           {sel && (
             <div className="panel detail">
-              <div className="d-top"><span className="d-dot" style={{ background: COLOR[effOf(sel)] }} /><span className="d-name">{sel.name}</span></div>
+              <div className="d-top"><span className="d-dot" style={{ background: COLOR[effOf(sel)] }} /><Link href={`/store/${sel.store_id}`} className="d-name">{sel.name}</Link></div>
               <div className="d-meta">{sel.retailer} · {sel.region ?? "—"}</div>
               <div className="d-stats">
                 <div className="ds"><div className="dn">{sel.waste_pct ?? "—"}%</div><div className="dl">waste</div></div>
@@ -183,7 +185,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
               <div className="panel worst" style={{ padding: 0 }}>
                 {worst.slice(0, 6).map((s, i) => (
                   <button className={`wrow${sel?.store_id === s.store_id ? " on" : ""}`} key={s.store_id} style={{ borderTop: i ? "1px solid var(--line2)" : undefined }}
-                          onClick={() => setSel(s)} onMouseEnter={() => setHover(s.store_id)} onMouseLeave={() => setHover(null)}>
+                          onClick={() => router.push(`/store/${s.store_id}`)} onMouseEnter={() => { setHover(s.store_id); setSel(s); }} onMouseLeave={() => setHover(null)}>
                     <span className="w-dot" style={{ background: COLOR[s.status] }} />
                     <span className="w-name">{s.name}</span>
                     <span className="w-waste">{s.waste_pct}%</span>
@@ -234,7 +236,8 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
         .nmap .detail{padding:16px 18px}
         .nmap .d-top{display:flex;align-items:center;gap:9px}
         .nmap .d-dot{width:12px;height:12px;border-radius:50%;flex:none}
-        .nmap .d-name{font-family:var(--serif);font-size:16px;font-weight:600}
+        .nmap .d-name{font-family:var(--serif);font-size:16px;font-weight:600;color:inherit;text-decoration:none;cursor:pointer}
+        .nmap .d-name:hover{text-decoration:underline}
         .nmap .d-meta{font-size:12.5px;color:var(--muted);margin-top:4px}
         .nmap .d-stats{display:flex;gap:10px;margin-top:14px}
         .nmap .ds{flex:1;background:var(--surface);border:1px solid var(--line2);border-radius:10px;padding:10px 12px;text-align:center}
