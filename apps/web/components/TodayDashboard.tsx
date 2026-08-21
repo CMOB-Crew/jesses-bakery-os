@@ -39,7 +39,10 @@ function bandOf(size: string | null): Band | null {
 // sends 120 is fine; 20% at a Small store that sends 50 is not. So the two lists
 // can be filtered to Small / Medium / Large, each list shows the wasted UNIT
 // count next to the %, and a per-size strip shows what the typical % is in units.
-export default function TodayDashboard({ stores, net, asOf, revenue = null }: { stores: StoreWeek[]; net: NetworkWeek; asOf: string; revenue?: { salesWk: number; wasteWk: number } | null }) {
+export default function TodayDashboard({ stores, net, asOf, revenue = null, thresholds = null }: { stores: StoreWeek[]; net: NetworkWeek; asOf: string; revenue?: { salesWk: number; wasteWk: number } | null; thresholds?: { small: number; medium: number; large: number } | null }) {
+  // Waste thresholds per size, from Settings (Simona sets her own; these floats
+  // are the starting point she reviewed on the call until she confirms).
+  const th = { small: 16, medium: 20, large: 25, ...(thresholds ?? {}) };
   const [band, setBand] = useState<Band | "all">("all");
 
   const rows = stores.map((s) => {
@@ -78,11 +81,19 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null }: { 
   // units per band, so Simona can read "20% here means ~X loaves" at a glance.
   const bandStats = BANDS.map((b) => {
     const inBand = rows.filter((r) => r.band === b.key && r.s.retailer !== "invoice" && r.sent > 0);
+    const medWaste = median(inBand.map((r) => r.waste ?? 0));
+    const limit = th[b.key];
+    // Flag the band's typical waste against Simona's per-size threshold: red over
+    // the limit, amber within 4 pts of it, green clear. Null medWaste = no tone.
+    const tone = medWaste == null ? "" : medWaste > limit ? "r" : medWaste >= limit - 4 ? "a" : "g";
     return {
       ...b,
       count: inBand.length,
-      medWaste: median(inBand.map((r) => r.waste ?? 0)),
+      medWaste,
       medUnits: median(inBand.map((r) => r.wasted)),
+      limit,
+      tone,
+      overCount: inBand.filter((r) => (r.waste ?? 0) > limit).length,
     };
   });
 
@@ -168,8 +179,8 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null }: { 
           {bandStats.map((b) => (
             <button key={b.key} className={`tsz-cell ${band === b.key ? "on" : ""}`} onClick={() => setBand(band === b.key ? "all" : b.key)}>
               <span className="tsz-lab">{b.label} <i>{b.range}</i></span>
-              <span className="tsz-big">{b.medWaste == null ? "—" : `${b.medWaste}%`}<span className="tsz-count">{b.count} {b.count === 1 ? "store" : "stores"}</span></span>
-              <span className="tsz-u">{b.medUnits == null ? "no data yet" : `typical ≈ ${nf(Math.round(b.medUnits))} units wasted`}</span>
+              <span className="tsz-big"><span className={`tszv ${b.tone}`}>{b.medWaste == null ? "—" : `${b.medWaste}%`}</span><span className="tsz-count">{b.count} {b.count === 1 ? "store" : "stores"}</span></span>
+              <span className="tsz-u">{b.medWaste == null ? "no data yet" : `limit ${b.limit}%${b.overCount > 0 ? ` · ${b.overCount} over` : " · all under"}`}</span>
             </button>
           ))}
         </div>
@@ -259,6 +270,7 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null }: { 
       .today .tsz-lab{font-size:11.5px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.4px}
       .today .tsz-lab i{font-style:normal;color:var(--faint);font-weight:600;letter-spacing:0}
       .today .tsz-big{font-family:var(--serif);font-size:22px;font-weight:600;letter-spacing:-.4px;font-variant-numeric:tabular-nums;line-height:1.1;display:flex;align-items:baseline;gap:8px}
+      .today .tszv.r{color:var(--red-t)}.today .tszv.a{color:var(--amber-t)}.today .tszv.g{color:var(--green-t)}
       .today .tsz-count{font-family:var(--sans);font-size:11px;color:var(--faint);font-weight:600;letter-spacing:0}
       .today .tsz-u{font-size:11px;color:var(--muted)}
       .today .tsz-active{padding:10px 16px;font-size:12px;color:var(--ink2);border-top:1px solid var(--line2);background:#fdfaf5}

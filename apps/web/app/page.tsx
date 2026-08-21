@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek } from "@/lib/queries";
+import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek, getAppSettings } from "@/lib/queries";
 import type { StoreWeek } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
 import RecCard from "@/components/RecCard";
@@ -18,9 +18,14 @@ function fmtDate(d: Date) {
 }
 
 export default async function Overview() {
-  const [net, regions, recs, asOf, feeds, engine, stores, revMap] = await Promise.all([
-    getNetwork(), getRegions(), getRecommendations(3), getAsOf(), getFeedStatus(), getEngineProjection(), getStoreWeek(), getStoreRevenueWeek(),
+  const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings] = await Promise.all([
+    getNetwork(), getRegions(), getRecommendations(3), getAsOf(), getFeedStatus(), getEngineProjection(), getStoreWeek(), getStoreRevenueWeek(), getAppSettings(),
   ]);
+
+  // Simona's per-size waste thresholds (Settings). Null falls back to the defaults
+  // in the dashboard until she sets her own.
+  const wt = settings.waste_thresholds as { small: number; medium: number; large: number } | undefined;
+  const thresholds = wt ?? null;
 
   const stale = feeds.find((f) => f.status === "stale");
 
@@ -87,7 +92,7 @@ export default async function Overview() {
 
       <EnginePanel scenarios={engine} />
 
-      <TodayDashboard stores={stores} net={net} asOf={fmtDate(asOf)} revenue={revenue} />
+      <TodayDashboard stores={stores} net={net} asOf={fmtDate(asOf)} revenue={revenue} thresholds={thresholds} />
 
       {recs.length > 0 && (
         <>

@@ -48,6 +48,10 @@ export default function SettingsPanel({ scenarios, settings = {} }: { scenarios:
   const [scope, setScope] = useState<"network" | "store" | "product">("network");
   const [mins, setMins] = useState<Record<string, number>>(() => ({ ...Object.fromEntries(CORE_BASKET.map((p) => [p, 2])), ...savedMins }));
   const [sizes, setSizes] = useState<Size[]>(() => (Array.isArray(savedSizes) && savedSizes.length ? savedSizes : SIZES0));
+  const wt = (settings.waste_thresholds ?? {}) as { small?: number; medium?: number; large?: number };
+  const [wtSmall, setWtSmall] = useState(wt.small ?? 16);
+  const [wtMedium, setWtMedium] = useState(wt.medium ?? 20);
+  const [wtLarge, setWtLarge] = useState(wt.large ?? 25);
   const [shelfDays, setShelfDays] = useState(sl.shelfDays ?? 6);
   const [pullDays, setPullDays] = useState(sl.pullDays ?? 2);
   const [sdLead, setSdLead] = useState(sl.sdLead ?? 2);
@@ -79,6 +83,7 @@ export default function SettingsPanel({ scenarios, settings = {} }: { scenarios:
   const setSize = (k: string, field: "cap" | "fill", v: number) => setSizes((ss) => ss.map((s) => (s.key === k ? { ...s, [field]: Math.max(0, v) } : s)));
   const persistSizes = () => persist("size_baskets", sizes, "Size basket updated");
   const persistShelfLead = () => persist("shelf_lead", { shelfDays, pullDays, sdLead, otherLead }, "Shelf & lead updated");
+  const persistWaste = () => persist("waste_thresholds", { small: wtSmall, medium: wtMedium, large: wtLarge }, "Waste thresholds updated");
   const toggleFactor = (k: string) => {
     const next = factors.map((f) => (f.key === k ? { ...f, on: !f.on } : f));
     setFactors(next);
@@ -152,6 +157,16 @@ export default function SettingsPanel({ scenarios, settings = {} }: { scenarios:
       <div className="hint" style={{ margin: "10px 2px 0" }}>Three store types (standard, sourdough-led, bagel-led) sit on top of these sizes — nine baskets in all, already in the data. A new store: set its size once, seed the fill, it self-fulfils from there.</div>
 
       {/* SHELF LIFE & LEAD TIME */}
+      <div className="sec"><span className="tick" />Waste thresholds by store size</div>
+      <div className="card">
+        <div className="fldgrid">
+          <label className="fld2">Small store (% waste)<input value={wtSmall} inputMode="numeric" onChange={(e) => setWtSmall(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistWaste} /></label>
+          <label className="fld2">Medium store (% waste)<input value={wtMedium} inputMode="numeric" onChange={(e) => setWtMedium(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistWaste} /></label>
+          <label className="fld2">Large store (% waste)<input value={wtLarge} inputMode="numeric" onChange={(e) => setWtLarge(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistWaste} /></label>
+        </div>
+        <div className="hint">The waste % that flags a store as running hot, set per size — a small store sending 50 hits its limit at a lower % than a large store sending 120. These colour the size bands on the overview. Defaults are a starting point until you confirm your own.</div>
+      </div>
+
       <div className="sec"><span className="tick" />Shelf life &amp; lead time</div>
       <div className="card">
         <div className="fldgrid">
