@@ -5,6 +5,7 @@
 // never mounts. Anchors to existing stable class names, and centres the tooltip
 // gracefully if an anchor isn't on the current page. Zero effect on app behaviour.
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 
 type Step = { sel: string; title: string; body: string; next?: string };
 
@@ -34,6 +35,9 @@ const TOURS: Record<string, Step[]> = {
   "/store": [
     { sel: ".sprof", title: "Your single source of truth", body: "For one store: what each product sold, what's going now, and what the plan recommends — with a score against real peers. Range a product in or out, or tap Adjust to change a delivery." },
   ],
+  "/map": [
+    { sel: ".nmap", title: "Your whole network at a glance", body: "Every store is a dot, grouped by region and coloured by status — red needs attention today. Click any dot, or a store in the list on the right, to open its full profile." },
+  ],
 };
 
 const CSS = `
@@ -55,8 +59,13 @@ const CSS = `
 `;
 
 export default function DemoTour() {
+  // Re-run whenever the route changes. The tour manipulates the DOM directly, so
+  // without this it stays bound to whatever page first mounted it — after a
+  // client-side nav (e.g. a store profile → the map) the launch button would run
+  // the OLD page's tour, spotlight a missing anchor, and strand a dark overlay.
+  const pathname = usePathname();
   useEffect(() => {
-    const path = window.location.pathname;
+    const path = pathname;
     const key = TOURS[path] ? path : path.startsWith("/store/") ? "/store" : path.startsWith("/region/") ? "" : path;
     const steps = TOURS[key] || [];
     if (!steps.length) return;
@@ -191,6 +200,6 @@ export default function DemoTour() {
       window.removeEventListener("scroll", realign, true);
       done(); launch.remove(); style.remove();
     };
-  }, []);
+  }, [pathname]);
   return null;
 }
