@@ -191,6 +191,39 @@ export async function setStorePhoto(storeId: string, dataUrl: string): Promise<O
   }
 }
 
+// Persist the per-store shelf-cap override (migration 022). `cap` is a hand-set
+// override (null clears it, reverting to the size-band default); `noCap` marks a
+// pick-to-order store with no fixed limit. Stored on store_settings; a new row
+// leaves the other columns at their defaults.
+export async function setStoreShelfCap(storeId: string, cap: number | null, noCap: boolean): Promise<OverrideResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
+  try {
+    const sid = (storeId ?? "").trim();
+    if (!sid) return { ok: false, error: "Missing store." };
+    let capVal: number | null = null;
+    if (cap != null) {
+      const n = Math.round(Number(cap));
+      if (!Number.isFinite(n) || n < 0) return { ok: false, error: "Shelf cap must be zero or more." };
+      if (n > 100000) return { ok: false, error: "That shelf cap looks too large." };
+      capVal = n;
+    }
+    const nolimit = !!noCap;
+    // A no-limit store has no meaningful override number — clear it so the two
+    // settings can't contradict each other on read.
+    if (nolimit) capVal = null;
+    await sql`
+      insert into store_settings (store_id, shelf_cap, no_cap, updated_at, updated_by)
+      values (${sid}::uuid, ${capVal}::int, ${nolimit}, now(), 'app')
+      on conflict (store_id) do update set
+        shelf_cap = excluded.shelf_cap, no_cap = excluded.no_cap, updated_at = now(), updated_by = excluded.updated_by`;
+    revalidatePath(`/store/${sid}`);
+    revalidatePath("/stores");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not save the shelf cap." };
+  }
+}
+
 // Write-back slice 2: persist the per-store service-level dial (migration 015).
 export async function setStoreServiceLevel(storeId: string, level: string): Promise<OverrideResult> {
   if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };

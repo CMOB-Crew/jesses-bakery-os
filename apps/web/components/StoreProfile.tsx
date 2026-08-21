@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import StoreBars from "@/components/StoreBars";
 import RetailerBadge from "@/components/RetailerBadge";
 import type { StoreWeek, StoreReco, DailyBar, StoreOverride } from "@/lib/queries";
-import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel, setStoreLastVisit, setStorePhoto } from "@/app/store/actions";
+import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel, setStoreLastVisit, setStorePhoto, setStoreShelfCap } from "@/app/store/actions";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 
@@ -45,6 +45,8 @@ export default function StoreProfile({
   today = "",
   photo = null,
   address = null,
+  shelfCap = null,
+  noCap = false,
 }: {
   store: StoreWeek;
   recos: StoreReco[];
@@ -57,6 +59,8 @@ export default function StoreProfile({
   today?: string;
   photo?: string | null;
   address?: string | null;
+  shelfCap?: number | null;
+  noCap?: boolean;
 }) {
   // Coerce every DB number up front (waste_pct/shelf_max arrive as strings).
   const wastePct = store.waste_pct == null ? null : Number(store.waste_pct);
@@ -64,17 +68,15 @@ export default function StoreProfile({
   const sentWk = Number(store.total_sent) || 0;
   const soldPrev = Number(store.total_sold_prev) || 0;
   const stockouts = Number(store.stockout_days) || 0;
-  const cap = store.shelf_max == null ? null : Number(store.shelf_max);
+  // The size-band shelf max Simona confirmed. Per-store overrides (below) can
+  // replace it or mark the store "no fixed limit" (e.g. Mascot DC picks to order).
+  const baseMax = store.shelf_max == null ? null : Number(store.shelf_max);
   const sellThrough = sentWk > 0 ? Math.round((1000 * soldWk) / sentWk) / 10 : null;
   const growth = soldPrev > 0 ? Math.round((1000 * (soldWk - soldPrev)) / soldPrev) / 10 : null;
   // No loaded feed yet (nothing delivered or sold) — this store is NOT a "high
   // performer", it simply has no data. Same neutral rule as the dashboards.
   const hasData = sentWk > 0 || soldWk > 0;
   const score = hasData ? SCORE[store.status] : SCORE.nodata;
-  // A shelf cap below what the store actually sells in a week is impossible to
-  // hit — it's stale/wrong data on file, not a real limit. Flag it, don't scream
-  // "over cap". (Matches the quality-bar "stale shelf-max detection".)
-  const capStale = cap != null && soldWk > 0 && cap < soldWk;
 
   const rows: Row[] = useMemo(
     () => recos.map((r) => ({ pid: r.product_id, name: r.product_name, sold: Number(r.sold) || 0, now: Number(r.sent) || 0, rec: Number(r.recommended) || 0 })),
@@ -87,6 +89,13 @@ export default function StoreProfile({
     serviceLevel === "lean" || serviceLevel === "service" ? serviceLevel : "balanced",
   );
   const [visit, setVisit] = useState<string>(lastVisit ?? "");
+  // Per-store shelf-cap override (migration 022). capOver = a hand-set cap that
+  // replaces the size-band default; noLimit = the store picks to order and has no
+  // real ceiling (Simona's Mascot DC example). Both live here optimistically and
+  // persist via saveShelfCap.
+  const [capOver, setCapOver] = useState<number | null>(shelfCap);
+  const [noLimit, setNoLimit] = useState<boolean>(noCap);
+  const [capBusy, setCapBusy] = useState(false);
   const [ranged, setRanged] = useState<Record<string, boolean>>(() => {
     // Default everything ranged, then apply saved choices (migration 015),
     // keyed by product name to match the row map.
@@ -124,6 +133,33 @@ export default function StoreProfile({
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3000);
+  }
+
+  // Effective shelf cap: a "no limit" store has no ceiling (picks to order);
+  // otherwise a per-store override wins over the size-band default. capStale
+  // flags a cap below weekly sales — impossible to hit, so it's bad data, not a
+  // real limit — and can never apply to a no-limit store.
+  const cap = noLimit ? null : (capOver ?? baseMax);
+  const capStale = !noLimit && cap != null && soldWk > 0 && cap < soldWk;
+
+  // Persist the shelf-cap override (migration 022). Optimistic + revert on
+  // failure, like the service dial and visit date.
+  function saveShelfCap(next: { cap: number | null; noLimit: boolean }) {
+    const prevCap = capOver, prevNo = noLimit;
+    setCapOver(next.cap); setNoLimit(next.noLimit); setCapBusy(true);
+    startSave(async () => {
+      const res = await setStoreShelfCap(store.store_id, next.cap, next.noLimit);
+      setCapBusy(false);
+      if (res.ok) {
+        if ("readonly" in res && res.readonly) showToast("Read-only demo — not saved");
+        else {
+          showToast(next.noLimit ? "Set to no fixed limit — saved"
+            : next.cap == null ? "Reverted to the size-band cap — saved"
+            : `Shelf cap set to ${next.cap} — saved`);
+          router.refresh();
+        }
+      } else { setCapOver(prevCap); setNoLimit(prevNo); showToast(`Couldn't save the shelf cap: ${res.error}`); }
+    });
   }
 
   // Last-visit date. Optimistic + revert on failure, like the dial. `today` comes
@@ -327,9 +363,10 @@ export default function StoreProfile({
           <div className="nm">{store.name}</div>
           <div className="sub">
             {store.size_category ? <span className="chip">{store.size_category}</span> : null}
-            {cap == null ? <span className="chip soft">cap not set</span>
+            {noLimit ? <span className="chip">no shelf limit</span>
+              : cap == null ? <span className="chip soft">cap not set</span>
               : capStale ? <span className="chip warn">shelf cap {nf(cap)} · check</span>
-              : <span className="chip">shelf cap {nf(cap)}</span>}
+              : <span className="chip">shelf cap {nf(cap)}{capOver != null ? " · set" : ""}</span>}
             {store.region ? <span className="reg">{store.region}</span> : null}
             <RetailerBadge retailer={store.retailer} size="sm" />
           </div>
@@ -488,10 +525,41 @@ export default function StoreProfile({
         </div>
       </div>
 
+      <div className="visitrow">
+        <div className="dial-l">
+          <div className="dl-t">Shelf cap · this store</div>
+          <div className="dl-s">
+            Default is the {store.size_category ? <b>{store.size_category}</b> : "size-band"} shelf max{baseMax != null ? <> (<b>{nf(baseMax)}</b> units)</> : ""}. Override it for a store that runs bigger or smaller, or set no fixed limit for a pick-to-order store like a DC.
+          </div>
+        </div>
+        <div className="visit-ctl">
+          <input
+            className="visit-date cap-in"
+            type="number"
+            min={0}
+            step={5}
+            placeholder={baseMax != null ? String(baseMax) : "cap"}
+            value={noLimit ? "" : (capOver ?? "")}
+            disabled={noLimit || capBusy}
+            onChange={(e) => { const v = e.target.value.trim(); saveShelfCap({ cap: v === "" ? null : Math.max(0, Math.round(Number(v))), noLimit: false }); }}
+            aria-label="Shelf cap override"
+          />
+          <label className="cap-nolimit">
+            <input type="checkbox" checked={noLimit} disabled={capBusy} onChange={(e) => saveShelfCap({ cap: capOver, noLimit: e.target.checked })} />
+            No fixed limit
+          </label>
+          {!noLimit && capOver != null && (
+            <button type="button" className="visit-clear" onClick={() => saveShelfCap({ cap: null, noLimit: false })}>Reset</button>
+          )}
+        </div>
+      </div>
+
       <div className="ph">
         <div className="ph-t">Products &amp; ranging <span className="cnt">{rangedCount}/{rows.length} ranged</span></div>
         <div className="ph-cap">
-          {cap == null ? (
+          {noLimit ? (
+            <span className="ok">{nf(capTotal)} units · no fixed limit</span>
+          ) : cap == null ? (
             <span className="soft">shelf cap not set for this store</span>
           ) : capStale ? (
             <span className="stale">shelf cap on file is {nf(cap)}, but this store sells {nf(soldWk)}/wk — likely stale, please verify</span>
@@ -668,6 +736,10 @@ export default function StoreProfile({
       .sprof .visit-chip.over{background:var(--amber-b);color:var(--amber-t)}
       .sprof .visit-clear{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;font-family:inherit}
       .sprof .visit-clear:hover{color:var(--ink2);background:#f6f0e6}
+      .sprof .cap-in{width:96px;font-variant-numeric:tabular-nums}
+      .sprof .cap-in:disabled{opacity:.5}
+      .sprof .cap-nolimit{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--ink2);cursor:pointer;white-space:nowrap}
+      .sprof .cap-nolimit input{width:15px;height:15px;cursor:pointer;accent-color:var(--crust-deep,#a7611c)}
       .sprof .ph{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap}
       .sprof .ph-t{font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);font-weight:700;display:flex;align-items:center;gap:10px}
       .sprof .ph-t .cnt{background:#efe6d3;color:var(--ink2);border-radius:999px;font-size:11px;letter-spacing:0;padding:2px 9px;font-weight:700}

@@ -490,6 +490,19 @@ export async function getStoreLastVisit(id: string): Promise<string | null> {
   }
 }
 
+// Per-store shelf-cap override (migration 022): a hand-set cap that replaces the
+// size-band default, and a no-limit flag for pick-to-order stores. Defaults
+// (null / false) when there's no row, so the profile falls back to stores.shelf_max.
+export async function getStoreShelfCap(id: string): Promise<{ shelfCap: number | null; noCap: boolean }> {
+  try {
+    const rows = await sql<{ shelf_cap: number | null; no_cap: boolean }[]>`
+      select shelf_cap, no_cap from store_settings where store_id = ${id}::uuid`;
+    return { shelfCap: rows[0]?.shelf_cap ?? null, noCap: rows[0]?.no_cap ?? false };
+  } catch {
+    return { shelfCap: null, noCap: false };
+  }
+}
+
 // Store street address (+ postcode) straight from the stores table, for the
 // profile header. Simona asked to see the address on the store screen (Session 2
 // UAT); it's in the Stores Master she confirmed. Null if not on file.
