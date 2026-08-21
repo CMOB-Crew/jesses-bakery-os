@@ -14,17 +14,18 @@
 -- expects, and lets us load the 14 Aug ranging variances to fix the numbers.
 --
 -- Column list, order and types are IDENTICAL to migration 002 — create or
--- replace requires that. Only the three CTEs gained a ranging filter. Re-assert
--- security_invoker at the end (migration 013) since we recreate the view.
--- Idempotent: create or replace. Safe to re-run.
+-- replace requires that. Only the three CTEs gained a ranging filter. NB the
+-- `, a` (the as_of cross join) sits AFTER each left join so `s`/`d`/`w` stay in
+-- scope for the join's ON clause. Re-assert security_invoker at the end
+-- (migration 013) since we recreate the view. Idempotent: create or replace.
 
 create or replace view v_store_week as
 with a as (select as_of from v_asof),
 sold as (
   select s.store_id, sum(s.units_sold)::int total_sold
-  from sales_daily s, a
+  from sales_daily s
   left join store_product_ranging r
-    on r.store_id = s.store_id and r.product_id = s.product_id
+    on r.store_id = s.store_id and r.product_id = s.product_id, a
   where s.sale_date >  a.as_of - interval '7 days'
     and s.sale_date <= a.as_of
     and coalesce(r.ranged, true)
@@ -32,9 +33,9 @@ sold as (
 ),
 sold_prev as (
   select s.store_id, sum(s.units_sold)::int total_sold_prev
-  from sales_daily s, a
+  from sales_daily s
   left join store_product_ranging r
-    on r.store_id = s.store_id and r.product_id = s.product_id
+    on r.store_id = s.store_id and r.product_id = s.product_id, a
   where s.sale_date >  a.as_of - interval '14 days'
     and s.sale_date <= a.as_of - interval '7 days'
     and coalesce(r.ranged, true)
@@ -43,9 +44,9 @@ sold_prev as (
 sent as (
   select d.store_id, sum(di.qty_sent)::int total_sent
   from deliveries d
-  join delivery_items di on di.delivery_id = d.id, a
+  join delivery_items di on di.delivery_id = d.id
   left join store_product_ranging r
-    on r.store_id = d.store_id and r.product_id = di.product_id
+    on r.store_id = d.store_id and r.product_id = di.product_id, a
   where d.delivery_date >  a.as_of - interval '7 days'
     and d.delivery_date <= a.as_of
     and coalesce(r.ranged, true)
@@ -53,9 +54,9 @@ sent as (
 ),
 waste as (
   select w.store_id, sum(w.qty)::int total_wasted
-  from wastage w, a
+  from wastage w
   left join store_product_ranging r
-    on r.store_id = w.store_id and r.product_id = w.product_id
+    on r.store_id = w.store_id and r.product_id = w.product_id, a
   where w.waste_date >  a.as_of - interval '7 days'
     and w.waste_date <= a.as_of
     and coalesce(r.ranged, true)
@@ -113,7 +114,3 @@ where st.active;
 
 -- Recreating the view can drop the invoker setting (migration 013); re-assert it.
 alter view v_store_week set (security_invoker = on);
-
--- Verify: pick a store you un-range and confirm its total_sent drops.
---   select store_id, total_sent, total_sold, waste_pct from v_store_week
---   where store_id = '<mascot-dc-id>';
