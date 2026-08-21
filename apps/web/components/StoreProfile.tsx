@@ -272,16 +272,17 @@ export default function StoreProfile({
     });
   }
 
-  // Real metrics only — the dollar/accuracy figures move to a single "unlocks
+  // Simona's store-profile summary (Session 2 UAT): the outcome in one box
+  // (sell-through + waste), the volume in the next (sent + sold — she wanted Sent
+  // shown right beside Sold, which was missing), and a plan box (how many lines
+  // still differ from the recommendation). Secondary signals stay in mgrid below.
+  const wasteUnits = Math.max(sentWk - soldWk, 0);
+  const recoRows = rows.filter((r) => r.rec > 0);
+  const linesToReview = recoRows.filter((r) => r.rec !== r.now).length;
+
+  // Secondary tiles — the dollar/accuracy figures move to a single "unlocks
   // with the cost feed" line below rather than sitting as dead "$ —" tiles.
   const metrics: { k: string; v: string; cls?: string }[] = [
-    { k: "Sell-through", v: sellThrough == null ? "—" : `${sellThrough}%`, cls: sellThrough != null && sellThrough >= 85 ? "g" : undefined },
-    { k: "Units sold · wk", v: nf(soldWk) },
-    // Colour by the canonical RAG thresholds (jb_status: green <20, amber 20-30,
-    // red >30) so the tile agrees with this store's own status badge and every
-    // other page. (Was reddening at >25, which disagreed with the badge on a
-    // store sitting in the 25-30% amber band.)
-    { k: "Waste", v: wastePct == null ? "—" : `${wastePct}%`, cls: wastePct == null ? undefined : wastePct < 20 ? "g" : wastePct > 30 ? "r" : "a" },
     { k: "Sold-out days", v: stockouts ? `${stockouts}` : "0", cls: stockouts ? "a" : undefined },
     { k: "Sales growth", v: growth == null ? "—" : `${growth >= 0 ? "▲" : "▼"} ${Math.abs(growth)}%`, cls: growth == null ? undefined : growth >= 0 ? "g" : "r" },
   ];
@@ -341,6 +342,35 @@ export default function StoreProfile({
                 : "vs same-size stores"}
             </small>
           </span>
+        </div>
+      </div>
+
+      <div className="sumrow">
+        <div className="sumbox">
+          <div className="sb-h">This week</div>
+          <div className="sb-pair">
+            <div className="sb-one"><div className={`sb-v ${sellThrough != null && sellThrough >= 85 ? "g" : ""}`}>{sellThrough == null ? "—" : `${sellThrough}%`}</div><div className="sb-l">Sell-through</div></div>
+            <div className="sb-one"><div className={`sb-v ${wastePct == null ? "" : wastePct < 20 ? "g" : wastePct > 30 ? "r" : "a"}`}>{wastePct == null ? "—" : `${wastePct}%`}</div><div className="sb-l">Waste{wasteUnits > 0 ? ` · ${nf(wasteUnits)}u` : ""}</div></div>
+          </div>
+        </div>
+        <div className="sumbox">
+          <div className="sb-h">Units</div>
+          <div className="sb-pair">
+            <div className="sb-one"><div className="sb-v">{nf(sentWk)}</div><div className="sb-l">Sent</div></div>
+            <div className="sb-one"><div className="sb-v">{nf(soldWk)}</div><div className="sb-l">Sold</div></div>
+          </div>
+        </div>
+        <div className="sumbox">
+          <div className="sb-h">Recommendation</div>
+          <div className="sb-pair one">
+            {recoRows.length === 0 ? (
+              <div className="sb-one"><div className="sb-v soft">—</div><div className="sb-l">fills with the plan</div></div>
+            ) : linesToReview > 0 ? (
+              <div className="sb-one"><div className="sb-v a">{linesToReview}</div><div className="sb-l">{linesToReview === 1 ? "line to review" : "lines to review"}</div></div>
+            ) : (
+              <div className="sb-one"><div className="sb-v g">✓</div><div className="sb-l">all lines on plan</div></div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -573,8 +603,17 @@ export default function StoreProfile({
       .sprof .scorebadge .sd{font-size:16px}
       .sprof .scorebadge .st{font-weight:700;font-size:13.5px;line-height:1.2;color:var(--ink)}
       .sprof .scorebadge .st small{display:block;font-weight:500;font-size:10.5px;color:var(--ink2);opacity:.75;margin-top:2px}
-      .sprof .mgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
-      @media(max-width:900px){.sprof .mgrid{grid-template-columns:repeat(3,1fr)}}
+      .sprof .sumrow{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:12px;margin-bottom:12px}
+      @media(max-width:760px){.sprof .sumrow{grid-template-columns:1fr}}
+      .sprof .sumbox{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh);padding:12px 15px 13px}
+      .sprof .sb-h{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:9px}
+      .sprof .sb-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      .sprof .sb-pair.one{grid-template-columns:1fr}
+      .sprof .sb-v{font-family:var(--serif);font-size:23px;font-weight:600;letter-spacing:-.4px;font-variant-numeric:tabular-nums;line-height:1}
+      .sprof .sb-v.g{color:var(--green-t)}.sprof .sb-v.a{color:var(--amber-t)}.sprof .sb-v.r{color:var(--red-t)}
+      .sprof .sb-v.soft{color:var(--faint);font-weight:500}
+      .sprof .sb-l{font-size:11px;color:var(--muted);margin-top:6px}
+      .sprof .mgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
       @media(max-width:560px){.sprof .mgrid{grid-template-columns:repeat(2,1fr)}}
       .sprof .mlocked{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:12px 2px 18px}
       .sprof .mlocked .lk{font-size:11.5px;font-weight:700;color:var(--muted);letter-spacing:.2px}

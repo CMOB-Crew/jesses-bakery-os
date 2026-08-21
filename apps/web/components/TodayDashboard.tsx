@@ -1,13 +1,47 @@
+"use client";
 import Link from "next/link";
+import { useState } from "react";
 import type { StoreWeek, NetworkWeek } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
+
+// Median without pulling in the server-only queries helper.
+function median(xs: number[]): number | null {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : Math.round(((s[m - 1] + s[m]) / 2) * 10) / 10;
+}
+
+// Fold the size enum (small/medium/large/xlarge, or null) into the three bands
+// Simona uses. xlarge sits with Large; unsized stores drop out of the size view.
+type Band = "small" | "medium" | "large";
+const BANDS: { key: Band; label: string; range: string }[] = [
+  { key: "small", label: "Small", range: "50–60" },
+  { key: "medium", label: "Medium", range: "60–90" },
+  { key: "large", label: "Large", range: "82–140" },
+];
+function bandOf(size: string | null): Band | null {
+  if (!size) return null;
+  const s = size.toLowerCase();
+  if (s === "small") return "small";
+  if (s === "medium") return "medium";
+  if (s === "large" || s === "xlarge") return "large";
+  return null;
+}
 
 // Simona's "TODAY" dashboard, from the layout she drew: a headline strip, then
 // the exception lists she asked for — Needs attention, Opportunities, Best
 // performers, Biggest losses. Real numbers where we have them; the dollar
 // figures are honest placeholders until the cost feed is wired in.
+//
+// Session 2 (UAT) change: a flat waste % hides size. 20% at a Large store that
+// sends 120 is fine; 20% at a Small store that sends 50 is not. So the two lists
+// can be filtered to Small / Medium / Large, each list shows the wasted UNIT
+// count next to the %, and a per-size strip shows what the typical % is in units.
 export default function TodayDashboard({ stores, net, asOf, revenue = null }: { stores: StoreWeek[]; net: NetworkWeek; asOf: string; revenue?: { salesWk: number; wasteWk: number } | null }) {
+  const [band, setBand] = useState<Band | "all">("all");
+
   const rows = stores.map((s) => {
     const sold = Number(s.total_sold) || 0;
     const sent = Number(s.total_sent) || 0;
@@ -17,7 +51,7 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null }: { 
     const stockouts = Number(s.stockout_days) || 0;
     const sellThrough = sent > 0 ? (sold / sent) * 100 : null;
     const growth = prev > 0 ? ((sold - prev) / prev) * 100 : null;
-    return { s, sold, sent, wasted, waste, stockouts, sellThrough, growth };
+    return { s, sold, sent, wasted, waste, stockouts, sellThrough, growth, band: bandOf(s.size_category) };
   });
 
   // ---- headline ----
@@ -27,20 +61,11 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null }: { 
   const netWaste = net.waste_pct == null ? null : Number(net.waste_pct);
 
   // ---- Today's action list (Simona's format: issue -> action) ----
-  // "High wastage" = the RAG red waste threshold (>30%, per jb_status). Anything
-  // 20-30% is amber ("to watch"), not a "reduce production now" call — so this
-  // stays at >30 to match the status dots used everywhere else in the app.
   const highWastage = rows.filter((r) => r.waste != null && r.waste > 30).length;
   const stockOuts = rows.filter((r) => r.stockouts > 0).length;
   const salesDecline = rows.filter((r) => r.growth != null && r.growth < -10).length;
   const strongSellers = rows.filter((r) => r.sellThrough != null && r.sellThrough >= 95 && (r.waste == null || r.waste < 12)).length;
-  // "Need attention today" mirrors the hero's red count exactly (status === red,
-  // i.e. waste >30 or >=3 stockout days). Deriving it from the same RAG status
-  // keeps this header locked in lockstep with the hero and the region cards —
-  // one "needs attention" number on the page, never 56 here and 68 there.
   const needAttention = rows.filter((r) => r.s.status === "red").length;
-  // dataPending: the sales-trend signals stay at 0 until the daily history loads
-  // — flag that rather than implying "all clear".
   const actions = [
     { key: "waste", tone: "red", n: highWastage, issue: "high wastage", action: "Reduce production", href: "/stores?view=waste30", pending: false },
     { key: "stock", tone: "amber", n: stockOuts, issue: "lines selling out", action: "Increase allocation", href: "/stores?view=stockouts", pending: true },
@@ -48,18 +73,33 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null }: { 
     { key: "growth", tone: "green", n: strongSellers, issue: "strong sellers", action: "Consider expanding range", href: "/stores?view=expandrange", pending: false },
   ] as const;
 
+  // ---- per-size summary: what the typical waste % is, and what it is in units ----
+  // Retail scan stores only, with real sent + a size. Median % and median wasted
+  // units per band, so Simona can read "20% here means ~X loaves" at a glance.
+  const bandStats = BANDS.map((b) => {
+    const inBand = rows.filter((r) => r.band === b.key && r.s.retailer !== "invoice" && r.sent > 0);
+    return {
+      ...b,
+      count: inBand.length,
+      medWaste: median(inBand.map((r) => r.waste ?? 0)),
+      medUnits: median(inBand.map((r) => r.wasted)),
+    };
+  });
+
   // ---- best performers: high sell-through, low waste ----
   // Retail-scan stores only. Direct-invoice stores (cafes/schools) invoice
-  // exactly what they sell, so they sit at 100%/0% by definition and would
-  // fill this list with structural perfection, telling Simona nothing. This
-  // surfaces genuinely well-run RETAIL stores.
-  const best = [...rows]
-    .filter((r) => r.sellThrough != null && r.s.retailer !== "invoice")
+  // exactly what they sell, so they sit at 100%/0% by definition. Filtered to the
+  // selected size band when one is picked.
+  const inSelected = (b: Band | null) => band === "all" || b === band;
+  const best = rows
+    .filter((r) => r.sellThrough != null && r.s.retailer !== "invoice" && inSelected(r.band))
     .sort((a, b) => (b.sellThrough! - (b.waste ?? 0)) - (a.sellThrough! - (a.waste ?? 0)))
     .slice(0, 10);
 
   // ---- biggest losses: most wasted units ----
-  const losses = [...rows].sort((a, b) => b.wasted - a.wasted).slice(0, 10);
+  const losses = rows.filter((r) => inSelected(r.band)).sort((a, b) => b.wasted - a.wasted).slice(0, 10);
+
+  const bandLabel = band === "all" ? "all sizes" : BANDS.find((b) => b.key === band)!.label + " stores";
 
   return (
     <section className="today">
@@ -113,30 +153,55 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null }: { 
         })}
       </div>
 
+      {/* ---- Waste by store size: the same % means different things by size ---- */}
+      <div className="t-sizes">
+        <div className="tsz-h">
+          <span className="tsz-t">Waste by store size</span>
+          <span className="tsz-sub">a flat % hides size — 20% of a 50-loaf shelf ≠ 20% of a 120-loaf one</span>
+        </div>
+        <div className="tsz-grid">
+          <button className={`tsz-cell all ${band === "all" ? "on" : ""}`} onClick={() => setBand("all")}>
+            <span className="tsz-lab">All sizes</span>
+            <span className="tsz-big">{rows.filter((r) => r.s.retailer !== "invoice" && r.sent > 0).length}</span>
+            <span className="tsz-u">retail stores</span>
+          </button>
+          {bandStats.map((b) => (
+            <button key={b.key} className={`tsz-cell ${band === b.key ? "on" : ""}`} onClick={() => setBand(band === b.key ? "all" : b.key)}>
+              <span className="tsz-lab">{b.label} <i>{b.range}</i></span>
+              <span className="tsz-big">{b.medWaste == null ? "—" : `${b.medWaste}%`}<span className="tsz-count">{b.count} {b.count === 1 ? "store" : "stores"}</span></span>
+              <span className="tsz-u">{b.medUnits == null ? "no data yet" : `typical ≈ ${nf(Math.round(b.medUnits))} units wasted`}</span>
+            </button>
+          ))}
+        </div>
+        {band !== "all" && (
+          <div className="tsz-active">Showing <b>{bandLabel}</b> · <button className="tsz-clear" onClick={() => setBand("all")}>show all sizes</button></div>
+        )}
+      </div>
+
       <div className="t-cols">
         <div className="t-list">
-          <div className="t-lh"><span>🔥 Best performers</span><span className="sub">sell-through · waste</span></div>
+          <div className="t-lh"><span>🔥 Best performers</span><span className="sub">sell-through · waste ·  units</span></div>
           {best.map((r, i) => (
             <Link key={r.s.store_id} href={`/store/${r.s.store_id}`} className="t-row">
               <span className="rk">{i + 1}</span>
-              <span className="nm">{r.s.name}<small>{r.s.region ?? "—"}</small></span>
+              <span className="nm">{r.s.name}<small>{r.s.region ?? "—"}{r.band ? ` · ${r.band[0].toUpperCase()}${r.band.slice(1)}` : ""}</small></span>
               <span className="mv g">{r.sellThrough == null ? "—" : `${Math.round(r.sellThrough)}%`}</span>
-              <span className="mv2">{r.waste == null ? "—" : `${r.waste}%`}</span>
+              <span className="mv2">{r.waste == null ? "—" : `${r.waste}%`}<small>{nf(r.wasted)}u</small></span>
             </Link>
           ))}
-          {best.length === 0 && <div className="t-empty">Lights up as the sales feed fills.</div>}
+          {best.length === 0 && <div className="t-empty">{band === "all" ? "Lights up as the sales feed fills." : `No ${bandLabel} with a scan feed yet.`}</div>}
         </div>
         <div className="t-list">
-          <div className="t-lh"><span>🚨 Biggest losses</span><span className="sub">wasted units · waste</span></div>
+          <div className="t-lh"><span>🚨 Biggest losses</span><span className="sub">wasted units · waste %</span></div>
           {losses.map((r, i) => (
             <Link key={r.s.store_id} href={`/store/${r.s.store_id}`} className="t-row">
               <span className="rk">{i + 1}</span>
-              <span className="nm">{r.s.name}<small>{r.s.region ?? "—"}</small></span>
-              <span className="mv r">{nf(r.wasted)}</span>
+              <span className="nm">{r.s.name}<small>{r.s.region ?? "—"}{r.band ? ` · ${r.band[0].toUpperCase()}${r.band.slice(1)}` : ""}</small></span>
+              <span className="mv r">{nf(r.wasted)}<small>units</small></span>
               <span className="mv2">{r.waste == null ? "—" : `${r.waste}%`}</span>
             </Link>
           ))}
-          {losses.length === 0 && <div className="t-empty">Lights up as the sales feed fills.</div>}
+          {losses.length === 0 && <div className="t-empty">{band === "all" ? "Lights up as the sales feed fills." : `No ${bandLabel} with waste yet.`}</div>}
         </div>
       </div>
 
@@ -180,6 +245,26 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null }: { 
       .today .ta-note{margin-left:auto;font-size:11.5px;color:var(--faint);font-style:italic}
       @media(max-width:560px){.today .ta-do{display:none}.today .ta-sep{display:none}}
 
+      /* ---- waste by store size ---- */
+      .today .t-sizes{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden;margin-bottom:16px}
+      .today .tsz-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line2);flex-wrap:wrap}
+      .today .tsz-t{font-family:var(--serif);font-size:16px;font-weight:600}
+      .today .tsz-sub{font-size:11.5px;color:var(--muted)}
+      .today .tsz-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line2)}
+      @media(max-width:640px){.today .tsz-grid{grid-template-columns:1fr 1fr}}
+      .today .tsz-cell{background:var(--card);border:0;text-align:left;padding:13px 16px;cursor:pointer;display:flex;flex-direction:column;gap:3px;transition:background .12s;border-top:3px solid transparent;font:inherit}
+      .today .tsz-cell:hover{background:#faf6ee}
+      .today .tsz-cell.on{background:#fbf4ea;border-top-color:var(--crust-deep,#a7611c)}
+      .today .tsz-cell.all.on{border-top-color:var(--ink2,#6b5b45)}
+      .today .tsz-lab{font-size:11.5px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.4px}
+      .today .tsz-lab i{font-style:normal;color:var(--faint);font-weight:600;letter-spacing:0}
+      .today .tsz-big{font-family:var(--serif);font-size:22px;font-weight:600;letter-spacing:-.4px;font-variant-numeric:tabular-nums;line-height:1.1;display:flex;align-items:baseline;gap:8px}
+      .today .tsz-count{font-family:var(--sans);font-size:11px;color:var(--faint);font-weight:600;letter-spacing:0}
+      .today .tsz-u{font-size:11px;color:var(--muted)}
+      .today .tsz-active{padding:10px 16px;font-size:12px;color:var(--ink2);border-top:1px solid var(--line2);background:#fdfaf5}
+      .today .tsz-active b{color:var(--ink)}
+      .today .tsz-clear{border:0;background:0;color:var(--crust-deep,#a7611c);font:inherit;font-size:12px;cursor:pointer;text-decoration:underline;padding:0}
+
       .today .t-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
       @media(max-width:820px){.today .t-cols{grid-template-columns:1fr}}
       .today .t-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:16px 18px}
@@ -190,28 +275,19 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null }: { 
       .today .t-list{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
       .today .t-lh{display:flex;justify-content:space-between;align-items:baseline;padding:13px 16px;border-bottom:1px solid var(--line2);font-family:var(--serif);font-size:15px;font-weight:600}
       .today .t-lh .sub{font-family:var(--sans);font-size:10.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
-      .today .t-row{display:grid;grid-template-columns:24px 1fr auto auto;align-items:center;gap:12px;padding:9px 16px;border-bottom:1px solid var(--line2);transition:background .12s}
+      .today .t-row{display:grid;grid-template-columns:24px 1fr auto auto;align-items:center;gap:12px;padding:9px 16px;border-bottom:1px solid var(--line2);transition:background .12s;text-decoration:none;color:inherit}
       .today .t-row:last-child{border-bottom:none}
       .today .t-row:hover{background:#faf6ee}
       .today .t-row .rk{font-size:12px;color:var(--faint);font-weight:700;font-variant-numeric:tabular-nums}
       .today .t-row .nm{font-weight:600;font-size:13.5px;line-height:1.2}
       .today .t-row .nm small{display:block;font-weight:400;color:var(--muted);font-size:11px;margin-top:1px}
-      .today .t-row .mv{font-weight:700;font-size:13.5px;font-variant-numeric:tabular-nums;text-align:right}
+      .today .t-row .mv{font-weight:700;font-size:13.5px;font-variant-numeric:tabular-nums;text-align:right;line-height:1.15}
       .today .t-row .mv.g{color:var(--green-t)}.today .t-row .mv.r{color:var(--red-t)}
-      .today .t-row .mv2{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right;min-width:44px}
+      .today .t-row .mv small{display:block;font-weight:600;color:var(--faint);font-size:10px}
+      .today .t-row .mv2{font-size:12.5px;color:var(--ink2);font-weight:700;font-variant-numeric:tabular-nums;text-align:right;min-width:44px;line-height:1.15}
+      .today .t-row .mv2 small{display:block;font-weight:400;color:var(--faint);font-size:10px}
       .today .t-empty{padding:16px;color:var(--faint);font-size:12.5px}
-      .today .t-stat{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid var(--line2)}
-      .today .t-stat:last-child{border-bottom:none}
-      .today .t-stat .sn{font-family:var(--serif);font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;min-width:34px}
-      .today .t-stat .sn.r{color:var(--red-t)}.today .t-stat .sn.a{color:var(--amber-t)}.today .t-stat .sn.g{color:var(--green-t)}
-      .today .t-stat .sl{font-size:13px;color:var(--ink2)}
-      a.t-stat.lk{text-decoration:none;cursor:pointer;transition:background .12s;margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:7px}
-      a.t-stat.lk:hover{background:#faf6ee}
-      a.t-stat.lk .go{margin-left:auto;color:var(--faint);font-weight:700;font-size:13px}
-      a.t-stat.lk:hover .go{color:var(--crust-deep)}
-      a.t-stat.lk:hover .sl{color:var(--crust-deep)}
       `}</style>
     </section>
   );
 }
-

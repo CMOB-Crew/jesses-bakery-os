@@ -223,7 +223,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
             <thead>
               <tr>
                 <th>Store</th>{showRegion && <th>Region</th>}<th>Retailer</th><th>Status</th>
-                <th className="num">Waste %</th>{anyStockouts && <th className="num">Sold out</th>}<th className="num">Sold (wk)</th>
+                <th className="num">Waste %</th>{anyStockouts && <th className="num">Sold out</th>}<th className="num">Sent (wk)</th><th className="num">Sold (wk)</th>
               </tr>
             </thead>
             <tbody>
@@ -236,6 +236,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
                   <td className="num">{s.waste_pct == null ? "—" : `${s.waste_pct}%`}</td>
                   {anyStockouts && <td className="num">{num(s.stockout_days) || "—"}</td>}
                   {/* No-data stores have no feed yet — show "—", not a misleading 0 sold (matches the waste column). */}
+                  <td className="num">{effOf(s) === "nodata" ? "—" : nf(num(s.total_sent))}</td>
                   <td className="num">{effOf(s) === "nodata" ? "—" : nf(num(s.total_sold))}</td>
                 </tr>
               ))}
