@@ -490,6 +490,21 @@ export async function getStoreLastVisit(id: string): Promise<string | null> {
   }
 }
 
+// Per-store state (NSW/QLD/ACT), as a store_id -> state map, for the one-system
+// state filter (migration 023). Empty when the column/data isn't there yet, so
+// the filter just doesn't show until states are loaded.
+export async function getStoreStates(): Promise<Record<string, string>> {
+  try {
+    const rows = await sql<{ store_id: string; state: string | null }[]>`
+      select id as store_id, state from stores where active and state is not null`;
+    const m: Record<string, string> = {};
+    for (const r of rows) if (r.state) m[r.store_id] = r.state;
+    return m;
+  } catch {
+    return {};
+  }
+}
+
 // Named delivery runs + their days (runs table, loaded from Simona's confirmed
 // schedule). One run per region; region name = run name. Only runs that actually
 // have days set are returned, so the legacy empty "Run 1..8" rows drop out.

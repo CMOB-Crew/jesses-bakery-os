@@ -65,12 +65,18 @@ const csvCell = (v: string | number | null) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-export default function StoresList({ stores, showRegion = true, initialView }: { stores: StoreWeek[]; showRegion?: boolean; initialView?: string }) {
+export default function StoresList({ stores, showRegion = true, initialView, states = {} }: { stores: StoreWeek[]; showRegion?: boolean; initialView?: string; states?: Record<string, string> }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<"all" | Eff>("all");
   const [region, setRegion] = useState("all");
   const [retailer, setRetailer] = useState("all");
+  const [stateF, setStateF] = useState("all");
+  // Distinct states present (NSW/ACT today; QLD appears once Somnath's stores load).
+  const stateOpts = useMemo(
+    () => [...new Set(Object.values(states))].sort(),
+    [states],
+  );
   const [sort, setSort] = useState<SortKey>("status");
   const [view, setView] = useState(initialView && VIEWS[initialView] ? initialView : "");
   const activeView = view && VIEWS[view] ? VIEWS[view] : null;
@@ -100,6 +106,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
         (status === "all" || effOf(s) === status) &&
         (region === "all" || s.region === region) &&
         (retailer === "all" || s.retailer === retailer) &&
+        (stateF === "all" || states[s.store_id] === stateF) &&
         (!term ||
           s.name.toLowerCase().includes(term) ||
           (s.region ?? "").toLowerCase().includes(term)),
@@ -118,9 +125,9 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
           return EFF_ORDER[effOf(a)] - EFF_ORDER[effOf(b)] || num(b.total_wasted) - num(a.total_wasted) || num(b.total_sold) - num(a.total_sold);
       }
     });
-  }, [stores, q, status, region, retailer, sort, activeView]);
+  }, [stores, q, status, region, retailer, stateF, states, sort, activeView]);
 
-  const filtered = q || status !== "all" || region !== "all" || retailer !== "all";
+  const filtered = q || status !== "all" || region !== "all" || retailer !== "all" || stateF !== "all";
 
   // Export exactly what's on screen (current filter + sort) as CSV — Simona
   // works from spreadsheets, so the filtered view goes straight to one.
@@ -182,6 +189,14 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
           />
           {q && <button className="clr" onClick={() => setQ("")} aria-label="clear">×</button>}
         </div>
+        {stateOpts.length > 1 && (
+          <select value={stateF} onChange={(e) => setStateF(e.target.value)} aria-label="Filter by state">
+            <option value="all">All states</option>
+            {stateOpts.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        )}
         {showRegion && (
           <select value={region} onChange={(e) => setRegion(e.target.value)} aria-label="Filter by region">
             <option value="all">All regions</option>
@@ -208,7 +223,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
         {filtered && (
           <button
             className="reset"
-            onClick={() => { setQ(""); setStatus("all"); setRegion("all"); setRetailer("all"); }}
+            onClick={() => { setQ(""); setStatus("all"); setRegion("all"); setRetailer("all"); setStateF("all"); }}
           >
             Clear filters
           </button>
@@ -246,7 +261,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
         </div>
       ) : (
         <div className="nomatch">
-          No stores match <b>{q ? `“${q}”` : "these filters"}</b>. <button className="reset" onClick={() => { setQ(""); setStatus("all"); setRegion("all"); setRetailer("all"); }}>Clear filters</button>
+          No stores match <b>{q ? `“${q}”` : "these filters"}</b>. <button className="reset" onClick={() => { setQ(""); setStatus("all"); setRegion("all"); setRetailer("all"); setStateF("all"); }}>Clear filters</button>
         </div>
       )}
 
