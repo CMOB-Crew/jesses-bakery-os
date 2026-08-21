@@ -83,6 +83,7 @@ export default function PackingApp() {
         <div className="top">
           <span className="logo"><span className="mk">✦</span> Jesse&apos;s Bakery</span><h1>Packing</h1>
           <span className="date">Monday 9 Aug · 6:52am</span>
+          <button className="pexport no-print" onClick={() => window.print()} title={`Export the ${run.name} run as a PDF packing slip`}>⤓ Export PDF</button>
           <span className="who"><span className="av">P</span>Priya · Packing</span>
         </div>
         <div className="body">
@@ -156,6 +157,32 @@ export default function PackingApp() {
         </div>
       </div></div>
 
+      {/* Print-only packing slip for the current run — this is what "Export PDF"
+          produces (browser print → Save as PDF). Every store's full item list
+          with tick boxes and a sign-off line; the interactive iPad view is hidden
+          on paper. */}
+      <div className="pack-slip" aria-hidden="true">
+        <div className="ps-head">
+          <div className="ps-brand"><span className="mk">✦</span> Jesse&apos;s Bakery — Packing Slip</div>
+          <div className="ps-meta">{run.name} run · {run.days} · {run.stores.length} stores</div>
+          <div className="ps-date">Date: __________________   Packer: __________________</div>
+        </div>
+        {run.stores.map((s) => {
+          const total = s.items.reduce((a, b) => a + b[1], 0);
+          return (
+            <div className="ps-store" key={s.name}>
+              <div className="ps-sh"><span className="ps-box" /><span className="ps-name">{s.name}</span><span className="ps-tot">{total} items · {s.items.length} products</span></div>
+              <table className="ps-items"><tbody>
+                {s.items.map((it) => (
+                  <tr key={it[0]}><td className="ps-p">{it[0]}</td><td className="ps-q">{it[1]}</td><td className="ps-c">☐ packed</td></tr>
+                ))}
+              </tbody></table>
+            </div>
+          );
+        })}
+        <div className="ps-sign">Packed by ____________________     Checked by ____________________     Time __________</div>
+      </div>
+
       {toast && <div className="packtoast">{toast}</div>}
 
       <style>{`
@@ -221,6 +248,34 @@ export default function PackingApp() {
       .packwrap .tag.amber{background:var(--amber-b);color:var(--amber-t)}
       .packwrap .packtoast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--espresso);color:#f6eddb;padding:12px 18px;border-radius:12px;box-shadow:var(--sh-pop);font-size:13.5px;font-weight:500;z-index:60;max-width:88vw;text-align:center}
       @media(max-width:900px){.packwrap .runs{width:220px}}
+
+      /* Export PDF button */
+      .packwrap .pexport{margin-left:auto;display:inline-flex;align-items:center;gap:6px;background:var(--espresso);color:#f4ecd9;border:0;border-radius:999px;padding:8px 16px;font:600 13px inherit;cursor:pointer}
+      .packwrap .pexport:hover{background:#3a2a17}
+
+      /* Print-only packing slip — hidden on screen, shown on paper/PDF */
+      .packwrap .pack-slip{display:none}
+      @media print{
+        .packwrap .pad{display:none !important}
+        .packwrap .cap, .packwrap > div[style]{display:none !important}
+        .packwrap .pack-slip{display:block;color:#000}
+        .packwrap .ps-head{border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:14px}
+        .packwrap .ps-brand{font-family:var(--serif);font-size:22px;font-weight:700}
+        .packwrap .ps-brand .mk{color:#000}
+        .packwrap .ps-meta{font-size:14px;font-weight:600;margin-top:4px}
+        .packwrap .ps-date{font-size:12.5px;margin-top:8px;color:#333}
+        .packwrap .ps-store{break-inside:avoid;margin-bottom:14px}
+        .packwrap .ps-sh{display:flex;align-items:center;gap:10px;border-bottom:1px solid #999;padding-bottom:4px;margin-bottom:4px}
+        .packwrap .ps-box{width:16px;height:16px;border:1.5px solid #000;border-radius:3px;flex:none}
+        .packwrap .ps-name{font-size:15px;font-weight:700}
+        .packwrap .ps-tot{margin-left:auto;font-size:11.5px;color:#444}
+        .packwrap .ps-items{width:100%;border-collapse:collapse;font-size:12.5px}
+        .packwrap .ps-items td{padding:2px 4px;border-bottom:1px dotted #ccc}
+        .packwrap .ps-q{text-align:right;font-weight:700;width:48px;font-variant-numeric:tabular-nums}
+        .packwrap .ps-c{text-align:right;width:88px;color:#555}
+        .packwrap .ps-sign{margin-top:22px;padding-top:10px;border-top:2px solid #000;font-size:12.5px}
+        @page{margin:14mm}
+      }
       `}</style>
     </div>
   );
