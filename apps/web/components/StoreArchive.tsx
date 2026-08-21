@@ -1,5 +1,7 @@
 "use client";
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import RetailerBadge from "@/components/RetailerBadge";
 import type { ArchivedStore } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -23,6 +25,13 @@ const sizeLabel = (s: string | null) => (s ? s[0].toUpperCase() + s.slice(1) : "
 
 export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
   const [filter, setFilter] = useState<Filter>("all");
+  const [region, setRegion] = useState<string>("all");
+  const [retailer, setRetailer] = useState<string>("all");
+  // Distinct regions / retailers present in the archive, so the dropdowns only
+  // offer values that actually match something.
+  const regions = useMemo(() => [...new Set(stores.map((s) => s.region).filter(Boolean))].sort() as string[], [stores]);
+  const retailers = useMemo(() => [...new Set(stores.map((s) => s.retailer).filter(Boolean))].sort(), [stores]);
+  const retailerLabel = (r: string) => (r === "harris_farm" ? "Harris Farm" : r ? r[0].toUpperCase() + r.slice(1) : "—");
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   function showToast(msg: string) {
@@ -38,7 +47,11 @@ export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
   const warm = rows.filter((r) => r.warm).length;
   const cold = rows.length - warm;
   const oldest = rows.reduce((m, r) => Math.max(m, r.days_since ?? 0), 0);
-  const shown = rows.filter((r) => filter === "all" || (filter === "warm" ? r.warm : !r.warm));
+  const shown = rows.filter((r) =>
+    (filter === "all" || (filter === "warm" ? r.warm : !r.warm)) &&
+    (region === "all" || r.region === region) &&
+    (retailer === "all" || r.retailer === retailer),
+  );
 
   if (!stores.length) {
     return (
@@ -73,12 +86,26 @@ export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
 
       <div className="bulk">
         <div className="section-h"><span className="tick" />Archived stores</div>
-        <div className="filter">
-          {(["all", "warm", "cold"] as Filter[]).map((f) => (
-            <button key={f} className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
-              {f === "all" ? "All" : f === "warm" ? "Warm" : "Cold"}
-            </button>
-          ))}
+        <div className="afilters">
+          {retailers.length > 1 && (
+            <select className="asel" value={retailer} onChange={(e) => setRetailer(e.target.value)} aria-label="Filter by retailer">
+              <option value="all">All retailers</option>
+              {retailers.map((r) => <option key={r} value={r}>{retailerLabel(r)}</option>)}
+            </select>
+          )}
+          {regions.length > 1 && (
+            <select className="asel" value={region} onChange={(e) => setRegion(e.target.value)} aria-label="Filter by region">
+              <option value="all">All regions</option>
+              {regions.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          )}
+          <div className="filter">
+            {(["all", "warm", "cold"] as Filter[]).map((f) => (
+              <button key={f} className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
+                {f === "all" ? "All" : f === "warm" ? "Warm" : "Cold"}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -87,10 +114,10 @@ export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
           <div className={`ac${a.warm ? " warm" : ""}`} key={a.store_id}>
             <div className="ac-main">
               <div className="ac-top">
-                <span className="ac-name">{a.name}</span>
+                <Link className="ac-name" href={`/store/${a.store_id}`}>{a.name}</Link>
                 <span className={`ac-tag ${a.warm ? "warm" : "cold"}`}>{a.warm ? "● Warm" : "● Cold"}</span>
               </div>
-              <div className="ac-meta">{a.retailer} · {a.region ?? "—"} · {sizeLabel(a.size)} · last active {ago(a.days_since)}</div>
+              <div className="ac-meta"><RetailerBadge retailer={a.retailer} size="sm" /> · {a.region ?? "—"} · {sizeLabel(a.size)} · last active {ago(a.days_since)}</div>
               <div className="ac-note">
                 {a.warm
                   ? "Recent sales history — a strong re-range candidate when the retailer reopens the range."
@@ -105,6 +132,9 @@ export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
             </div>
           </div>
         ))}
+        {shown.length === 0 && (
+          <div className="ac-empty">No archived stores match these filters. <button onClick={() => { setFilter("all"); setRegion("all"); setRetailer("all"); }}>Clear filters</button></div>
+        )}
       </div>
 
       <div className="foot" style={{ marginTop: 16 }}>
@@ -125,8 +155,10 @@ export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
         .arch .tn.green{color:var(--green-t)} .arch .tn.dim{color:var(--muted)}
         .arch .tl{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4}
 
-        .arch .bulk{display:flex;align-items:center;gap:14px;margin-bottom:12px}
-        .arch .filter{margin-left:auto;display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+        .arch .bulk{display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap}
+        .arch .afilters{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+        .arch .asel{border:1px solid var(--line);border-radius:9px;background:var(--card);padding:7px 10px;font-size:12.5px;font-weight:600;color:var(--ink2);font-family:inherit;cursor:pointer}
+        .arch .filter{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
         .arch .filter button{border:none;background:var(--card);padding:7px 15px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--ink2);font-family:inherit;border-right:1px solid var(--line)}
         .arch .filter button:last-child{border-right:none}
         .arch .filter button.on{background:var(--espresso);color:#f7efdd}
@@ -137,7 +169,11 @@ export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
         .arch .ac.warm::before{background:var(--green)}
         .arch .ac-main{flex:1;min-width:0}
         .arch .ac-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
-        .arch .ac-name{font-family:var(--serif);font-weight:600;font-size:16px}
+        .arch .ac-name{font-family:var(--serif);font-weight:600;font-size:16px;color:var(--ink);text-decoration:none}
+        .arch a.ac-name:hover{color:var(--crust-deep,#a7611c);text-decoration:underline}
+        .arch .ac-meta .rbadge{vertical-align:middle}
+        .arch .ac-empty{background:var(--card);border:1px dashed var(--line);border-radius:var(--r);padding:18px;color:var(--muted);font-size:13.5px}
+        .arch .ac-empty button{border:0;background:0;color:var(--crust-deep,#a7611c);font:inherit;font-weight:600;cursor:pointer;text-decoration:underline;padding:0}
         .arch .ac-tag{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
         .arch .ac-tag.warm{background:var(--green-b);color:var(--green-t)}
         .arch .ac-tag.cold{background:var(--line2);color:var(--muted)}
