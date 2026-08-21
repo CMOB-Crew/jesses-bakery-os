@@ -314,6 +314,11 @@ export type ProductLaunch = {
   launched_at: Date | null; days_since: number | null;
   stores: number; sent: number; sold: number;
   sell_through: number | null; waste_pct: number | null; units_per_day: number | null;
+  // Simona's trial call — Expand / Continue / Modify / Remove — from the SAME
+  // engine the store-cohort trials use, so a product and a store rollout are
+  // judged the same way. "early" until the 4-week read window (her "after 4–6
+  // weeks" rule); no salesGrowth for a product line yet, so that axis is null.
+  verdict: TrialVerdict; verdictReason: string;
 };
 
 export async function getProductLaunches(): Promise<ProductLaunch[]> {
@@ -341,13 +346,18 @@ export async function getProductLaunches(): Promise<ProductLaunch[]> {
       // Units per store per day = this week's units over the stores ranging it,
       // spread across the days observed (capped at 7). ~ until the daily feed lands.
       const denom = stores > 0 ? stores * Math.min(7, Math.max(1, days ?? 7)) : 0;
+      const sellThrough = sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null;
+      const wastePct = sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null;
+      const noData = sent === 0 && sold === 0;
+      const { verdict, reason } = trialVerdict(days ?? 0, sellThrough, wastePct, null);
       return {
         product_id: r.product_id, name: r.name, category: r.category,
         launched_at: r.launched_at, days_since: days,
         stores, sent, sold,
-        sell_through: sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null,
-        waste_pct: sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null,
+        sell_through: sellThrough,
+        waste_pct: wastePct,
         units_per_day: sold > 0 && denom > 0 ? Math.round((10 * sold) / denom) / 10 : null,
+        verdict, verdictReason: noData ? "Gathering data — no sales in yet" : reason,
       };
     });
   } catch {

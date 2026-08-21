@@ -111,8 +111,8 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
       {productLaunches.length === 0 ? (
         <div className="panel empty slim">
           No product launches tracked yet. Tag a line&apos;s launch date on <Link href="/products">Products</Link> and it
-          tracks here for 6 weeks — stores ranging it, units sold, sell-through and waste. (Harris Farm Choc Babka once its
-          code lands.)
+          tracks here for 6 weeks — stores ranging it, units sold, sell-through and waste — with an <b>Expand / Continue /
+          Modify / Remove</b> call once it&apos;s had time to prove out. (Harris Farm Choc Babka once its code lands.)
         </div>
       ) : (
         <div className="live">
@@ -180,6 +180,8 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
         .lau .lr-act{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
         .lau .lr-open{font-size:13px;font-weight:600;color:var(--crust-deep,var(--espresso))}
         .lau .pr-sold{font-size:12px;font-weight:700;color:var(--ink2);background:var(--line2);border-radius:999px;padding:4px 10px;white-space:nowrap}
+        .lau .pr-reason{flex-basis:100%;width:100%;margin-top:4px;padding-top:11px;border-top:1px solid var(--line2);font-size:12.5px;color:var(--ink2);line-height:1.5}
+        .lau .pr-reason b{color:var(--ink);font-weight:600}
 
         .lau .sh-note{margin-left:10px;font-size:12px;color:var(--muted);font-weight:400}
         .lau .met .mv.up{color:var(--green-t)}
@@ -301,10 +303,11 @@ function PipelineRowActions({ store }: { store: PipelineStore }) {
 
 function ProductRow({ p }: { p: ProductLaunch }) {
   const noData = p.sent === 0 && p.sold === 0;
+  const v = VERDICT[p.verdict];
   return (
     <div className="lr">
       <div className="lr-main">
-        <div className="lr-name">{p.name}</div>
+        <div className="lr-name">{p.name} <span className={`tc-badge ${v.cls}`} style={{ marginLeft: 6, verticalAlign: "middle" }}>{v.label}</span></div>
         <div className="lr-meta">{titleCase(p.category)} · launched {fmtDate(p.launched_at)} · {p.stores} {p.stores === 1 ? "store" : "stores"} ranging</div>
       </div>
       <div className="lr-mets">
@@ -317,6 +320,7 @@ function ProductRow({ p }: { p: ProductLaunch }) {
         {noData ? <StatusTag status="nodata" /> : <span className="pr-sold">{num(p.sold)} sold/wk</span>}
         <Link href="/products" className="lr-open">Open products →</Link>
       </div>
+      <div className="pr-reason"><b>{v.label}</b> — {p.verdictReason}</div>
     </div>
   );
 }
