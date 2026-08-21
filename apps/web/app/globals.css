@@ -219,3 +219,13 @@ tr.clk:hover td{background:#faf6ee}
   .dsheet .sheetwrap { overflow: visible !important; border: 1px solid #ccc; }
   .dsheet input.cell { border: none !important; }
 }
+
+/* Retailer badge — brand-coloured monogram chip (RetailerBadge.tsx). Defined
+   once here rather than inline so a full stores table doesn't emit a <style>
+   per row. */
+.rbadge{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--ink,#2c2118);white-space:nowrap;vertical-align:middle}
+.rbadge i{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:5px;color:#fff;font-style:normal;font-weight:800;font-size:12px;line-height:1;flex:none}
+.rbadge.sm{font-size:12px;gap:6px}
+.rbadge.sm i{width:17px;height:17px;border-radius:4px;font-size:10.5px}
+.rbadge-l{font-weight:600}
+.rbadge.plain{display:inline-block;padding:2px 9px;border-radius:999px;background:var(--line2,#eee4d4);color:var(--ink2,#6b5b45);font-weight:600;font-size:12px}

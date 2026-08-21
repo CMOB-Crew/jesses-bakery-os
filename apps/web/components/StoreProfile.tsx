@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useTransition, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import StoreBars from "@/components/StoreBars";
+import RetailerBadge from "@/components/RetailerBadge";
 import type { StoreWeek, StoreReco, DailyBar, StoreOverride } from "@/lib/queries";
 import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel, setStoreLastVisit, setStorePhoto } from "@/app/store/actions";
 
@@ -43,6 +44,7 @@ export default function StoreProfile({
   lastVisit = null,
   today = "",
   photo = null,
+  address = null,
 }: {
   store: StoreWeek;
   recos: StoreReco[];
@@ -54,6 +56,7 @@ export default function StoreProfile({
   lastVisit?: string | null;
   today?: string;
   photo?: string | null;
+  address?: string | null;
 }) {
   // Coerce every DB number up front (waste_pct/shelf_max arrive as strings).
   const wastePct = store.waste_pct == null ? null : Number(store.waste_pct);
@@ -328,8 +331,9 @@ export default function StoreProfile({
               : capStale ? <span className="chip warn">shelf cap {nf(cap)} · check</span>
               : <span className="chip">shelf cap {nf(cap)}</span>}
             {store.region ? <span className="reg">{store.region}</span> : null}
-            <span className="rtl">{store.retailer}</span>
+            <RetailerBadge retailer={store.retailer} size="sm" />
           </div>
+          {address ? <div className="addr">📍 {address}</div> : null}
         </div>
         <div className={`scorebadge ${score.cls}`}>
           <span className="sd">{score.dot}</span>
@@ -595,6 +599,7 @@ export default function StoreProfile({
       .sprof .chip.soft{background:var(--line2);color:var(--faint)}
       .sprof .reg{color:var(--ink2);font-weight:600}
       .sprof .rtl{margin-left:auto;color:var(--faint);text-transform:capitalize}
+      .sprof .addr{margin-top:7px;font-size:12.5px;color:var(--ink2);line-height:1.35}
       .sprof .scorebadge{display:flex;align-items:center;gap:10px;border-radius:12px;padding:10px 14px;border:1px solid var(--line)}
       .sprof .scorebadge.g{background:var(--green-b)}.sprof .scorebadge.a{background:var(--amber-b)}.sprof .scorebadge.r{background:var(--red-b)}
       .sprof .scorebadge.nd{background:var(--line2)}

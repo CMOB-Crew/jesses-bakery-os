@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import StatusTag from "@/components/StatusTag";
+import RetailerBadge from "@/components/RetailerBadge";
 import type { StoreWeek, Status } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -231,7 +232,7 @@ export default function StoresList({ stores, showRegion = true, initialView }: {
                 <tr key={s.store_id} className="clk" onClick={() => router.push(`/store/${s.store_id}`)}>
                   <td className="strong"><Link href={`/store/${s.store_id}`} onClick={(e) => e.stopPropagation()}>{s.name}</Link></td>
                   {showRegion && <td style={{ color: "var(--ink2)" }}>{s.region ?? "—"}</td>}
-                  <td style={{ color: "var(--ink2)" }}>{retailerLabel(s.retailer)}</td>
+                  <td><RetailerBadge retailer={s.retailer} size="sm" /></td>
                   <td><StatusTag status={effOf(s)} /></td>
                   <td className="num">{s.waste_pct == null ? "—" : `${s.waste_pct}%`}</td>
                   {anyStockouts && <td className="num">{num(s.stockout_days) || "—"}</td>}

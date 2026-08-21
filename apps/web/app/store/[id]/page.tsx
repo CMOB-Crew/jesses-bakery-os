@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getStoreById, getStoreDaily, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto } from "@/lib/queries";
+import { getStoreById, getStoreDaily, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto, getStoreAddress } from "@/lib/queries";
 import StoreProfile, { type PeerStat } from "@/components/StoreProfile";
 import type { StoreWeek } from "@/lib/queries";
 
@@ -62,9 +62,9 @@ function computePeer(store: StoreWeek, all: StoreWeek[]): PeerStat {
 
 export default async function StorePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [store, daily, recos, all, overrides, ranging, serviceLevel, lastVisit, photo] = await Promise.all([
+  const [store, daily, recos, all, overrides, ranging, serviceLevel, lastVisit, photo, address] = await Promise.all([
     getStoreById(id), getStoreDaily(id), getStoreRecos(id), getStoreWeek(), getStoreOverrides(id),
-    getStoreRanging(id), getStoreServiceLevel(id), getStoreLastVisit(id), getStorePhoto(id),
+    getStoreRanging(id), getStoreServiceLevel(id), getStoreLastVisit(id), getStorePhoto(id), getStoreAddress(id),
   ]);
   if (!store) notFound();
 
@@ -81,7 +81,7 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
         {store.region && <> › <Link href={`/region/${encodeURIComponent(store.region)}`}>{store.region}</Link></>}
         {" "}› {store.name}
       </div>
-      <StoreProfile store={store} recos={recos} daily={daily} peer={peer} overrides={overrides} ranging={ranging} serviceLevel={serviceLevel} lastVisit={lastVisit} today={today} photo={photo} />
+      <StoreProfile store={store} recos={recos} daily={daily} peer={peer} overrides={overrides} ranging={ranging} serviceLevel={serviceLevel} lastVisit={lastVisit} today={today} photo={photo} address={address} />
     </>
   );
 }

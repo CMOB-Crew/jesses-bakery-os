@@ -490,6 +490,22 @@ export async function getStoreLastVisit(id: string): Promise<string | null> {
   }
 }
 
+// Store street address (+ postcode) straight from the stores table, for the
+// profile header. Simona asked to see the address on the store screen (Session 2
+// UAT); it's in the Stores Master she confirmed. Null if not on file.
+export async function getStoreAddress(id: string): Promise<string | null> {
+  try {
+    const rows = await sql<{ address: string | null; postcode: string | null }[]>`
+      select address, postcode from stores where id = ${id}::uuid`;
+    const a = rows[0]?.address?.trim() || "";
+    const p = rows[0]?.postcode?.trim() || "";
+    const full = [a, p].filter(Boolean).join(" ");
+    return full || null;
+  } catch {
+    return null;
+  }
+}
+
 // Per-store profile photo (migration 020) as a JPEG data URL, or null.
 export async function getStorePhoto(id: string): Promise<string | null> {
   try {
