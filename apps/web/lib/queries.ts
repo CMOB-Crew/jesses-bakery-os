@@ -490,6 +490,24 @@ export async function getStoreLastVisit(id: string): Promise<string | null> {
   }
 }
 
+// Named delivery runs + their days (runs table, loaded from Simona's confirmed
+// schedule). One run per region; region name = run name. Only runs that actually
+// have days set are returned, so the legacy empty "Run 1..8" rows drop out.
+// Powers the New Store wizard's "pick a run -> days auto-fill".
+export type RunOption = { name: string; region: string; days: string[] };
+export async function getRuns(): Promise<RunOption[]> {
+  try {
+    const rows = await sql<{ name: string; region: string; days: string[] }[]>`
+      select rn.name, r.name as region, rn.run_days::text[] as days
+      from runs rn join regions r on r.id = rn.region_id
+      where cardinality(rn.run_days) > 0
+      order by rn.name`;
+    return rows.map((r) => ({ name: r.name, region: r.region, days: r.days ?? [] }));
+  } catch {
+    return [];
+  }
+}
+
 // Per-store shelf-cap override (migration 022): a hand-set cap that replaces the
 // size-band default, and a no-limit flag for pick-to-order stores. Defaults
 // (null / false) when there's no row, so the profile falls back to stores.shelf_max.

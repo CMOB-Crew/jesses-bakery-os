@@ -58,6 +58,14 @@ const RETAILERS: { id: string; label: string }[] = [
   { id: "harris_farm", label: "Harris Farm" }, { id: "direct", label: "Direct / invoice" },
 ];
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+// weekday enum ('mon'..) -> the day labels this form uses. Runs carry their days
+// as the enum; the wizard shows/toggles the labels.
+const WD: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+const daysRecordFrom = (arr: string[]): Record<string, boolean> => {
+  const set = new Set(arr.map((x) => WD[x]).filter(Boolean));
+  return Object.fromEntries(DAYS.map((d) => [d, set.has(d)]));
+};
+export type RunOption = { name: string; region: string; days: string[] };
 
 // Ranging exclusions (Simona, 14 Aug). A store doesn't stock every line — a
 // product it doesn't range shouldn't be seeded into its bundle. Keyed off
@@ -122,15 +130,25 @@ function seed(size: Size, type: SType, excluded: Set<string> = new Set()): Recor
 
 const titleCaseRegion = (s: string) => (s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
-export default function NewStoreSetup({ regions = [] }: { regions?: string[] }) {
+export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: string[]; runs?: RunOption[] }) {
   // Real regions from the DB when available; otherwise the built-in fallback.
   const regionOpts = regions.length ? regions : REGIONS;
   const [name, setName] = useState("");
   const [retailer, setRetailer] = useState("woolworths");
   const [storeNo, setStoreNo] = useState("");
   const [region, setRegion] = useState(regionOpts[0]);
-  const [run, setRun] = useState("1");
-  const [days, setDays] = useState<Record<string, boolean>>({ Mon: true, Tue: false, Wed: true, Thu: false, Fri: true, Sat: false, Sun: false });
+  // Runs are named (= the delivery run), and picking one auto-fills its confirmed
+  // delivery days — the fix for the old "Run 1..8" numbers Simona found confusing.
+  const [run, setRun] = useState(runs[0]?.name ?? "1");
+  const [days, setDays] = useState<Record<string, boolean>>(() =>
+    runs[0] ? daysRecordFrom(runs[0].days) : { Mon: true, Tue: false, Wed: true, Thu: false, Fri: true, Sat: false, Sun: false },
+  );
+  // Pick a run -> set it AND pull its days in (still editable per store after).
+  function pickRun(nextName: string) {
+    setRun(nextName);
+    const r = runs.find((x) => x.name === nextName);
+    if (r) setDays(daysRecordFrom(r.days));
+  }
   const [size, setSize] = useState<Size>("small");
   const [type, setType] = useState<SType>("standard");
   const [cap, setCap] = useState(CAP_DEFAULT.small);
@@ -227,12 +245,14 @@ export default function NewStoreSetup({ regions = [] }: { regions?: string[] }) 
               </label>
               <label className="fld">
                 <span>Delivery run</span>
-                <select value={run} onChange={(e) => setRun(e.target.value)}>
-                  {["1", "2", "3", "4", "5", "6", "7", "8"].map((r) => <option key={r}>Run {r}</option>)}
+                <select value={run} onChange={(e) => pickRun(e.target.value)}>
+                  {runs.length
+                    ? runs.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)
+                    : ["1", "2", "3", "4", "5", "6", "7", "8"].map((r) => <option key={r} value={r}>Run {r}</option>)}
                 </select>
               </label>
               <div className="fld f-3">
-                <span>Delivery days</span>
+                <span>Delivery days{runs.length ? <em className="dhint"> · auto-filled from the {run} run, tweak if this store differs</em> : null}</span>
                 <div className="days">
                   {DAYS.map((d) => (
                     <button key={d} className={days[d] ? "on" : ""} onClick={() => toggleDay(d)}>{d}</button>
@@ -331,7 +351,7 @@ export default function NewStoreSetup({ regions = [] }: { regions?: string[] }) 
               <span className="newtag">● New — learning</span>
             </div>
             <div className="ch-meta">
-              {RETAILERS.find((r) => r.id === retailer)?.label} · {region} · Run {run}
+              {RETAILERS.find((r) => r.id === retailer)?.label} · {region} · {runs.length ? `${run} run` : `Run ${run}`}
             </div>
             <div className="ch-meta2">
               {SIZE_META[size].label} · {type === "standard" ? "Standard" : type === "sourdough" ? "Sourdough-led" : "Bagel-led"}
@@ -429,6 +449,7 @@ export default function NewStoreSetup({ regions = [] }: { regions?: string[] }) 
         .nstore .fld{display:flex;flex-direction:column;gap:6px}
         .nstore .fld>span{font-size:12px;font-weight:600;color:var(--ink2)}
         .nstore .f-2{grid-column:span 2}.nstore .f-3{grid-column:span 3}
+        .nstore .dhint{font-style:normal;color:var(--faint);font-weight:400;font-size:11px}
         .nstore input,.nstore select{border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:14px;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;width:100%}
         .nstore input:focus,.nstore select:focus{border-color:var(--crust);box-shadow:0 0 0 3px rgba(176,116,28,.13)}
         .nstore .seg{display:flex;gap:0;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex-wrap:wrap}
