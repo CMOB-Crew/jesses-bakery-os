@@ -173,23 +173,41 @@ export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: s
       : { ok: false, msg: res.error });
   }
 
-  const { excluded, reasons } = useMemo(() => rangingFor(region, retailer, name), [region, retailer, name]);
-  const excludedKey = useMemo(() => [...excluded].sort().join(","), [excluded]);
-  const [basket, setBasket] = useState<Record<string, number>>(() => seed("small", "standard"));
+  // Ranging is now CONFIRM-FIRST (Simona, Session 2): the wizard proposes what's
+  // ranged from the known store variances, but the user confirms/adjusts it and
+  // the bundle sizes off the confirmed set. `auto` is the proposal; `rangedOut`
+  // is the confirmed excluded set the user actually works with.
+  const auto = useMemo(() => rangingFor(region, retailer, name), [region, retailer, name]);
+  const reasons = auto.reasons;
+  const autoKey = useMemo(() => [...auto.excluded].sort().join(","), [auto.excluded]);
+  const [rangedOut, setRangedOut] = useState<Set<string>>(() => new Set(auto.excluded));
+  const [basket, setBasket] = useState<Record<string, number>>(() => seed("small", "standard", auto.excluded));
 
-  // Reseed when the store context that defines the bundle changes — size, type,
-  // or the ranging set. Manual (+/-) edits don't touch these deps, so they
-  // survive; changing region/retailer/size/type intentionally starts fresh.
+  // Changing the store context that defines the bundle (size, type, or the
+  // proposed ranging from region/retailer) starts fresh: re-propose the ranging
+  // and reseed. Manual (+/-) edits and per-product range toggles reset here by
+  // design — they belong to the store context that was showing.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reseed the bundle on a store-context change; manual basket edits reset by design here
-    setBasket(seed(size, type, rangingFor(region, retailer, name).excluded));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- region/retailer/name feed excludedKey; depending on the key avoids a reseed on every name keystroke
-  }, [size, type, excludedKey]);
+    const ex = rangingFor(region, retailer, name).excluded;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset ranging + bundle on a store-context change, by design
+    setRangedOut(ex);
+    setBasket(seed(size, type, ex));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- region/retailer/name feed autoKey; depending on the key avoids a reseed on every name keystroke
+  }, [size, type, autoKey]);
 
   function pickSize(s: Size) { setSize(s); setCap(CAP_DEFAULT[s]); }
   function pickType(t: SType) { setType(t); }
-  function bump(id: string, d: number) { if (excluded.has(id)) return; setBasket((b) => ({ ...b, [id]: Math.max(0, (b[id] ?? 0) + d) })); }
-  function reseed() { setBasket(seed(size, type, excluded)); }
+  function bump(id: string, d: number) { if (rangedOut.has(id)) return; setBasket((b) => ({ ...b, [id]: Math.max(0, (b[id] ?? 0) + d) })); }
+  function reseed() { setBasket(seed(size, type, rangedOut)); }
+  // Range a product in/out for this store, then resize the bundle off the new set
+  // (a structural change, like changing size — so it reseeds rather than keeping edits).
+  function toggleRanged(id: string) {
+    const next = new Set(rangedOut);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setRangedOut(next);
+    setBasket(seed(size, type, next));
+  }
+  const rangedInCount = PRODUCTS.length - rangedOut.size;
   function toggleDay(d: string) { setDays((x) => ({ ...x, [d]: !x[d] })); }
 
   const total = useMemo(() => Object.values(basket).reduce((a, b) => a + b, 0), [basket]);
@@ -298,7 +316,8 @@ export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: s
 
           {/* 3. Starting basket */}
           <div className="sec">
-            <div className="sec-h"><span className="no">3</span>Starting bundle
+            <div className="sec-h"><span className="no">3</span>Confirm ranged products &amp; bundle
+              <span className="rcount">{rangedInCount} of {PRODUCTS.length} ranged</span>
               <div className="seedsrc">
                 <button className={source === "profile" ? "on" : ""} onClick={() => setSource("profile")}>Simona&apos;s bundle</button>
                 <button className={source === "copy" ? "on" : ""} onClick={() => setSource("copy")}>Copy a similar store</button>
@@ -309,26 +328,26 @@ export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: s
                 Copies the basket of the closest same-size store on this run as the starting point — then you tweak. (Prototype uses Simona&apos;s bundle below.)
               </div>
             )}
-            {reasons.length > 0 && (
-              <div className="rangenote">
-                <b>Ranging applied.</b> {reasons.join("; ")}. Those lines are left out of the bundle and their
-                units redistribute across what this store does range.
-              </div>
-            )}
+            <div className="rangenote">
+              {reasons.length > 0
+                ? <><b>Ranging proposed.</b> {reasons.join("; ")}. Confirm or adjust below — use <b>Range in</b> / <b>✕</b> on any line. The bundle sizes off whatever&apos;s ranged and redistributes the rest.</>
+                : <><b>Confirm what&apos;s ranged to this store first.</b> Range a line out with <b>✕</b> or back in with <b>Range in</b>; the starting bundle sizes off the ranged set.</>}
+            </div>
             <div className="basket">
               {grouped.map((g) => (
                 <div className="bgroup" key={g.cat}>
                   <div className="bgh"><i style={{ background: CAT_COLOR[g.cat] }} />{CAT_LABEL[g.cat]}<span className="bgt">{byCat[g.cat]}</span></div>
                   {g.items.map((p) => (
-                    excluded.has(p.id) ? (
+                    rangedOut.has(p.id) ? (
                       <div className="brow off" key={p.id}>
                         <span className="bn">{p.name}<span className="pcode">#{p.code}</span></span>
-                        <span className="notranged">Not ranged here</span>
+                        <button className="rangebtn in" onClick={() => toggleRanged(p.id)} title="Range this product in for the store">＋ Range in</button>
                       </div>
                     ) : (
                       <div className="brow" key={p.id}>
                         <span className="bn">{p.name}<span className="pcode">#{p.code}</span></span>
                         <div className="bstep">
+                          <button className="rangebtn out" onClick={() => toggleRanged(p.id)} title="Range this product out for the store">✕</button>
                           <button onClick={() => bump(p.id, -1)} aria-label="less">−</button>
                           <span className="bq">{basket[p.id] ?? 0}</span>
                           <button onClick={() => bump(p.id, +1)} aria-label="more">+</button>
@@ -482,7 +501,12 @@ export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: s
         .nstore .rangenote b{color:var(--amber-t);font-weight:700}
         .nstore .brow{display:flex;align-items:center;gap:8px;padding:4px 0}
         .nstore .brow.off .bn{opacity:.55}
-        .nstore .notranged{margin-left:auto;font-size:11px;font-weight:600;color:var(--muted);background:var(--line2);border-radius:999px;padding:3px 10px;white-space:nowrap}
+        .nstore .rcount{font-family:var(--sans);font-size:11.5px;font-weight:600;color:var(--muted);background:var(--line2);border-radius:999px;padding:3px 10px}
+        .nstore .rangebtn{border:1px solid var(--line);background:var(--card);border-radius:7px;font-family:inherit;font-weight:700;cursor:pointer;flex:none}
+        .nstore .rangebtn.in{margin-left:auto;font-size:11.5px;color:var(--crust-deep);padding:4px 11px}
+        .nstore .rangebtn.in:hover{background:#f3ecdd}
+        .nstore .rangebtn.out{margin-left:auto;width:26px;height:26px;font-size:12px;color:var(--muted);border-radius:8px}
+        .nstore .rangebtn.out:hover{color:var(--red-t);background:#faf0ee;border-color:var(--red)}
         .nstore .bn{font-size:13px;color:var(--ink2);display:flex;flex-direction:column;line-height:1.25}
         .nstore .pcode{font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums}
         .nstore .bstep{margin-left:auto;display:flex;align-items:center;gap:1px;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:none}
