@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 
 // Driver app — phone prototype. The build that matters for drivers: dead simple,
 // big taps, live-capture only (no gallery), works down the run stop by stop.
@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Status = "done" | "next" | "pending" | "circle";
 type Stop = { id: number; name: string; addr: string; items: [string, number][]; status: Status };
-type Screen = "run" | "stop" | "circle" | "cam" | "photo" | "waste" | "sign" | "done";
+type Screen = "licence" | "run" | "stop" | "circle" | "cam" | "photo" | "waste" | "sign" | "done";
 
 const INITIAL: Stop[] = [
   { id: 0, name: "Coles Bondi Junction", addr: "500 Oxford St · Bondi Junction", items: [["White Sourdough", 6], ["Plain Bagel", 8], ["Mini Challah", 4], ["Pita", 5]], status: "done" },
@@ -26,7 +26,7 @@ const WPRODS = ["Sourdough", "Bagels", "Challah", "Pita"];
 const REASONS = ["Truck at loading dock", "Store closed", "No room on shelf", "No one to receive"];
 
 export default function DriverApp() {
-  const [screen, setScreen] = useState<Screen>("run");
+  const [screen, setScreen] = useState<Screen>("licence");
   const [stops, setStops] = useState<Stop[]>(INITIAL);
   const [curId, setCurId] = useState<number | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -34,6 +34,37 @@ export default function DriverApp() {
   const [waste, setWaste] = useState<Record<string, number>>({});
   const [reason, setReason] = useState<string | null>(null);
   const [realCam, setRealCam] = useState(false);
+  // Driver licence, captured at the start of the shift (Simona: drivers get fines
+  // and have accidents, and there's no record of licences today). Prototype: held
+  // in state for the session; real capture writes to the driver record next phase.
+  const [licence, setLicence] = useState<string | null>(null);
+  const [licBusy, setLicBusy] = useState(false);
+  const licRef = useRef<HTMLInputElement>(null);
+  function onPickLicence(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setLicBusy(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 1100;
+        let w = img.width, h = img.height;
+        if (w > h && w > max) { h = Math.round((h * max) / w); w = max; }
+        else if (h > max) { w = Math.round((w * max) / h); h = max; }
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        c.getContext("2d")?.drawImage(img, 0, 0, w, h);
+        setLicence(c.toDataURL("image/jpeg", 0.8));
+        setLicBusy(false);
+      };
+      img.onerror = () => { setLicBusy(false); };
+      img.src = reader.result as string;
+    };
+    reader.onerror = () => { setLicBusy(false); };
+    reader.readAsDataURL(file);
+  }
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -183,6 +214,38 @@ export default function DriverApp() {
       <div className="cap">Driver app · phone prototype. Live-capture only (no gallery) via the camera — grant access to see your real camera, otherwise it falls back to a simulated capture so the flow always runs.</div>
       <div className="phone">
         <div className="notch" />
+
+        {/* START OF SHIFT — LICENCE CAPTURE */}
+        {screen === "licence" && (
+          <div className="screen">
+            <div className="bar"><div><h1>Start your shift</h1><div className="sub">Eastern Suburbs · Monday</div></div></div>
+            <div className="content">
+              <div className="drv"><div className="av">A</div><div><div className="rn">Ankit</div><small>Van 3</small></div></div>
+              <div className="box">
+                <div className="bh">Driver licence</div>
+                <div style={{ fontSize: 13.5, color: "var(--ink2)", lineHeight: 1.5, marginBottom: 12 }}>
+                  Snap your licence to start your shift. We keep it on file so there&apos;s a record for every run — for fines, incidents and insurance. One quick photo.
+                </div>
+                <input ref={licRef} type="file" accept="image/*" capture="environment" onChange={onPickLicence} hidden aria-hidden="true" />
+                {licence ? (
+                  <div className="lic-shot">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- data: URL, next/image can't optimise it */}
+                    <img className="lic-img" src={licence} alt="Driver licence" />
+                    <div className="lic-ok">✓ Licence captured</div>
+                    <button type="button" className="lic-retake" onClick={() => licRef.current?.click()} disabled={licBusy}>Retake</button>
+                  </div>
+                ) : (
+                  <button type="button" className="lic-add" onClick={() => licRef.current?.click()} disabled={licBusy}>
+                    {licBusy ? "Working…" : "📷  Photograph licence"}
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="actions">
+              <button className="big" disabled={!licence} onClick={() => setScreen("run")}>{licence ? "Start shift" : "Add your licence to start"}</button>
+            </div>
+          </div>
+        )}
 
         {/* RUN LIST */}
         {screen === "run" && (
@@ -365,6 +428,13 @@ export default function DriverApp() {
       .drvwrap .big:active{transform:scale(.985)}
       .drvwrap .big.green{background:var(--green)}
       .drvwrap .big.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line);margin-top:9px}
+      .drvwrap .big:disabled{opacity:.45;cursor:not-allowed}
+      .drvwrap .lic-add{display:block;width:100%;padding:22px 15px;border:2px dashed var(--line);border-radius:14px;background:var(--surface);color:var(--ink2);font-family:inherit;font-weight:700;font-size:15px;cursor:pointer}
+      .drvwrap .lic-add:disabled{opacity:.6;cursor:default}
+      .drvwrap .lic-shot{display:flex;flex-direction:column;align-items:center;gap:10px}
+      .drvwrap .lic-img{width:100%;max-height:200px;object-fit:cover;border-radius:12px;border:1px solid var(--line)}
+      .drvwrap .lic-ok{font-size:13.5px;font-weight:700;color:var(--green-t)}
+      .drvwrap .lic-retake{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 16px;font-family:inherit;font-weight:600;font-size:13px;color:var(--ink2);cursor:pointer}
       .drvwrap .cam{flex:1;background:#14100c;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
       .drvwrap .cam video,.drvwrap .cam img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
       .drvwrap .cam .fb{color:#d8cbb4;text-align:center;padding:24px;z-index:2}
