@@ -1,17 +1,19 @@
--- Migration 014: enable RLS on the business tables (deny-by-default) -- DRAFT / HOLD
+-- Migration 014: enable RLS on the business tables (deny-by-default).
 -- Source: Auth-RLS build plan; connection model Option A (Fred, 19 Aug 2026).
+-- REVIEWED by Fred (20 Aug) with his fixes applied (driver_photos insert+read
+-- only; write-back tables moved to 018 for clean in-order apply). Companion: 018.
 --
--- ============================ DO NOT APPLY YET ============================
--- This is the LAST step of the foundation and is destructive to access if the
--- request path isn't carrying a verified user yet. Apply ONLY after:
---   1. 012 (identity) and 013 (views security_invoker) are in.
---   2. The per-request wrapper (apps/web/lib/db.ts -> runAsUser) is deployed and
---      AUTH_ENFORCED=1, so every request runs inside a transaction that injects
---      request.jwt.claims. Any query NOT going through the wrapper will see zero
---      rows once this is on.
---   3. The two-user test passes: two users + same query -> different rows; an
---      unauthenticated call -> nothing.
--- Fred is reviewing this file on the PR before it goes near prod.
+-- ==================== APPLY ORDER (Fred's runbook, 21 Aug) ====================
+-- Applying 014 + 018 is NON-BREAKING right now: the app still connects as a
+-- PRIVILEGED (BYPASSRLS) role, so these policies don't take effect until the
+-- connection is repointed to the non-privileged jbo_app role. So:
+--   1. 012 (identity) + 013 (views security_invoker) already applied.
+--   2. Apply 014 then 018 (safe; app unaffected under the privileged connection).
+--   3. Create jbo_app, run the coverage + role checks + the two-user test.
+--   4. ONLY after those pass: repoint DATABASE_URL to jbo_app AND set
+--      AUTH_ENFORCED=1 together, then redeploy. That's the enforcement switch and
+--      the one risky step. Rollback = point DATABASE_URL back + unset the flag.
+-- Any query NOT routed through the runAsUser wrapper sees zero rows once enforced.
 -- =========================================================================
 --
 -- Model:
@@ -36,14 +38,18 @@
 do $$
 declare
   t text;
+  -- Only tables that exist by this migration (001-011). The write-back tables
+  -- (store_product_ranging/store_settings/app_settings/daily_run_state) are
+  -- created by 015-017, so they're covered in 018 -- keeping them out of here
+  -- means the migration set applies cleanly in numeric order (a fresh/CI apply
+  -- of 014 before 015-017 would otherwise fail on a not-yet-created table).
   biz text[] := array[
     'regions','runs','products','pricing_tiers','product_prices',
     'stores','store_run_overrides','standing_orders','sales_daily',
     'sales_intraday','feed_status_log','deliveries','delivery_items',
     'delivery_photos','wastage','on_hand_ledger','replenishment_plans',
     'events','packing_records','ingredient_receipts','task_checklists',
-    'store_product_overrides','store_product_ranging','store_settings',
-    'app_settings','daily_run_state'
+    'store_product_overrides'
   ];
 begin
   foreach t in array biz loop
@@ -81,11 +87,20 @@ drop policy if exists driver_read_stores on stores;
 create policy driver_read_stores on stores
   for select using (public.current_app_role() = 'driver');
 
+-- Insert + read only, deliberately NOT "for all". A proof-of-delivery photo is
+-- evidence: a driver may add one and see delivery photos, but must not be able to
+-- UPDATE or DELETE a photo (their own or anyone else's) -- that would let a driver
+-- remove evidence of a drop they missed. Admin/manager/office keep full access via
+-- biz_all above, so nothing legitimate breaks. (Fred, 014 review, 20 Aug 2026.)
 drop policy if exists driver_photos on delivery_photos;
-create policy driver_photos on delivery_photos
-  for all
-  using      (public.current_app_role() = 'driver')
-  with check (public.current_app_role() = 'driver');
+drop policy if exists driver_photos_insert on delivery_photos;
+drop policy if exists driver_photos_read on delivery_photos;
+
+create policy driver_photos_insert on delivery_photos
+  for insert with check (public.current_app_role() = 'driver');
+
+create policy driver_photos_read on delivery_photos
+  for select using (public.current_app_role() = 'driver');
 
 -- ---------------------------------------------------------------------------
 -- Legacy identity table (app_users): holds pin_hash -> admin-only, no business
