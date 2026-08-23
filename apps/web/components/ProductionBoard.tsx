@@ -22,6 +22,16 @@ const CAT_COLOR: Record<string, string> = {
 };
 const catColor = (c: string) => CAT_COLOR[c] ?? "var(--crust)";
 
+// Jesse's floor runs two separate production sheets, not one (his own sheets,
+// 3 + 11 Aug). Sourdough is its own run because it's made the day before it's
+// baked and delivered the day after — a three-day cycle against the regular
+// sheet's bake-then-deliver. Dark rye rides with the sourdough sheet on
+// Jesse's, even though it isn't categorised as sourdough.
+type Sheet = "regular" | "sourdough";
+const sheetOf = (l: { name: string; category: string }): Sheet =>
+  l.category.toLowerCase().includes("sourdough") || /dark\s*rye/i.test(l.name) ? "sourdough" : "regular";
+const SHEET_LABEL: Record<Sheet, string> = { regular: "Regular", sourdough: "Sourdough" };
+
 const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DOWSHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 // Fallback demand curve (Mon..Sun) — quieter Mon/Tue, heavy Fri/Sat/Sun.
@@ -46,7 +56,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
   const DSUM = DOWMULT.reduce((a, b) => a + b, 0);
   // Coerce every numeric field up front — Postgres returns decimals as strings,
   // and even ::int sums are cheap to harden. Keeps arithmetic + toLocaleString safe.
-  const lines = useMemo(
+  const allLines = useMemo(
     () =>
       raw.map((l) => ({
         name: l.name,
@@ -58,9 +68,24 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
     [raw],
   );
 
+  // Which of Jesse's two sheets the floor is looking at. Adjustments are keyed
+  // by product name and held across the switch, so flipping sheets never
+  // loses a nudge. Everything below reads `lines` — the visible sheet only.
+  // Start on Regular, unless the plan somehow holds only sourdough lines —
+  // never open on an empty sheet.
+  const [sheet, setSheet] = useState<Sheet>(() => (allLines.some((l) => sheetOf(l) === "regular") ? "regular" : "sourdough"));
+  const lines = useMemo(() => allLines.filter((l) => sheetOf(l) === sheet), [allLines, sheet]);
+  const sheetCounts = useMemo(
+    () => ({
+      regular: allLines.filter((l) => sheetOf(l) === "regular").length,
+      sourdough: allLines.filter((l) => sheetOf(l) === "sourdough").length,
+    }),
+    [allLines],
+  );
+
   const orig = useMemo(
-    () => Object.fromEntries(lines.map((l) => [l.name, l.recommended])) as Record<string, number>,
-    [lines],
+    () => Object.fromEntries(allLines.map((l) => [l.name, l.recommended])) as Record<string, number>,
+    [allLines],
   );
 
   // categories, biggest bake first
@@ -96,6 +121,20 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
   const traysFor = (units: number, category: string) => {
     const sz = traySizeOf(category);
     return sz ? Math.ceil(units / sz) : null;
+  };
+  // Jesse's sheet states bagels and challah in trays — the tray count is the
+  // number the floor works to, with the unit total underneath. Until the tray
+  // size is set in Settings there's nothing to convert with, so units stand
+  // alone rather than us inventing a tray figure.
+  const qtyCell = (units: number, category: string) => {
+    const t = traysFor(units, category);
+    if (t == null) return <>{nf(units)}</>;
+    return (
+      <>
+        {nf(t)}<span className="uomsub">{t === 1 ? "tray" : "trays"}</span>
+        <span className="unitsub">{nf(units)} units</span>
+      </>
+    );
   };
 
   const [day, setDay] = useState<Day>("week");
@@ -147,7 +186,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
   // selected day, with the day-split), any adjustments applied, grouped by
   // category in bake order. Real CSV the floor can open and print.
   function exportBakeSheet() {
-    const header = ["Category", "Product", "UoM", "Current bake", "Suggested bake", "Trays", "Difference", "Stores", isWeek ? "Confirmed" : "Baked"];
+    const header = ["Sheet", "Category", "Product", "Qty", "UoM", "Units", "Current bake", "Difference", "Stores", isWeek ? "Confirmed" : "Baked"];
     const body: string[] = [];
     for (const g of groups) {
       for (const l of g.rows) {
@@ -155,7 +194,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
         const plan = dv(val(l.name));
         const trays = traysFor(plan, g.category);
         body.push(
-          [g.category, l.name, catUom(g.category), cur, plan, trays ?? "", plan - cur, l.stores, isDone(l.name) ? "Yes" : ""]
+          [SHEET_LABEL[sheet], g.category, l.name, trays ?? plan, catUom(g.category).toUpperCase(), plan, cur, plan - cur, l.stores, isDone(l.name) ? "Yes" : ""]
             .map(csvCell)
             .join(","),
         );
@@ -167,12 +206,12 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `jesses-bake-sheet-${scope}.csv`;
+    a.download = `jesses-${sheet}-bake-sheet-${scope}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    showToast(`Bake sheet exported — ${lines.length} lines (${isWeek ? "whole week" : dayName})`);
+    showToast(`${SHEET_LABEL[sheet]} sheet exported — ${lines.length} lines (${isWeek ? "whole week" : dayName})`);
   }
   function setEngine(name: string, next: number, record = true) {
     if (!isWeek) return;
@@ -241,6 +280,24 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
 
   return (
     <section className="pcalm">
+      {sheetCounts.regular > 0 && sheetCounts.sourdough > 0 && (
+        <div className="sheetrow">
+          <span className="lbl">Sheet</span>
+          <div className="sheetselect">
+            {(["regular", "sourdough"] as Sheet[]).map((s) => (
+              <button type="button" key={s} className={`sheetpill ${sheet === s ? "on" : ""}`} onClick={() => setSheet(s)}>
+                {SHEET_LABEL[s]}<span className="cnt">{sheetCounts[s]}</span>
+              </button>
+            ))}
+          </div>
+          <span className="sheetnote">
+            {sheet === "sourdough"
+              ? "Sourdough runs its own sheet at Jesse's — made the day before it's baked, then delivered the day after."
+              : "Bagels, challah, babkas, bread and pastries — baked, then delivered the next day."}
+          </span>
+        </div>
+      )}
+
       <div className="dayrow">
         <span className="lbl">Show bake for</span>
         <div className="dayselect">
@@ -343,7 +400,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
                     <button type="button" className="appall" onClick={(e) => { e.stopPropagation(); doneCat(g.category); }}>{isWeek ? "Confirm all" : "Mark all baked"}</button>
                   </div>
                   <div className="cat-send hide">{nf(send)}</div>
-                  <div className="cat-eng">{nf(engs)}{catUom(g.category) === "tray" && traysFor(engs, g.category) != null && <span className="traynote">≈ {nf(traysFor(engs, g.category)!)} trays</span>}</div>
+                  <div className="cat-eng">{qtyCell(engs, g.category)}</div>
                   <div className="cat-chg">{catChg(fewer)}</div>
                   <div className="hide" />
                   <div className="cat-chev"><svg className="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg></div>
@@ -360,27 +417,25 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
                       <div className="pname">{l.name}</div>
                       <div className="sendnow hide">{nf(dv(l.sent))}</div>
                       {isWeek ? (
-                        <div className="engcell"><div className="stepper">
-                          <button type="button" aria-label={`decrease ${l.name}`} onClick={() => setEngine(l.name, v - 1)}>−</button>
-                          <input
-                            className={changed ? "edited" : ""}
-                            value={v}
-                            inputMode="numeric"
-                            onChange={(e) => setEngine(l.name, parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)}
-                            onFocus={(e) => e.currentTarget.select()}
-                          />
-                          <button type="button" aria-label={`increase ${l.name}`} onClick={() => setEngine(l.name, v + 1)}>+</button>
-                        </div>
-                        {catUom(l.category) === "tray" && traysFor(dv(v), l.category) != null && (
-                          <div className="traysub">≈ {nf(traysFor(dv(v), l.category)!)} trays</div>
-                        )}
+                        <div className="engcell">
+                          {traysFor(dv(v), l.category) != null && (
+                            <div className="traylead">{nf(traysFor(dv(v), l.category)!)} {traysFor(dv(v), l.category) === 1 ? "tray" : "trays"}</div>
+                          )}
+                          <div className="stepper">
+                            <button type="button" aria-label={`decrease ${l.name}`} onClick={() => setEngine(l.name, v - 1)}>−</button>
+                            <input
+                              className={changed ? "edited" : ""}
+                              value={v}
+                              inputMode="numeric"
+                              onChange={(e) => setEngine(l.name, parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)}
+                              onFocus={(e) => e.currentTarget.select()}
+                            />
+                            <button type="button" aria-label={`increase ${l.name}`} onClick={() => setEngine(l.name, v + 1)}>+</button>
+                          </div>
+                          {traysFor(dv(v), l.category) != null && <div className="unitsub">units</div>}
                         </div>
                       ) : (
-                        <div className="engcell"><div className="engnum">{nf(dv(v))}</div>
-                          {catUom(l.category) === "tray" && traysFor(dv(v), l.category) != null && (
-                            <div className="traysub">≈ {nf(traysFor(dv(v), l.category)!)} trays</div>
-                          )}
-                        </div>
+                        <div className="engcell"><div className="engnum">{qtyCell(dv(v), l.category)}</div></div>
                       )}
                       <div className="chg">
                         {isWeek && changed && (
@@ -407,7 +462,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
 
       <div className="foot">
         {isWeek ? (
-          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Your line confirmations save and stay across reloads;</b> the −/+ quantity nudges are a working draft, and printing &amp; locking the sheet for the floor is the next build phase. Daily splits are {shape ? "sized from the measured weekday shape" : "modelled from typical day-of-week demand"} until the daily plan is wired — the weekly totals are exact. <b>Bagels and challah are baked by the tray</b> — set the units-per-tray in Settings and the tray count shows next to each unit total.</>
+          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Your line confirmations save and stay across reloads;</b> the −/+ quantity nudges are a working draft, and printing &amp; locking the sheet for the floor is the next build phase. Daily splits are {shape ? "sized from the measured weekday shape" : "modelled from typical day-of-week demand"} until the daily plan is wired — the weekly totals are exact. <b>Bagels and challah are counted by the tray</b>, the way Jesse&apos;s own sheet reads — set the units-per-tray in Settings and the tray count becomes the headline number, with units underneath.</>
         ) : (
           <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Tick each line as it&apos;s baked, or export the sheet for the bench. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is {shape ? "sized from the measured weekday shape" : "modelled from typical demand"} until the daily plan is wired.</>
         )}
@@ -487,8 +542,15 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
       .pcalm .cathead .rn{font-family:var(--serif);font-size:15.5px;font-weight:600;letter-spacing:-.2px}
       .pcalm .cathead .cnt{border-radius:999px;font-size:11px;font-weight:700;padding:2px 9px}
       .pcalm .uompill{font-size:10px;font-weight:700;letter-spacing:.3px;color:var(--crust-deep);background:#f3e6cf;border:1px solid #e6d3ad;border-radius:999px;padding:2px 9px;text-transform:uppercase;white-space:nowrap}
-      .pcalm .cat-eng .traynote{display:block;font-size:11px;font-weight:600;color:var(--crust-deep);margin-top:2px}
-      .pcalm .traysub{text-align:center;font-size:11px;font-weight:600;color:var(--crust-deep);margin-top:3px;font-variant-numeric:tabular-nums}
+      .pcalm .uomsub{font-size:10.5px;font-weight:700;letter-spacing:.3px;color:var(--crust-deep);text-transform:uppercase;margin-left:4px}
+      .pcalm .unitsub{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
+      .pcalm .traylead{text-align:center;font-size:13px;font-weight:700;color:var(--crust-deep);margin-bottom:3px;font-variant-numeric:tabular-nums}
+      .pcalm .sheetrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+      .pcalm .sheetselect{display:inline-flex;gap:4px;background:#f6efe2;border:1px solid #e6d3ad;border-radius:999px;padding:3px}
+      .pcalm .sheetpill{display:inline-flex;align-items:center;gap:7px;border:0;background:transparent;border-radius:999px;padding:5px 14px;font-size:13px;font-weight:600;color:var(--ink2);cursor:pointer}
+      .pcalm .sheetpill.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+      .pcalm .sheetpill .cnt{font-size:11px;font-weight:700;color:var(--crust-deep);background:#efe0c4;border-radius:999px;padding:1px 7px}
+      .pcalm .sheetnote{font-size:12px;color:var(--muted);max-width:520px;line-height:1.5}
       .pcalm .cat-send{text-align:right;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
       .pcalm .cat-eng{text-align:center;color:var(--ink);font-weight:700;font-size:14px;font-variant-numeric:tabular-nums}
       .pcalm .cat-chg{text-align:right;color:var(--crust-deep);font-weight:700;font-size:13px;font-variant-numeric:tabular-nums}
