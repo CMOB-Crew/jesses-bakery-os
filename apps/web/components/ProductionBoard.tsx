@@ -34,7 +34,7 @@ type Day = "week" | number;
 // works down it by bread type, nudging any Engine-plan number (−/+ appear on
 // hover), resetting or undoing, and ticking each line to confirm. Flip to a
 // single day to hand the floor exactly what to make that day. Totals recalc live.
-export default function ProductionBoard({ lines: raw, shape = null, saved = {} }: { lines: ProductionLine[]; shape?: WeekdayShape | null; saved?: Record<string, boolean> }) {
+export default function ProductionBoard({ lines: raw, shape = null, saved = {}, traySizes = { bagel: null, challah: null } }: { lines: ProductionLine[]; shape?: WeekdayShape | null; saved?: Record<string, boolean>; traySizes?: { bagel: number | null; challah: number | null } }) {
   // Day-split curve (Mon..Sun) — measured from real sell-through when we have
   // it (reindexed from the Sun..Sat shape), else the seed. Same shape the
   // Deliveries board and Seasonality calendar use — the factory bakes to the
@@ -74,6 +74,29 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {} }
       .map(([category, rows]) => ({ category, rows, sent: rows.reduce((a, r) => a + r.sent, 0) }))
       .sort((a, b) => b.sent - a.sent);
   }, [lines]);
+
+  // Unit of measure per category. Bagels + challah bake and count by the tray
+  // on Jesse's production sheet (Simona, Session 2); everything else counts by
+  // the individual unit. UoM is uniform within a category. Category-name match
+  // is loose (contains) so "Bagel"/"Bagels"/"Mini Challah" all resolve.
+  const trayKindOf = (category: string): "bagel" | "challah" | null => {
+    const c = category.toLowerCase();
+    if (c.includes("bagel")) return "bagel";
+    if (c.includes("challah")) return "challah";
+    return null;
+  };
+  const catUom = (category: string) => (trayKindOf(category) ? "tray" : "unit");
+  const traySizeOf = (category: string) => {
+    const k = trayKindOf(category);
+    const n = k ? traySizes[k] : null;
+    return n && n > 0 ? n : null;
+  };
+  // Trays for a unit count, once the tray size is set. null until Simona
+  // confirms the size in Settings — the sheet shows units and waits.
+  const traysFor = (units: number, category: string) => {
+    const sz = traySizeOf(category);
+    return sz ? Math.ceil(units / sz) : null;
+  };
 
   const [day, setDay] = useState<Day>("week");
   const [eng, setEng] = useState<Record<string, number>>(orig);
@@ -124,14 +147,15 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {} }
   // selected day, with the day-split), any adjustments applied, grouped by
   // category in bake order. Real CSV the floor can open and print.
   function exportBakeSheet() {
-    const header = ["Category", "Product", "Current bake", "Suggested bake", "Difference", "Stores", isWeek ? "Confirmed" : "Baked"];
+    const header = ["Category", "Product", "UoM", "Current bake", "Suggested bake", "Trays", "Difference", "Stores", isWeek ? "Confirmed" : "Baked"];
     const body: string[] = [];
     for (const g of groups) {
       for (const l of g.rows) {
         const cur = dv(l.sent);
         const plan = dv(val(l.name));
+        const trays = traysFor(plan, g.category);
         body.push(
-          [g.category, l.name, cur, plan, plan - cur, l.stores, isDone(l.name) ? "Yes" : ""]
+          [g.category, l.name, catUom(g.category), cur, plan, trays ?? "", plan - cur, l.stores, isDone(l.name) ? "Yes" : ""]
             .map(csvCell)
             .join(","),
         );
@@ -313,10 +337,13 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {} }
                     <span className="acc" style={{ background: color }} />
                     <span className="rn">{g.category}</span>
                     <span className="cnt" style={{ background: `${color}22`, color }}>{g.rows.length}</span>
+                    {catUom(g.category) === "tray" && (
+                      <span className="uompill">by the tray{traySizeOf(g.category) ? ` · ${traySizeOf(g.category)}/tray` : ""}</span>
+                    )}
                     <button type="button" className="appall" onClick={(e) => { e.stopPropagation(); doneCat(g.category); }}>{isWeek ? "Confirm all" : "Mark all baked"}</button>
                   </div>
                   <div className="cat-send hide">{nf(send)}</div>
-                  <div className="cat-eng">{nf(engs)}</div>
+                  <div className="cat-eng">{nf(engs)}{catUom(g.category) === "tray" && traysFor(engs, g.category) != null && <span className="traynote">≈ {nf(traysFor(engs, g.category)!)} trays</span>}</div>
                   <div className="cat-chg">{catChg(fewer)}</div>
                   <div className="hide" />
                   <div className="cat-chev"><svg className="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg></div>
@@ -343,9 +370,17 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {} }
                             onFocus={(e) => e.currentTarget.select()}
                           />
                           <button type="button" aria-label={`increase ${l.name}`} onClick={() => setEngine(l.name, v + 1)}>+</button>
-                        </div></div>
+                        </div>
+                        {catUom(l.category) === "tray" && traysFor(dv(v), l.category) != null && (
+                          <div className="traysub">≈ {nf(traysFor(dv(v), l.category)!)} trays</div>
+                        )}
+                        </div>
                       ) : (
-                        <div className="engcell"><div className="engnum">{nf(dv(v))}</div></div>
+                        <div className="engcell"><div className="engnum">{nf(dv(v))}</div>
+                          {catUom(l.category) === "tray" && traysFor(dv(v), l.category) != null && (
+                            <div className="traysub">≈ {nf(traysFor(dv(v), l.category)!)} trays</div>
+                          )}
+                        </div>
                       )}
                       <div className="chg">
                         {isWeek && changed && (
@@ -372,7 +407,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {} }
 
       <div className="foot">
         {isWeek ? (
-          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Your line confirmations save and stay across reloads;</b> the −/+ quantity nudges are a working draft, and printing &amp; locking the sheet for the floor is the next build phase. Daily splits are {shape ? "sized from the measured weekday shape" : "modelled from typical day-of-week demand"} until the daily plan is wired — the weekly totals are exact.</>
+          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Your line confirmations save and stay across reloads;</b> the −/+ quantity nudges are a working draft, and printing &amp; locking the sheet for the floor is the next build phase. Daily splits are {shape ? "sized from the measured weekday shape" : "modelled from typical day-of-week demand"} until the daily plan is wired — the weekly totals are exact. <b>Bagels and challah are baked by the tray</b> — set the units-per-tray in Settings and the tray count shows next to each unit total.</>
         ) : (
           <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Tick each line as it&apos;s baked, or export the sheet for the bench. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is {shape ? "sized from the measured weekday shape" : "modelled from typical demand"} until the daily plan is wired.</>
         )}
@@ -451,6 +486,9 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {} }
       .pcalm .cathead .acc{width:5px;height:22px;border-radius:4px;flex:none}
       .pcalm .cathead .rn{font-family:var(--serif);font-size:15.5px;font-weight:600;letter-spacing:-.2px}
       .pcalm .cathead .cnt{border-radius:999px;font-size:11px;font-weight:700;padding:2px 9px}
+      .pcalm .uompill{font-size:10px;font-weight:700;letter-spacing:.3px;color:var(--crust-deep);background:#f3e6cf;border:1px solid #e6d3ad;border-radius:999px;padding:2px 9px;text-transform:uppercase;white-space:nowrap}
+      .pcalm .cat-eng .traynote{display:block;font-size:11px;font-weight:600;color:var(--crust-deep);margin-top:2px}
+      .pcalm .traysub{text-align:center;font-size:11px;font-weight:600;color:var(--crust-deep);margin-top:3px;font-variant-numeric:tabular-nums}
       .pcalm .cat-send{text-align:right;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
       .pcalm .cat-eng{text-align:center;color:var(--ink);font-weight:700;font-size:14px;font-variant-numeric:tabular-nums}
       .pcalm .cat-chg{text-align:right;color:var(--crust-deep);font-weight:700;font-size:13px;font-variant-numeric:tabular-nums}

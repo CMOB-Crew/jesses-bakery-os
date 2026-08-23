@@ -251,8 +251,11 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
                   <td><StatusTag status={effOf(s)} /></td>
                   <td className="num">{s.waste_pct == null ? "—" : `${s.waste_pct}%`}</td>
                   {anyStockouts && <td className="num">{num(s.stockout_days) || "—"}</td>}
-                  {/* No-data stores have no feed yet — show "—", not a misleading 0 sold (matches the waste column). */}
-                  <td className="num">{effOf(s) === "nodata" ? "—" : nf(num(s.total_sent))}</td>
+                  {/* No delivered figure yet (no-data store, or sold-only feed with no
+                      delivered/sent data loaded) — show "—", not a misleading 0. A 0 next
+                      to real sold units reads as "sold X from nothing delivered". Matches
+                      the waste column, which is also "—" until delivered data lands. */}
+                  <td className="num">{effOf(s) === "nodata" || num(s.total_sent) === 0 ? "—" : nf(num(s.total_sent))}</td>
                   <td className="num">{effOf(s) === "nodata" ? "—" : nf(num(s.total_sold))}</td>
                 </tr>
               ))}

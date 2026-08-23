@@ -397,7 +397,7 @@ export default function StoreProfile({
         <div className="sumbox">
           <div className="sb-h">Units</div>
           <div className="sb-pair">
-            <div className="sb-one"><div className="sb-v">{nf(sentWk)}</div><div className="sb-l">Sent</div></div>
+            <div className="sb-one"><div className="sb-v">{sentWk > 0 ? nf(sentWk) : "—"}</div><div className="sb-l">Sent</div></div>
             <div className="sb-one"><div className="sb-v">{nf(soldWk)}</div><div className="sb-l">Sold</div></div>
           </div>
         </div>

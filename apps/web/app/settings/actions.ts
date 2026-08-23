@@ -14,6 +14,8 @@ const ALLOWED = new Set([
   "size_baskets",
   "shelf_lead",
   "seasonality_factors",
+  "waste_thresholds",
+  "tray_sizes",
 ]);
 
 export async function saveSetting(key: string, value: unknown): Promise<WriteResult> {
