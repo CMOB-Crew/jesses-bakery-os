@@ -39,13 +39,24 @@ function bandOf(size: string | null): Band | null {
 // sends 120 is fine; 20% at a Small store that sends 50 is not. So the two lists
 // can be filtered to Small / Medium / Large, each list shows the wasted UNIT
 // count next to the %, and a per-size strip shows what the typical % is in units.
-export default function TodayDashboard({ stores, net, asOf, revenue = null, thresholds = null }: { stores: StoreWeek[]; net: NetworkWeek; asOf: string; revenue?: { salesWk: number; wasteWk: number } | null; thresholds?: { small: number; medium: number; large: number } | null }) {
+export default function TodayDashboard({ stores, net, asOf, revenue = null, thresholds = null, states = {}, revByStore = {} }: { stores: StoreWeek[]; net: NetworkWeek; asOf: string; revenue?: { salesWk: number; wasteWk: number } | null; thresholds?: { small: number; medium: number; large: number } | null; states?: Record<string, string>; revByStore?: Record<string, { rev: number; aur: number | null }> }) {
   // Waste thresholds per size, from Settings (Simona sets her own; these floats
   // are the starting point she reviewed on the call until she confirms).
   const th = { small: 16, medium: 20, large: 25, ...(thresholds ?? {}) };
   const [band, setBand] = useState<Band | "all">("all");
 
-  const rows = stores.map((s) => {
+  // State filter (NSW/ACT/QLD). The trap here: the headline tiles read a
+  // server-side network aggregate while the lists below are built from these
+  // client rows. Filter one without the other and the headline silently
+  // disagrees with the list. So when a state is picked, EVERY figure on this
+  // page — tiles, sell-through, waste, revenue — is recomputed from the
+  // filtered rows. Unfiltered, the tiles keep using the server aggregate, so
+  // today's numbers are untouched.
+  const [stateF, setStateF] = useState("all");
+  const stateOpts = [...new Set(Object.values(states))].sort();
+  const scoped = stateF === "all" ? stores : stores.filter((s) => states[s.store_id] === stateF);
+
+  const rows = scoped.map((s) => {
     const sold = Number(s.total_sold) || 0;
     const sent = Number(s.total_sent) || 0;
     const wasted = Number(s.total_wasted) || 0;
@@ -58,10 +69,38 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
   });
 
   // ---- headline ----
-  const netSent = Number(net.total_sent) || 0;
-  const netSold = Number(net.total_sold) || 0;
+  // Filtered: summed from the rows above. Waste is inferred as delivered minus
+  // sold — the same method the $ waste figure and the store profiles use, since
+  // the reported wastage table is empty in prod.
+  const filtered = stateF !== "all";
+  const rowSent = rows.reduce((a, r) => a + r.sent, 0);
+  const rowSold = rows.reduce((a, r) => a + r.sold, 0);
+  const netSent = filtered ? rowSent : Number(net.total_sent) || 0;
+  const netSold = filtered ? rowSold : Number(net.total_sold) || 0;
   const netSellThrough = netSent > 0 ? Math.round((1000 * netSold) / netSent) / 10 : null;
-  const netWaste = net.waste_pct == null ? null : Number(net.waste_pct);
+  const netWaste = filtered
+    ? rowSent > 0
+      ? Math.round((1000 * rows.reduce((a, r) => a + Math.max(0, r.sent - r.sold), 0)) / rowSent) / 10
+      : null
+    : net.waste_pct == null
+      ? null
+      : Number(net.waste_pct);
+  const netStores = filtered ? rows.length : Number(net.stores) || 0;
+  // Revenue tiles follow the same rule — recomputed per store rather than
+  // hidden, so a filtered view still answers "what is this state worth".
+  const rev = filtered
+    ? rows.reduce(
+        (acc, r) => {
+          const m = revByStore[r.s.store_id];
+          if (m) {
+            acc.salesWk += m.rev;
+            if (m.aur != null) acc.wasteWk += Math.max(0, r.sent - r.sold) * m.aur;
+          }
+          return acc;
+        },
+        { salesWk: 0, wasteWk: 0 },
+      )
+    : revenue;
 
   // ---- Today's action list (Simona's format: issue -> action) ----
   const highWastage = rows.filter((r) => r.waste != null && r.waste > 30).length;
@@ -120,15 +159,25 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
         <span className="t-note">date picker &amp; live $ next phase</span>
       </div>
 
+      {stateOpts.length > 1 && (
+        <div className="t-states">
+          <button type="button" className={`t-spill ${stateF === "all" ? "on" : ""}`} onClick={() => setStateF("all")}>All states</button>
+          {stateOpts.map((st) => (
+            <button type="button" key={st} className={`t-spill ${stateF === st ? "on" : ""}`} onClick={() => setStateF(st)}>{st}</button>
+          ))}
+          {filtered && <span className="t-snote">Every number below is {stateF} only.</span>}
+        </div>
+      )}
+
       <div className="t-strip">
-        <div className="t-tile"><div className="tv">{nf(net.stores)}</div><div className="tl">Active stores supplied</div></div>
+        <div className="t-tile"><div className="tv">{nf(netStores)}</div><div className="tl">{filtered ? `Stores supplied · ${stateF}` : "Active stores supplied"}</div></div>
         <div className="t-tile"><div className="tv g">{netSellThrough == null ? "—" : `${netSellThrough}%`}</div><div className="tl">Sell-through</div></div>
         <div className="t-tile"><div className={`tv ${netWaste != null && netWaste <= 20 ? "g" : "a"}`}>{netWaste == null ? "—" : `${netWaste}%`}</div><div className="tl">Network waste</div></div>
       </div>
-      {revenue ? (
+      {rev ? (
         <div className="t-strip" style={{ marginTop: 12 }}>
-          <div className="t-tile"><div className="tv">${nf(revenue.salesWk)}</div><div className="tl">Sales this week · revenue</div></div>
-          <div className="t-tile"><div className="tv a">${nf(revenue.wasteWk)}</div><div className="tl">Waste this week · $ (revenue-weighted)</div></div>
+          <div className="t-tile"><div className="tv">${nf(Math.round(rev.salesWk))}</div><div className="tl">Sales this week · revenue</div></div>
+          <div className="t-tile"><div className="tv a">${nf(Math.round(rev.wasteWk))}</div><div className="tl">Waste this week · $ (revenue-weighted)</div></div>
           <div className="t-tile"><div className="tv dim">$ —</div><div className="tl">Profit · needs Simona&apos;s production cost</div></div>
         </div>
       ) : (
@@ -222,6 +271,10 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
       .today .t-lbl{font-family:var(--serif);font-size:18px;font-weight:600;letter-spacing:-.2px}
       .today .t-date{font-size:12.5px;color:var(--ink2);font-weight:600}
       .today .t-note{margin-left:auto;font-size:11px;color:var(--faint)}
+      .today .t-states{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+      .today .t-spill{border:1px solid #e6d3ad;background:#f6efe2;color:var(--ink2);border-radius:999px;padding:5px 14px;font-size:13px;font-weight:600;cursor:pointer}
+      .today .t-spill.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+      .today .t-snote{font-size:12px;color:var(--muted);margin-left:4px}
       .today .t-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
       @media(max-width:520px){.today .t-strip{grid-template-columns:1fr}}
       .today .t-tile{background:var(--card);padding:14px 16px}

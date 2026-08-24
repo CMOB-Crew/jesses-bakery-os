@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek, getAppSettings } from "@/lib/queries";
+import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek, getAppSettings, getStoreStates } from "@/lib/queries";
 import type { StoreWeek } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
 import RecCard from "@/components/RecCard";
@@ -18,9 +18,17 @@ function fmtDate(d: Date) {
 }
 
 export default async function Overview() {
-  const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings] = await Promise.all([
-    getNetwork(), getRegions(), getRecommendations(3), getAsOf(), getFeedStatus(), getEngineProjection(), getStoreWeek(), getStoreRevenueWeek(), getAppSettings(),
+  const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings, states] = await Promise.all([
+    getNetwork(), getRegions(), getRecommendations(3), getAsOf(), getFeedStatus(), getEngineProjection(), getStoreWeek(), getStoreRevenueWeek(), getAppSettings(), getStoreStates(),
   ]);
+
+  // Per-store revenue as a plain object — a Map doesn't survive the server →
+  // client boundary, and the dashboard needs per-store figures to recompute the
+  // $ tiles when a state filter is on rather than hiding them.
+  const revByStore: Record<string, { rev: number; aur: number | null }> = {};
+  for (const [id, r] of revMap) {
+    revByStore[id] = { rev: Number(r.revenue_wk) || 0, aur: r.avg_unit_revenue == null ? null : Number(r.avg_unit_revenue) };
+  }
 
   // Simona's per-size waste thresholds (Settings). Null falls back to the defaults
   // in the dashboard until she sets her own.
@@ -92,7 +100,7 @@ export default async function Overview() {
 
       <EnginePanel scenarios={engine} />
 
-      <TodayDashboard stores={stores} net={net} asOf={fmtDate(asOf)} revenue={revenue} thresholds={thresholds} />
+      <TodayDashboard stores={stores} net={net} asOf={fmtDate(asOf)} revenue={revenue} thresholds={thresholds} states={states} revByStore={revByStore} />
 
       {recs.length > 0 && (
         <>
