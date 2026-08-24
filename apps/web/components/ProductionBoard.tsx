@@ -56,17 +56,36 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
   const DSUM = DOWMULT.reduce((a, b) => a + b, 0);
   // Coerce every numeric field up front — Postgres returns decimals as strings,
   // and even ::int sums are cheap to harden. Keeps arithmetic + toLocaleString safe.
-  const allLines = useMemo(
-    () =>
-      raw.map((l) => ({
-        name: l.name,
-        category: titleCase(l.category || "Other"),
-        sent: Number(l.sent) || 0,
-        recommended: Number(l.recommended) || 0,
-        stores: Number(l.stores) || 0,
-      })),
+  // State filter (NSW/ACT/QLD). The plan arrives split per state — one row per
+  // product per state — so every total on this page is summed from the same
+  // filtered rows. Nothing here reads a separately-aggregated network figure,
+  // which is what would let the headline and the list disagree.
+  const [stateF, setStateF] = useState("all");
+  const stateOpts = useMemo(
+    () => [...new Set(raw.map((l) => l.state).filter((x): x is string => !!x))].sort(),
     [raw],
   );
+
+  const allLines = useMemo(() => {
+    const m = new Map<string, { name: string; category: string; sent: number; recommended: number; stores: number }>();
+    for (const l of raw) {
+      if (stateF !== "all" && l.state !== stateF) continue;
+      const row = m.get(l.name) ?? {
+        name: l.name,
+        category: titleCase(l.category || "Other"),
+        sent: 0,
+        recommended: 0,
+        stores: 0,
+      };
+      row.sent += Number(l.sent) || 0;
+      row.recommended += Number(l.recommended) || 0;
+      // A store sits in exactly one state, so summing the per-state counts
+      // gives the true store count for the product.
+      row.stores += Number(l.stores) || 0;
+      m.set(l.name, row);
+    }
+    return [...m.values()];
+  }, [raw, stateF]);
 
   // Which of Jesse's two sheets the floor is looking at. Adjustments are keyed
   // by product name and held across the switch, so flipping sheets never
@@ -163,7 +182,12 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
   }, []);
 
   const isWeek = day === "week";
-  const val = (name: string) => eng[name] ?? orig[name] ?? 0;
+  // Adjustments belong to the whole-network plan. Filtered to one state the
+  // board is a read-only view of what that state needs — editing there would
+  // be ambiguous (is the nudge for NSW, or for the factory?), so we don't
+  // pretend to support it, and we don't show network edits over state numbers.
+  const editable = isWeek && stateF === "all";
+  const val = (name: string) => (stateF === "all" ? eng[name] ?? orig[name] ?? 0 : orig[name] ?? 0);
   // displayed value for the current view (whole week, or one day's share)
   const dv = (n: number) => (isWeek ? n : Math.round((n * DOWMULT[day as number]) / DSUM));
   const isDone = (name: string) => (isWeek ? !!approved[name] : !!baked[String(day)]?.[name]);
@@ -298,6 +322,21 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
         </div>
       )}
 
+      {stateOpts.length > 1 && (
+        <div className="sheetrow">
+          <span className="lbl">State</span>
+          <div className="sheetselect">
+            <button type="button" className={`sheetpill ${stateF === "all" ? "on" : ""}`} onClick={() => setStateF("all")}>All states</button>
+            {stateOpts.map((st) => (
+              <button type="button" key={st} className={`sheetpill ${stateF === st ? "on" : ""}`} onClick={() => setStateF(st)}>{st}</button>
+            ))}
+          </div>
+          {stateF !== "all" && (
+            <span className="sheetnote">Showing what {stateF} needs. Every number on the page is {stateF} only. Quantities are read-only here — switch back to All states to adjust the bake.</span>
+          )}
+        </div>
+      )}
+
       <div className="dayrow">
         <span className="lbl">Show bake for</span>
         <div className="dayselect">
@@ -363,8 +402,8 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
           <input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Find a product…" autoComplete="off" />
         </label>
         <button type="button" className={`tgl ${unappOnly ? "on" : ""}`} onClick={() => setUnappOnly((u) => !u)}>{isWeek ? "To confirm only" : "Not baked yet"}</button>
-        {isWeek && <button type="button" className="tgl" onClick={undo} disabled={history.length === 0}>↶ Undo last</button>}
-        {isWeek && <button type="button" className="tgl reset" onClick={resetAll} disabled={!dirty}>↺ Reset</button>}
+        {editable && <button type="button" className="tgl" onClick={undo} disabled={history.length === 0}>↶ Undo last</button>}
+        {editable && <button type="button" className="tgl reset" onClick={resetAll} disabled={!dirty}>↺ Reset</button>}
         <button type="button" className="tgl link" onClick={collapseAll}>{allCollapsed ? "Expand all" : "Collapse all"}</button>
       </div>
 
@@ -416,7 +455,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
                     <div className="grid">
                       <div className="pname">{l.name}</div>
                       <div className="sendnow hide">{nf(dv(l.sent))}</div>
-                      {isWeek ? (
+                      {editable ? (
                         <div className="engcell">
                           {traysFor(dv(v), l.category) != null && (
                             <div className="traylead">{nf(traysFor(dv(v), l.category)!)} {traysFor(dv(v), l.category) === 1 ? "tray" : "trays"}</div>
@@ -438,7 +477,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
                         <div className="engcell"><div className="engnum">{qtyCell(dv(v), l.category)}</div></div>
                       )}
                       <div className="chg">
-                        {isWeek && changed && (
+                        {editable && changed && (
                           <button type="button" className="rst" title={`Reset to ${orig[l.name]}`} onClick={() => resetRow(l.name)}>
                             <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4" /></svg>
                           </button>

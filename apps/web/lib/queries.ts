@@ -170,19 +170,20 @@ export async function getDeliveryDetail(): Promise<DeliveryDetailLine[]> {
 
 // Production bake plan — per-product totals across the whole plan (store_reco),
 // current bake vs engine-sized. This is the factory sheet: what to make today.
-export type ProductionLine = { name: string; category: string; sent: number; recommended: number; stores: number };
+export type ProductionLine = { name: string; category: string; state: string | null; sent: number; recommended: number; stores: number };
 export async function getProductionPlan(): Promise<ProductionLine[]> {
   try {
     return await sql<ProductionLine[]>`
-      select p.name, p.category::text as category,
+      select p.name, p.category::text as category, st.state,
              sum(r.sent)::int as sent,
              sum(coalesce(o.qty, r.recommended))::int as recommended,
              count(distinct r.store_id)::int as stores
       from store_reco r join products p on p.id = r.product_id
+      left join stores st on st.id = r.store_id
       left join store_product_overrides o
         on o.store_id = r.store_id and o.product_id = r.product_id
         and (o.mode = 'perm' or o.ends_on is null or o.ends_on >= current_date)
-      group by p.name, p.category
+      group by p.name, p.category, st.state
       order by sum(r.sent) desc`;
   } catch {
     return [];
