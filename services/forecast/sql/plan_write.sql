@@ -3,7 +3,7 @@ begin;
 
 -- ============================================================
 -- Forecast engine — SET-BASED port of services/forecast/app.py
--- WRITES to replenishment_plans. Run 07 (dry run) first and read the output.
+-- DRY RUN v3 — coverage capped at shelf life — coverage = days until the store's next delivery. Writes NOTHING. Run as the privileged postgres connection.
 --
 -- Why a port: app.py loops per store x product, firing two queries each.
 -- 265 stores x 116 products is ~30k combos / ~60k round trips. It was written
@@ -63,7 +63,23 @@ combos as (
          st.shelf_max,
          p.lead_time_days,
          p.min_on_shelf,
-         reg.state
+         reg.state,
+         -- Days of stock this drop has to cover: how long until this store's
+         -- NEXT delivery. app.py used products.lead_time_days, which is a bake
+         -- offset, not a coverage window — so a store delivered Thu + Sat was
+         -- being sent one day of stock to last two.
+         -- ...but never more days than the bread stays good for. 23 active
+         -- stores take one delivery a week; sending them 7 days of stock when
+         -- shelf life is 5 would manufacture the exact waste this engine
+         -- exists to remove. Those stores are structurally under-served — the
+         -- honest answer is to fill to shelf life and flag the gap, not to
+         -- pretend a week's bread survives a week.
+         least(
+           coalesce((select min(g.n) from generate_series(1,7) g(n)
+                      where trim(to_char(p2.target_date + g.n, 'dy'))::weekday
+                            = any(st.delivery_days)), 1),
+           greatest(1, p.shelf_life_days)
+         ) as cover_days
   from stores st
   cross join products p
   cross join p2
@@ -91,7 +107,7 @@ calc as (
          st.mean, st.n,
          -- app.py: one observation -> std = mean * 0.25
          case when st.n <= 1 then st.mean * 0.25 else st.std_pop end as std,
-         greatest(1, c.lead_time_days)                               as coverage,
+         greatest(1, c.cover_days)                                   as coverage,
          u.up, coalesce(oh.closing_on_hand, 0)                       as on_hand,
          c.shelf_max, c.min_on_shelf, p2.z
   from combos c
@@ -130,7 +146,7 @@ select r.store_id, r.product_id, r.target_date, r.forecast_demand, r.target_stoc
          || '/day. Target ' || r.target_stock
          || ' at the 42nd percentile (waste-aware), on hand ~' || r.on_hand
          || case when r.capped_by_shelf then ' - capped at shelf max.' else '.' end,
-       'newsvendor-v1-sql'
+       'newsvendor-v2-sql'
 from result r
 on conflict (store_id, product_id, target_date) do update set
   forecast_demand  = excluded.forecast_demand,
@@ -143,12 +159,10 @@ on conflict (store_id, product_id, target_date) do update set
 
 \echo ''
 \echo '=== replenishment_plans after the write ==='
-select target_date, count(*) as plans, count(distinct store_id) as stores,
-       sum(recommended_qty) as units, model_version
+select target_date, model_version, count(*) as plans,
+       count(distinct store_id) as stores, sum(recommended_qty) as units
 from replenishment_plans
-group by target_date, model_version
-order by target_date desc
-limit 10;
+group by target_date, model_version order by target_date desc limit 10;
 
 commit;
 \echo ''

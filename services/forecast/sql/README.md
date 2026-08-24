@@ -35,7 +35,7 @@ Run the dry run and read it before writing. Use the **privileged** connection on
 - `recommended = max(0, target_stock - on_hand)`, capped at `shelf_max`,
   floored at `min_on_shelf` when non-zero.
 
-## One thing this adds that app.py does not
+## Three things this adds that app.py does not
 **Delivery-day scoping.** `app.py` plans every active store for every target
 date. Jesse doesn't deliver everywhere daily — 144 stores Monday, 101 Thursday,
 50 Sunday. Unscoped, the engine's sourdough came out at 5,246 units against
@@ -54,11 +54,36 @@ Validated 24 Aug against Jesse's own printed sourdough sheet (Thu 13 Aug):
 | Rye | 295 | 289 | +2% |
 | Dark Rye | 201 | 376 | **−47%** |
 
-Dark rye is the outlier and is not yet explained — either the biggest
-over-bake in the bakery, or a data fault. Worth resolving before anyone acts on it.
+Dark rye was the outlier at -47%, and chasing it found a real fault in *ours*,
+not in Jesse's baking — see coverage below. After the fix it lands at 308 vs 376.
+
+**2. Coverage = days until the store's next delivery.** `app.py` covered
+`products.lead_time_days`, which is a *bake offset*, not a coverage window. A
+store delivered Thursday and Saturday was being sent one day of stock to last
+two. Dark rye (lead time 1) came out 47% under Jesse; sourdough (lead time 2)
+accidentally covered roughly the right gap, which is why it looked fine. After
+the fix every line sits at ~85% of Jesse's bake instead of swinging between 53%
+and 106% — a uniform trim, which is what a uniform policy should produce.
+
+**3. Coverage capped at shelf life.** 23 active stores take one delivery a week
+and 34 take two. Uncapped, the engine would send a once-a-week store 7 days of
+stock against a 5-day shelf life — manufacturing the exact waste it exists to
+remove. Capped, it fills to shelf life and leaves them short, which is the
+honest answer.
+
+> **Those 57 stores are structurally under-served.** Jesse cannot keep them
+> stocked between drops without sending bread that expires first. That is a
+> delivery-schedule conversation with Simona, not something the engine can solve,
+> and it is likely a real share of what shows up on the Lost Sales page.
 
 ## Known gaps
 - 12 of the 101 Thursday stores get no plan: no sales history for that weekday.
+- **The trim level is not calibrated.** The critical ratio uses a placeholder
+  0.40/0.55 cost split. Fred's handover is explicit that we have *revenue*
+  (`Invoice_Cost`), not cost of goods — production cost per unit is still
+  outstanding from Simona. Until it lands, the engine's shape is right but its
+  aggressiveness (currently ~15% under Jesse) is a guess. Do not tune it to hit
+  a target number; wait for the costs.
 - `on_hand_ledger` is empty, so `on_hand` is 0 everywhere and `recommended`
   equals `target_stock`. The estimated-on-hand step — the one Fred called the
   thing the legacy system misses entirely — is not yet doing any work.
