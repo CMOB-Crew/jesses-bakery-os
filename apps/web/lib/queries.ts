@@ -398,9 +398,32 @@ export async function getProductLaunches(): Promise<ProductLaunch[]> {
 export type FeedStatus = { source: string; status: string; as_of: Date; detail: string | null };
 export async function getFeedStatus(): Promise<FeedStatus[]> {
   try {
+    // Measured from sales_daily, not read from feed_status_log.
+    //
+    // feed_status_log is hand-maintained, and on 24 Aug it was flagging HARRIS
+    // FARM as 18 days stale while saying nothing about COLES -- which had sent
+    // nothing since 8 Aug. Exactly backwards: it cried wolf about the healthy
+    // feed and stayed silent about the broken one, while Simona was running
+    // production off old sheets because she had no Coles data.
+    //
+    // A feed's health is knowable from the data itself, so ask the data. Two
+    // days' grace because a retailer reporting a day late is normal.
+    // Ordered oldest-first so the caller's find() picks the WORST feed, not
+    // whichever happened to sort first.
     return await sql<FeedStatus[]>`
-      select distinct on (source) source, status, as_of, detail
-      from feed_status_log order by source, checked_at desc`;
+      with a as (select as_of from v_asof),
+      last_seen as (
+        select sd.source::text as source, max(sd.sale_date) as as_of
+        from sales_daily sd, a
+        where sd.sale_date <= a.as_of
+        group by 1
+      )
+      select l.source,
+             case when (select as_of from a) - l.as_of <= 2 then 'ok' else 'stale' end as status,
+             l.as_of,
+             null::text as detail
+      from last_seen l
+      order by l.as_of asc`;
   } catch {
     return [];
   }

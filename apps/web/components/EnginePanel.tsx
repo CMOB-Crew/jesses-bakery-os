@@ -68,10 +68,10 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
         </div>
 
         <div className="eng-foot">
-          Waste here is Woolworths only for now (Coles &amp; Harris held until their feeds fill).
-          Dollar values — sales and waste in $ — are live in the panel below, valued from your retailer
-          cost feeds; profit unlocks once we have per-product cost from Simona. Coles is still catching
-          up after a feed change, so its share is understated for now.
+          Waste is only measured where a store reports its sales back to us — a store with no feed
+          shows a dash, not a zero. Any feed that has stopped is flagged at the top of this page.
+          Dollar figures are what the retailers pay you; profit needs a per-unit cost from Jesse,
+          which we don&apos;t have yet.
         </div>
       </div>
 
