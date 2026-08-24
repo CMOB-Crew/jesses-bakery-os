@@ -1,4 +1,33 @@
 \set ON_ERROR_STOP on
+
+-- SERVICE LEVEL (z) -- the dial that decides how hard this trims.
+--
+-- Was hardcoded at -0.19920132478926697 = inv_cdf(0.40 / (0.40 + 0.55)), the
+-- 42nd percentile. That critical ratio was OUR assumption about Jesse's margins,
+-- never his. Negative z stocks BELOW the mean, i.e. runs short about half the
+-- time, and on the real data it produced 9.4% waste.
+--
+-- Simona has stated the answer twice and it is not a margin, it is an outcome:
+--   6 Aug factory walkthrough : "under 20% wastage = too low, store needs more"
+--   12 Aug production session : "wastage can sit ~20%, acceptable range 20-25%"
+--
+-- 9.4% is less than half her floor. Default is now +0.201893 = inv_cdf(0.58),
+-- which lands ~22.5% waste on a ~15% trim -- inside her band, clear of her
+-- floor, and matching the 22.5% the dashboard panel already promises. Three
+-- independent things agreeing is why this number and not another.
+--
+-- Worth recording the tension: her own bagel example ($4.92 wholesale, ~$3.00
+-- of product before packaging/labour/delivery) implies a margin near 39%, and
+-- the pure newsvendor optimum from that would trim HARDER, not softer. She is
+-- deliberately buying shelf presence the model does not price. Follow the
+-- operator, not the optimum.
+--
+-- Override per run:  -v z=0.35   (higher = fuller shelves, more waste)
+\if :{?z}
+\else
+  \set z 0.201893
+\endif
+
 begin;
 
 -- ============================================================
@@ -20,7 +49,7 @@ begin;
 --   f_mean         mean * coverage * (1 + uplift)
 --   f_std          std * sqrt(coverage)
 --   target_stock   max(0, round(f_mean + z * f_std))
---   z              -0.19920132478926697  = NormalDist().inv_cdf(0.4210526...)
+--   z              service level, settable with -v z=... (default +0.201893)
 --                  critical ratio = 0.40 / (0.40 + 0.55), pay-on-scan:
 --                  a wasted loaf costs the whole unit, a stockout only margin.
 --                  z is NEGATIVE on purpose — it stocks BELOW the mean.
@@ -37,7 +66,7 @@ p2 as (
   select as_of,
          :'target'::date                                  as target_date,
          extract(dow from :'target'::date)::int           as pg_dow,
-         -0.19920132478926697::numeric                    as z
+         :z::numeric                                      as z
   from params
 ),
 -- The last 6 CALENDAR occurrences of the target weekday.
@@ -186,7 +215,7 @@ select r.store_id, r.product_id, r.target_date, r.forecast_demand, r.target_stoc
          || '/day. Target ' || r.target_stock
          || ' at the 42nd percentile (waste-aware), on hand ~' || r.on_hand
          || case when r.capped_by_shelf then ' - capped at shelf max.' else '.' end,
-       'newsvendor-v3-sql'
+       'newsvendor-v3-sql z=' || :'z'
 from result r
 on conflict (store_id, product_id, target_date) do update set
   forecast_demand  = excluded.forecast_demand,
