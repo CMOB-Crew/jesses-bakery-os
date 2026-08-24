@@ -44,7 +44,7 @@ type Day = "week" | number;
 // works down it by bread type, nudging any Engine-plan number (−/+ appear on
 // hover), resetting or undoing, and ticking each line to confirm. Flip to a
 // single day to hand the floor exactly what to make that day. Totals recalc live.
-export default function ProductionBoard({ lines: raw, shape = null, saved = {}, traySizes = { bagel: null, challah: null } }: { lines: ProductionLine[]; shape?: WeekdayShape | null; saved?: Record<string, boolean>; traySizes?: { bagel: number | null; challah: number | null } }) {
+export default function ProductionBoard({ lines: raw, shape = null, saved = {}, traySizes = {} }: { lines: ProductionLine[]; shape?: WeekdayShape | null; saved?: Record<string, boolean>; traySizes?: Record<string, number> }) {
   // Day-split curve (Mon..Sun) — measured from real sell-through when we have
   // it (reindexed from the Sun..Sat shape), else the seed. Same shape the
   // Deliveries board and Seasonality calendar use — the factory bakes to the
@@ -119,34 +119,39 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
       .sort((a, b) => b.sent - a.sent);
   }, [lines]);
 
-  // Unit of measure per category. Bagels + challah bake and count by the tray
-  // on Jesse's production sheet (Simona, Session 2); everything else counts by
-  // the individual unit. UoM is uniform within a category. Category-name match
-  // is loose (contains) so "Bagel"/"Bagels"/"Mini Challah" all resolve.
-  const trayKindOf = (category: string): "bagel" | "challah" | null => {
-    const c = category.toLowerCase();
-    if (c.includes("bagel")) return "bagel";
-    if (c.includes("challah")) return "challah";
-    return null;
-  };
-  const catUom = (category: string) => (trayKindOf(category) ? "tray" : "unit");
-  const traySizeOf = (category: string) => {
-    const k = trayKindOf(category);
-    const n = k ? traySizes[k] : null;
+  // Unit of measure is per PRODUCT, not per category. Jesse bakes mini bagels
+  // 40 to a tray and regular bagels 24, so a single number for "bagels" cannot
+  // be right for both — his own Products_Master has always held it per line.
+  // Sizes come from there via migration 024; an empty map (migration not yet
+  // applied, or a product we have no size for) means the sheet shows units and
+  // waits rather than inventing a tray figure.
+  const traySizeOf = (product: string) => {
+    const n = traySizes[product];
     return n && n > 0 ? n : null;
   };
-  // Trays for a unit count, once the tray size is set. null until Simona
-  // confirms the size in Settings — the sheet shows units and waits.
-  const traysFor = (units: number, category: string) => {
-    const sz = traySizeOf(category);
+  const isTray = (product: string) => traySizeOf(product) != null;
+  const traysFor = (units: number, product: string) => {
+    const sz = traySizeOf(product);
     return sz ? Math.ceil(units / sz) : null;
   };
-  // Jesse's sheet states bagels and challah in trays — the tray count is the
-  // number the floor works to, with the unit total underneath. Until the tray
-  // size is set in Settings there's nothing to convert with, so units stand
-  // alone rather than us inventing a tray figure.
-  const qtyCell = (units: number, category: string) => {
-    const t = traysFor(units, category);
+  // Trays across a whole category, summed per product — two lines in the same
+  // category can have different tray sizes, so this cannot be one division.
+  const catTraysFor = (rows: { name: string }[], unitsOf: (name: string) => number) => {
+    let total = 0;
+    let any = false;
+    for (const r of rows) {
+      const n = traysFor(unitsOf(r.name), r.name);
+      if (n != null) {
+        total += n;
+        any = true;
+      }
+    }
+    return any ? total : null;
+  };
+  // Jesse's sheet states the tray-counted lines in trays — the tray count is
+  // the number the floor works to, with the unit total underneath.
+  const qtyCell = (units: number, product: string) => {
+    const t = traysFor(units, product);
     if (t == null) return <>{nf(units)}</>;
     return (
       <>
@@ -216,9 +221,9 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
       for (const l of g.rows) {
         const cur = dv(l.sent);
         const plan = dv(val(l.name));
-        const trays = traysFor(plan, g.category);
+        const trays = traysFor(plan, l.name);
         body.push(
-          [SHEET_LABEL[sheet], g.category, l.name, trays ?? plan, catUom(g.category).toUpperCase(), plan, cur, plan - cur, l.stores, isDone(l.name) ? "Yes" : ""]
+          [SHEET_LABEL[sheet], g.category, l.name, trays ?? plan, isTray(l.name) ? "TRAY" : "UNIT", plan, cur, plan - cur, l.stores, isDone(l.name) ? "Yes" : ""]
             .map(csvCell)
             .join(","),
         );
@@ -433,13 +438,14 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
                     <span className="acc" style={{ background: color }} />
                     <span className="rn">{g.category}</span>
                     <span className="cnt" style={{ background: `${color}22`, color }}>{g.rows.length}</span>
-                    {catUom(g.category) === "tray" && (
-                      <span className="uompill">by the tray{traySizeOf(g.category) ? ` · ${traySizeOf(g.category)}/tray` : ""}</span>
-                    )}
+                    {g.rows.some((l) => isTray(l.name)) && <span className="uompill">by the tray</span>}
                     <button type="button" className="appall" onClick={(e) => { e.stopPropagation(); doneCat(g.category); }}>{isWeek ? "Confirm all" : "Mark all baked"}</button>
                   </div>
                   <div className="cat-send hide">{nf(send)}</div>
-                  <div className="cat-eng">{qtyCell(engs, g.category)}</div>
+                  <div className="cat-eng">{(() => {
+                    const t = catTraysFor(g.rows, (n) => dv(val(n)));
+                    return t == null ? <>{nf(engs)}</> : <>{nf(t)}<span className="uomsub">trays</span><span className="unitsub">{nf(engs)} units</span></>;
+                  })()}</div>
                   <div className="cat-chg">{catChg(fewer)}</div>
                   <div className="hide" />
                   <div className="cat-chev"><svg className="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg></div>
@@ -457,8 +463,8 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
                       <div className="sendnow hide">{nf(dv(l.sent))}</div>
                       {editable ? (
                         <div className="engcell">
-                          {traysFor(dv(v), l.category) != null && (
-                            <div className="traylead">{nf(traysFor(dv(v), l.category)!)} {traysFor(dv(v), l.category) === 1 ? "tray" : "trays"}</div>
+                          {traysFor(dv(v), l.name) != null && (
+                            <div className="traylead">{nf(traysFor(dv(v), l.name)!)} {traysFor(dv(v), l.name) === 1 ? "tray" : "trays"}</div>
                           )}
                           <div className="stepper">
                             <button type="button" aria-label={`decrease ${l.name}`} onClick={() => setEngine(l.name, v - 1)}>−</button>
@@ -471,10 +477,10 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
                             />
                             <button type="button" aria-label={`increase ${l.name}`} onClick={() => setEngine(l.name, v + 1)}>+</button>
                           </div>
-                          {traysFor(dv(v), l.category) != null && <div className="unitsub">units</div>}
+                          {traysFor(dv(v), l.name) != null && <div className="unitsub">units</div>}
                         </div>
                       ) : (
-                        <div className="engcell"><div className="engnum">{qtyCell(dv(v), l.category)}</div></div>
+                        <div className="engcell"><div className="engnum">{qtyCell(dv(v), l.name)}</div></div>
                       )}
                       <div className="chg">
                         {editable && changed && (
@@ -501,7 +507,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
 
       <div className="foot">
         {isWeek ? (
-          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Your line confirmations save and stay across reloads;</b> the −/+ quantity nudges are a working draft, and printing &amp; locking the sheet for the floor is the next build phase. Daily splits are {shape ? "sized from the measured weekday shape" : "modelled from typical day-of-week demand"} until the daily plan is wired — the weekly totals are exact. <b>Bagels and challah are counted by the tray</b>, the way Jesse&apos;s own sheet reads — set the units-per-tray in Settings and the tray count becomes the headline number, with units underneath.</>
+          <>Calm by default — the −/+ controls appear when you hover a row, and the number reads like plain text until you go to change it. Switch to a day above to see just that day&apos;s bake for the floor. <b>Your line confirmations save and stay across reloads;</b> the −/+ quantity nudges are a working draft, and printing &amp; locking the sheet for the floor is the next build phase. Daily splits are {shape ? "sized from the measured weekday shape" : "modelled from typical day-of-week demand"} until the daily plan is wired — the weekly totals are exact. <b>Bagels and mini challah are counted by the tray</b>, the way Jesse&apos;s own sheet reads, with the unit total underneath. Tray sizes come from Jesse&apos;s product list — 24 to a tray for bagels, 40 for mini bagels, 20 for mini challah — so each line converts on its own rather than one number standing for a whole category.</>
         ) : (
           <><b>{dayName}&apos;s</b> share of the week&apos;s plan — read-only. Tick each line as it&apos;s baked, or export the sheet for the bench. To change quantities, switch back to <b>Whole week</b>. This day&apos;s split is {shape ? "sized from the measured weekday shape" : "modelled from typical demand"} until the daily plan is wired.</>
         )}

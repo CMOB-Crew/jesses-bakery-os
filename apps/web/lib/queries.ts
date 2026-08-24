@@ -170,6 +170,30 @@ export async function getDeliveryDetail(): Promise<DeliveryDetailLine[]> {
 
 // Production bake plan — per-product totals across the whole plan (store_reco),
 // current bake vs engine-sized. This is the factory sheet: what to make today.
+// Units per tray, per product, from Jesse's own Products_Master (migration 024).
+// Keyed by product name because the bake sheet works by name.
+//
+// Deliberately its own query rather than a join inside getProductionPlan: if
+// migration 024 hasn't been applied the columns don't exist, and folding this
+// into the plan query would blank out the entire bake sheet. Here a missing
+// column just yields {} -- the sheet shows units and waits, which is what it
+// did before tray sizes existed at all.
+export async function getTraySizes(): Promise<Record<string, number>> {
+  try {
+    const rows = await sql<{ name: string; baking_qty: number }[]>`
+      select name, baking_qty from products
+      where baking_uom = 'TRAY' and baking_qty is not null and baking_qty > 0`;
+    const m: Record<string, number> = {};
+    for (const r of rows) {
+      const n = Number(r.baking_qty) || 0;
+      if (n > 0) m[r.name] = n;
+    }
+    return m;
+  } catch {
+    return {};
+  }
+}
+
 export type ProductionLine = { name: string; category: string; state: string | null; sent: number; recommended: number; stores: number };
 export async function getProductionPlan(): Promise<ProductionLine[]> {
   try {

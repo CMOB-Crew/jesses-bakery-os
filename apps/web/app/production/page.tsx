@@ -1,16 +1,11 @@
-import { getProductionPlan, getWeekdayShape, getRunState, getAppSettings } from "@/lib/queries";
+import { getProductionPlan, getWeekdayShape, getRunState, getTraySizes } from "@/lib/queries";
 import ProductionBoard from "@/components/ProductionBoard";
 
 export const metadata = { title: "Production · Jesse's Bakery OS" };
 export const dynamic = "force-dynamic"; // render per request; keep off the flaky build-time prerender path
 
 export default async function ProductionPage() {
-  const [lines, shape, saved, settings] = await Promise.all([getProductionPlan(), getWeekdayShape(), getRunState("production"), getAppSettings()]);
-
-  // Units-per-tray for the tray-counted lines (bagels + challah). Null/absent
-  // until Simona confirms them in Settings — the board shows units and waits.
-  const ts = (settings.tray_sizes ?? {}) as { bagel?: number | null; challah?: number | null };
-  const traySizes = { bagel: ts.bagel ?? null, challah: ts.challah ?? null };
+  const [lines, shape, saved, traySizes] = await Promise.all([getProductionPlan(), getWeekdayShape(), getRunState("production"), getTraySizes()]);
 
   return (
     <>

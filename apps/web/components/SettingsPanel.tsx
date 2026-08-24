@@ -52,13 +52,6 @@ export default function SettingsPanel({ scenarios, settings = {} }: { scenarios:
   const [wtSmall, setWtSmall] = useState(wt.small ?? 16);
   const [wtMedium, setWtMedium] = useState(wt.medium ?? 20);
   const [wtLarge, setWtLarge] = useState(wt.large ?? 25);
-  // Tray sizes (units per tray) for the tray-counted lines on the production
-  // sheet. 0 = not set yet — the sheet shows units and waits for the real size.
-  // Bagels + challah bake by the tray (Simona, Session 2); everything else is
-  // counted by the individual unit.
-  const ts = (settings.tray_sizes ?? {}) as { bagel?: number; challah?: number };
-  const [tsBagel, setTsBagel] = useState(ts.bagel ?? 0);
-  const [tsChallah, setTsChallah] = useState(ts.challah ?? 0);
   const [shelfDays, setShelfDays] = useState(sl.shelfDays ?? 6);
   const [pullDays, setPullDays] = useState(sl.pullDays ?? 2);
   const [sdLead, setSdLead] = useState(sl.sdLead ?? 2);
@@ -91,7 +84,6 @@ export default function SettingsPanel({ scenarios, settings = {} }: { scenarios:
   const persistSizes = () => persist("size_baskets", sizes, "Size basket updated");
   const persistShelfLead = () => persist("shelf_lead", { shelfDays, pullDays, sdLead, otherLead }, "Shelf & lead updated");
   const persistWaste = () => persist("waste_thresholds", { small: wtSmall, medium: wtMedium, large: wtLarge }, "Waste thresholds updated");
-  const persistTray = () => persist("tray_sizes", { bagel: tsBagel || null, challah: tsChallah || null }, "Tray sizes updated");
   const toggleFactor = (k: string) => {
     const next = factors.map((f) => (f.key === k ? { ...f, on: !f.on } : f));
     setFactors(next);
@@ -173,16 +165,6 @@ export default function SettingsPanel({ scenarios, settings = {} }: { scenarios:
           <label className="fld2">Large store (% waste)<input value={wtLarge} inputMode="numeric" onChange={(e) => setWtLarge(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistWaste} /></label>
         </div>
         <div className="hint">The waste % that flags a store as running hot, set per size — a small store sending 50 hits its limit at a lower % than a large store sending 120. These colour the size bands on the overview. Defaults are a starting point until you confirm your own.</div>
-      </div>
-
-      {/* TRAY SIZES */}
-      <div className="sec"><span className="tick" />Tray sizes <span className="secnote">bagels &amp; challah bake by the tray</span></div>
-      <div className="card">
-        <div className="fldgrid">
-          <label className="fld2">Bagels — units per tray<input value={tsBagel || ""} inputMode="numeric" placeholder="not set" onChange={(e) => setTsBagel(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistTray} /></label>
-          <label className="fld2">Challah — units per tray<input value={tsChallah || ""} inputMode="numeric" placeholder="not set" onChange={(e) => setTsChallah(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistTray} /></label>
-        </div>
-        <div className="hint">Bagels and challah are baked and counted by the tray on the production sheet; everything else is counted by the individual unit. Set the units per tray here and the production sheet shows the tray count next to the unit total. Left blank, it shows units until you confirm the tray sizes.</div>
       </div>
 
       <div className="sec"><span className="tick" />Shelf life &amp; lead time</div>
