@@ -58,7 +58,10 @@ update products p
     ('PRO113',24),  -- BAGEL - SESAME (X 3)
     ('PRO114',24)   -- BAGEL - BLUEBERRY
   ) as v(product_id, qty)
- where p.id = v.product_id;
+ -- products.id is a uuid; the PRO### codes above are Jesse's legacy keys, which
+ -- live in products.legacy_product_id (migration 004). Joining on p.id fails with
+ -- "operator does not exist: uuid = text".
+ where p.legacy_product_id = v.product_id;
 
 comment on column products.baking_uom is
   'How the floor counts this line when baking: UNIT or TRAY. From Jesse''s Products_Master (BakingUOM). Bagels and mini challah go by the tray; everything else by the individual unit.';

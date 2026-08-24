@@ -29,7 +29,7 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
         <div className="eng-top">
           <span className="dot" />
           <h2>Waste this week — today vs. the plan</h2>
-          <span className="src">Woolworths feed · this week · real delivered vs sold</span>
+          <span className="src">95 stores that report sales · this week · real sent vs sold</span>
         </div>
 
         <div className="eng-grid">
