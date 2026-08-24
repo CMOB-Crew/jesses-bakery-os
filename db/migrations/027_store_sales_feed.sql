@@ -30,9 +30,22 @@
 
 create or replace view v_store_week as
 with a as (select as_of from v_asof),
--- Does this store EVER report sales back to us? Derived from the data rather
--- than trusting stores.retailer, so a miscategorised store can't slip through.
-feed as (select distinct store_id from sales_daily),
+-- Is this store's sales feed REPORTING, in the same window everything else on
+-- this view uses? Not "did it ever report" — that is too loose. The Coles feed
+-- stopped on 3 Aug 2026 (report format change). Those stores have two years of
+-- history and are still being delivered to, so an "ever" test counts them as
+-- reporting and every unit delivered since reads as waste: 64.8% network-wide
+-- instead of the real 34.6%.
+--
+-- We cannot tell "sold nothing" from "feed stopped reporting", and defaulting to
+-- 100% waste is the dangerous half of that. So: no sales in the window means
+-- waste is unknowable, and the store reads no-data.
+feed as (
+  select distinct sd.store_id
+  from sales_daily sd, a
+  where sd.sale_date >  a.as_of - interval '7 days'
+    and sd.sale_date <= a.as_of
+),
 sold as (
   select s.store_id, sum(s.units_sold)::int total_sold
   from sales_daily s, a
