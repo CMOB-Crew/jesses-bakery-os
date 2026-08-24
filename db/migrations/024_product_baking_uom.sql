@@ -23,13 +23,21 @@ alter table products drop constraint if exists products_baking_uom_chk;
 alter table products add constraint products_baking_uom_chk
   check (baking_uom in ('UNIT','TRAY'));
 
--- Units per tray, exactly as Jesse's Products_Master holds them.
+-- CONFIRMED BY SIMONA 24 Aug 2026 (via Van, WhatsApp): mini challah 20, large
+-- bagels 24, mini bagels 45. She corrected mini bagels UP from the 40 held in
+-- Jesse's own Products_Master -- her number wins. The legacy master is what the
+-- old system believed, not necessarily what the floor does.
+--
+-- It also settles loose-vs-pack: 24 large against 45 mini only makes sense as
+-- individual bagels, since a bigger bagel means fewer fit on a tray.
+--
+-- Units per tray, from Jesse's Products_Master except where Simona corrected it.
 update products p
    set baking_uom = 'TRAY',
        baking_qty = v.qty
   from (values
-    ('PRO008',40),  -- BAGEL - MINI
-    ('PRO009',40),  -- BAGEL - MINI (X 6)
+    ('PRO008',45),  -- BAGEL - MINI       (Simona 24 Aug: 45, not the 40 in Jesse's master)
+    ('PRO009',45),  -- BAGEL - MINI (X 6)  (as above)
     ('PRO010',24),  -- BAGEL - MIXED SEEDS
     ('PRO011',24),  -- BAGEL - MIXED SEEDS (X 5)
     ('PRO012',24),  -- BAGEL - PLAIN
@@ -55,4 +63,4 @@ update products p
 comment on column products.baking_uom is
   'How the floor counts this line when baking: UNIT or TRAY. From Jesse''s Products_Master (BakingUOM). Bagels and mini challah go by the tray; everything else by the individual unit.';
 comment on column products.baking_qty is
-  'Units per tray, when baking_uom = TRAY. Null for UNIT lines. From Jesse''s Products_Master (BakingQuantity) -- bagels 24, mini bagels 40, mini challah 20.';
+  'Units per tray, when baking_uom = TRAY. Null for UNIT lines. From Jesse''s Products_Master (BakingQuantity) -- bagels 24, mini bagels 45 (Simona''s correction), mini challah 20.';
