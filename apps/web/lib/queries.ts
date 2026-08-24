@@ -7,6 +7,11 @@ export type StoreWeek = {
   store_id: string;
   name: string;
   retailer: string;
+  // False for invoice customers: Jesse delivers and invoices them, they never
+  // report a scan sale. Waste for those stores isn't low, it's unknowable — the
+  // view returns null waste rather than a number computed over a denominator
+  // that can never be met (migration 027).
+  has_sales_feed?: boolean;
   size_category: string | null;
   shelf_max: number | null;
   region_id: string | null;

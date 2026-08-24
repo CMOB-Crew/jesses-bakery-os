@@ -18,10 +18,15 @@ import type { StoreWeek, Status } from "@/lib/queries";
 const nf = (n: number) => (Number(n) || 0).toLocaleString("en-AU");
 const num = (v: unknown) => Number(v) || 0;
 
-// A store with nothing delivered AND nothing sold this week has no loaded data
-// (Coles/Harris feeds aren't live yet). It is NOT "on track" — surface it as a
-// neutral "No data" state, never green, and keep it out of the on-track count.
-const hasData = (s: StoreWeek) => Number(s.total_sent) > 0 || Number(s.total_sold) > 0;
+// Two ways a store has no assessable data, and both must read "No data" rather
+// than green or red:
+//   1. nothing delivered and nothing sold — no feed loaded yet.
+//   2. no sales feed at all — an invoice customer. Jesse delivers and invoices
+//      them; they never report a scan sale. Their waste isn't 0% or 100%, it's
+//      unknowable. Without this they'd show as delivered-everything-sold-nothing,
+//      i.e. 100% waste, flagged red (migration 027).
+const hasData = (s: StoreWeek) =>
+  s.has_sales_feed !== false && (Number(s.total_sent) > 0 || Number(s.total_sold) > 0);
 type Eff = Status | "nodata";
 const effOf = (s: StoreWeek): Eff => (hasData(s) ? s.status : "nodata");
 const EFF_ORDER: Record<Eff, number> = { red: 0, amber: 1, green: 2, nodata: 3 };
