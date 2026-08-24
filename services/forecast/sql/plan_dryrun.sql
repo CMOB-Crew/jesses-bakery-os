@@ -20,7 +20,10 @@
 --   z              service level, settable with -v z=... (default +0.201893)
 --                  critical ratio = 0.40 / (0.40 + 0.55), pay-on-scan:
 --                  a wasted loaf costs the whole unit, a stockout only margin.
---                  z is NEGATIVE on purpose — it stocks BELOW the mean.
+--                  SIGN MATTERS: negative z stocks below mean demand, positive
+--                  above. It was -0.199 (42nd percentile) from a margin WE
+--                  assumed; it is now +0.28, set from Simona's stated 20-25%
+--                  waste band. See the SERVICE LEVEL block at the top.
 --   on_hand        latest on_hand_ledger.closing_on_hand, else 0
 --   recommended    max(0, target_stock - on_hand), capped at shelf_max,
 --                  floored at min_on_shelf when non-zero
@@ -249,7 +252,10 @@ group by 1 order by 1;
 --   z              service level, settable with -v z=... (default +0.201893)
 --                  critical ratio = 0.40 / (0.40 + 0.55), pay-on-scan:
 --                  a wasted loaf costs the whole unit, a stockout only margin.
---                  z is NEGATIVE on purpose — it stocks BELOW the mean.
+--                  SIGN MATTERS: negative z stocks below mean demand, positive
+--                  above. It was -0.199 (42nd percentile) from a margin WE
+--                  assumed; it is now +0.28, set from Simona's stated 20-25%
+--                  waste band. See the SERVICE LEVEL block at the top.
 --   on_hand        latest on_hand_ledger.closing_on_hand, else 0
 --   recommended    max(0, target_stock - on_hand), capped at shelf_max,
 --                  floored at min_on_shelf when non-zero

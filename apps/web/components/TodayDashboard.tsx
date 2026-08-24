@@ -120,7 +120,19 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
   // units per band, so Simona can read "20% here means ~X loaves" at a glance.
   const bandStats = BANDS.map((b) => {
     const inBand = rows.filter((r) => r.band === b.key && r.s.retailer !== "invoice" && r.sent > 0);
-    const medWaste = median(inBand.map((r) => r.waste ?? 0));
+    // Only stores that actually report sales have a waste figure. The rest are
+    // UNKNOWN, not zero.
+    //
+    // This used to be median(inBand.map(r => r.waste ?? 0)) -- every store with
+    // no feed counted as 0% waste. Medium band is 166 stores, most of them Coles
+    // with a feed dead since 7 Aug, so the median of mostly-zeros came out at
+    // 0.0% while those same stores sat in Biggest Losses at 40-60%. Two panels
+    // on one screen contradicting each other.
+    //
+    // Same mistake as coalesce(recommended, 0) in the delivery plan and the
+    // no-feed stores in the waste denominator. Null is not zero.
+    const measured = inBand.filter((r) => r.waste != null);
+    const medWaste = median(measured.map((r) => r.waste as number));
     const limit = th[b.key];
     // Flag the band's typical waste against Simona's per-size threshold: red over
     // the limit, amber within 4 pts of it, green clear. Null medWaste = no tone.
@@ -128,11 +140,12 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
     return {
       ...b,
       count: inBand.length,
+      measuredCount: measured.length,
       medWaste,
-      medUnits: median(inBand.map((r) => r.wasted)),
+      medUnits: median(measured.map((r) => r.wasted)),
       limit,
       tone,
-      overCount: inBand.filter((r) => (r.waste ?? 0) > limit).length,
+      overCount: measured.filter((r) => (r.waste as number) > limit).length,
     };
   });
 
@@ -229,7 +242,7 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
             <button key={b.key} className={`tsz-cell ${band === b.key ? "on" : ""}`} onClick={() => setBand(band === b.key ? "all" : b.key)}>
               <span className="tsz-lab">{b.label} <i>{b.range}</i></span>
               <span className="tsz-big"><span className={`tszv ${b.tone}`}>{b.medWaste == null ? "—" : `${b.medWaste}%`}</span><span className="tsz-count">{b.count} {b.count === 1 ? "store" : "stores"}</span></span>
-              <span className="tsz-u">{b.medWaste == null ? "no data yet" : `limit ${b.limit}%${b.overCount > 0 ? ` · ${b.overCount} over` : " · all under"}`}</span>
+              <span className="tsz-u">{b.medWaste == null ? "none reporting sales yet" : `${b.measuredCount} of ${b.count} reporting · limit ${b.limit}%${b.overCount > 0 ? ` · ${b.overCount} over` : " · all under"}`}</span>
             </button>
           ))}
         </div>
