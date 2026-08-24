@@ -40,21 +40,52 @@ p2 as (
          -0.19920132478926697::numeric                    as z
   from params
 ),
--- last 6 occurrences of the target weekday, per store x product
-recent as (
-  select s.store_id, s.product_id, s.units_sold,
-         row_number() over (partition by s.store_id, s.product_id
-                            order by s.sale_date desc) as rn
-  from sales_daily s, p2
-  where extract(dow from s.sale_date)::int = p2.pg_dow
+-- The last 6 CALENDAR occurrences of the target weekday.
+--
+-- This used to take the last 6 ROWS from sales_daily matching the weekday. That
+-- is not the same thing, and the difference was costing real money:
+--
+--   sales_daily only holds rows for days something SOLD -- the retailers report
+--   sales, not zeros. Taking the last 6 rows therefore averaged over only the
+--   days that HAD a sale and silently dropped every zero day. Across live stores
+--   the mean came out 1.49x true demand (2.802 vs 1.886 on Sundays). For fast
+--   lines that sell daily it barely mattered; for slow lines it was brutal.
+--   Harris Farm Rose Bay sold ZERO raisin challah on all six recent Sundays, and
+--   the engine still forecast 6.33 -- because with no recency bound it reached
+--   back months to find six Sundays that did have sales.
+--
+-- Building the calendar first and left-joining fixes both faults at once: the
+-- zero days are present and counted, and the window cannot slide into ancient
+-- history. n is now always 6, so the old "single observation -> std = mean*0.25"
+-- branch never fires; with six real observations stddev_pop is meaningful.
+cal as (
+  select (p2.target_date - (7 * g.n))::date as d
+  from p2, generate_series(1, 6) g(n)
+),
+-- Only plan pairs that are actually ranged here: anything that sold at this
+-- store in the six weeks to as_of. No sale in six weeks means delisted or never
+-- ranged, and a zero-filled grid would otherwise invent a plan for it.
+pairs as (
+  select distinct sd.store_id, sd.product_id
+  from sales_daily sd, p2
+  where sd.sale_date > p2.as_of - 42 and sd.sale_date <= p2.as_of
+),
+grid as (
+  select pr.store_id, pr.product_id, cal.d,
+         coalesce(sd.units_sold, 0)::numeric as units
+  from pairs pr
+  cross join cal
+  left join sales_daily sd
+    on sd.store_id  = pr.store_id
+   and sd.product_id = pr.product_id
+   and sd.sale_date  = cal.d
 ),
 stats as (
   select store_id, product_id,
-         count(*)                          as n,
-         avg(units_sold)::numeric          as mean,
-         stddev_pop(units_sold)::numeric   as std_pop
-  from recent
-  where rn <= 6
+         count(*)                    as n,
+         avg(units)::numeric         as mean,
+         stddev_pop(units)::numeric  as std_pop
+  from grid
   group by store_id, product_id
 ),
 combos as (
@@ -89,6 +120,15 @@ combos as (
   -- plan against Jesse's real sheet. (migration 026)
   where st.active and p.active
     and trim(to_char(p2.target_date, 'dy'))::weekday = any(st.delivery_days)
+    -- Only plan a store whose feed is still alive. Same seven-day test migration
+    -- 027 uses for the dashboard, so "live" means one thing across the system.
+    -- Without it the engine sizes the 110 Coles stores -- dead since 8 Aug --
+    -- off stale history and asks for 24% MORE than they currently receive, on
+    -- zero recorded sales.
+    and exists (select 1 from sales_daily sd
+                where sd.store_id = st.id
+                  and sd.sale_date >  p2.as_of - 7
+                  and sd.sale_date <= p2.as_of)
 ),
 uplift as (
   select c.store_id, c.product_id,
@@ -146,7 +186,7 @@ select r.store_id, r.product_id, r.target_date, r.forecast_demand, r.target_stoc
          || '/day. Target ' || r.target_stock
          || ' at the 42nd percentile (waste-aware), on hand ~' || r.on_hand
          || case when r.capped_by_shelf then ' - capped at shelf max.' else '.' end,
-       'newsvendor-v2-sql'
+       'newsvendor-v3-sql'
 from result r
 on conflict (store_id, product_id, target_date) do update set
   forecast_demand  = excluded.forecast_demand,
