@@ -1334,18 +1334,36 @@ function jbGroupSeries(rows: WkRow[]): Map<string, { wk: string; sold: number }[
 export async function getForecastAccuracy(): Promise<ForecastAccuracyData | null> {
   const K = 3, TARGET = 85, MIN_STORE_WEEKS = 3;
   try {
+    // Bounded to the 182 days ending at the as-of date -- 26 weekly points per
+    // series, comfortably more than the K=3 backtest and MIN_STORE_WEEKS need,
+    // and a fairer read on how the forecast behaves NOW. Unbounded this walked
+    // all 1.1M sales rows on every load. Integer day arithmetic, not intervals:
+    // see the note in getWeekdayShape for why that distinction decides whether
+    // the sale_date index is used at all.
+    //
+    // Aggregated on store_id, with names joined on afterwards. Grouping by the
+    // name text alongside the id makes Postgres carry and sort the text for
+    // every one of the ~500k scanned rows before collapsing them; on ids the
+    // sort keys are small and the text join lands on the ~10k result rows.
     const storeRows = await sql<{ key: string; store: string; region: string | null; wk: string; sold: number }[]>`
-      select s.store_id::text          as key,
-             st.name                    as store,
-             reg.name                   as region,
-             to_char(date_trunc('week', s.sale_date), 'YYYY-MM-DD') as wk,
-             sum(s.units_sold)::int     as sold
-      from sales_daily s
-      join stores st  on st.id = s.store_id
+      with agg as (
+        select s.store_id,
+               date_trunc('week', s.sale_date) as wk,
+               sum(s.units_sold)::int          as sold
+        from sales_daily s
+        where s.sale_date >  (select as_of from v_asof)::date - 182
+          and s.sale_date <= (select as_of from v_asof)::date
+        group by s.store_id, date_trunc('week', s.sale_date)
+      )
+      select agg.store_id::text                     as key,
+             st.name                                as store,
+             reg.name                               as region,
+             to_char(agg.wk, 'YYYY-MM-DD')          as wk,
+             agg.sold                               as sold
+      from agg
+      join stores st on st.id = agg.store_id and st.active
       left join regions reg on reg.id = st.region_id
-      where st.active
-      group by s.store_id, st.name, reg.name, date_trunc('week', s.sale_date)
-      order by s.store_id, wk`;
+      order by agg.store_id, wk`;
 
     if (!storeRows.length) return null;
 
@@ -1393,13 +1411,25 @@ export async function getForecastAccuracy(): Promise<ForecastAccuracyData | null
     // Product difficulty — same backtest per product, ranked by closeness.
     let hard: FaccProduct[] = [], easy: FaccProduct[] = [];
     try {
+      // Same treatment as storeRows above: bounded window, integer day
+      // arithmetic, and aggregated on product_id with the name joined on after.
+      // This one was the worst of the set -- 5.4s, because it sorted half a
+      // million product-name strings to produce 1,002 rows.
       const prodRows = await sql<{ key: string; wk: string; sold: number }[]>`
-        select p.name                    as key,
-               to_char(date_trunc('week', s.sale_date), 'YYYY-MM-DD') as wk,
-               sum(s.units_sold)::int     as sold
-        from sales_daily s
-        join products p on p.id = s.product_id
-        group by p.name, date_trunc('week', s.sale_date)
+        with agg as (
+          select s.product_id,
+                 date_trunc('week', s.sale_date) as wk,
+                 sum(s.units_sold)::int          as sold
+          from sales_daily s
+          where s.sale_date >  (select as_of from v_asof)::date - 182
+            and s.sale_date <= (select as_of from v_asof)::date
+          group by s.product_id, date_trunc('week', s.sale_date)
+        )
+        select p.name                       as key,
+               to_char(agg.wk, 'YYYY-MM-DD') as wk,
+               agg.sold                      as sold
+        from agg
+        join products p on p.id = agg.product_id
         order by p.name, wk`;
       const pSeries = jbGroupSeries(prodRows);
       const scoredProducts: { name: string; acc: number; cv: number; meanWk: number }[] = [];
@@ -1446,28 +1476,48 @@ export async function getForecastAccuracy(): Promise<ForecastAccuracyData | null
 export type WeekdayShape = { shape: number[]; weekendLift: number; weeks: number };
 export async function getWeekdayShape(): Promise<WeekdayShape | null> {
   try {
-    const rows = await sql<{ dow: number; sold: number; days: number }[]>`
-      select extract(dow from sale_date)::int as dow,
-             sum(units_sold)::float8      as sold,
-             count(distinct sale_date)::int as days
-      from sales_daily
-      group by 1`;
+    // Bounded to the 91 days ending at the as-of date. Unbounded this was a full
+    // scan of sales_daily -- harmless while that table held one week, a 1.1M-row
+    // scan on every request once the legacy history landed, which is what timed
+    // the Deliveries page out. Recent weeks are the more honest shape anyway:
+    // seasonality drifts, and a 2024 Tuesday says nothing about this Tuesday.
+    //
+    // The bound is written as "as_of::date - 91", NOT "- interval '13 weeks'".
+    // sale_date is a DATE; subtracting an interval yields a TIMESTAMP, the types
+    // stop matching the date index, and the planner silently demotes the bound
+    // from an Index Cond to a row Filter -- it still reads all 1.1M rows and
+    // throws them away one by one. Integer day arithmetic stays a DATE and keeps
+    // the index range scan: measured 836ms -> 128ms, 1,150,920 buffer pages -> 4,920.
+    // Same reason v_asof is read as a scalar subquery rather than joined: it has
+    // to be an InitPlan constant before the planner will index on it at all.
+    const rows = await sql<{ dow: number; sold: number; days: number; weeks: number }[]>`
+      with s as (
+             select sd.sale_date, sd.units_sold
+             from sales_daily sd
+             where sd.sale_date >  (select as_of from v_asof)::date - 91
+               and sd.sale_date <= (select as_of from v_asof)::date
+           ),
+           w as (select count(distinct date_trunc('week', sale_date))::int as weeks from s)
+      select extract(dow from s.sale_date)::int as dow,
+             sum(s.units_sold)::float8          as sold,
+             count(distinct s.sale_date)::int   as days,
+             w.weeks
+      from s, w
+      group by 1, w.weeks`;
     if (rows.length < 7) return null;
     const perDay = new Array(7).fill(0);
     for (const r of rows) {
       const d = Number(r.days);
       perDay[Number(r.dow)] = d > 0 ? Number(r.sold) / d : 0;
     }
-    if (perDay.some((v) => v <= 0)) return null; // a whole weekday missing — not enough to trust
+    if (perDay.some((v) => v <= 0)) return null; // a whole weekday missing -- not enough to trust
     const mean = perDay.reduce((a, b) => a + b, 0) / 7;
     if (mean <= 0) return null;
     const shape = perDay.map((v) => Math.round((v / mean) * 100) / 100);
     const wkndAvg = (perDay[0] + perDay[6]) / 2;
     const wkdayAvg = (perDay[1] + perDay[2] + perDay[3] + perDay[4] + perDay[5]) / 5;
     const weekendLift = wkdayAvg > 0 ? Math.round((wkndAvg / wkdayAvg - 1) * 100) : 0;
-    const wk = await sql<{ weeks: number }[]>`
-      select count(distinct date_trunc('week', sale_date))::int as weeks from sales_daily`;
-    return { shape, weekendLift, weeks: Number(wk[0]?.weeks ?? 0) };
+    return { shape, weekendLift, weeks: Number(rows[0]?.weeks ?? 0) };
   } catch {
     return null;
   }
