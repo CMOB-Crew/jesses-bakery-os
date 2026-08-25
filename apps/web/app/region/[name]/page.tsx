@@ -13,10 +13,13 @@ export default async function RegionPage({ params }: { params: Promise<{ name: s
   const stores = await getRegionStores(region);
   if (!stores.length) notFound();
 
-  // A store with nothing delivered AND nothing sold has no loaded feed yet — it
-  // is NOT "on track", it's awaiting feed. Count it separately (same rule as the
-  // dashboards and the store list below) so the summary matches its own chips.
-  const hasData = (s: (typeof stores)[number]) => Number(s.total_sent) > 0 || Number(s.total_sold) > 0;
+  // A store is only scored where we can actually see its sales — otherwise it is
+  // awaiting feed, not "on track". Identical rule to the Overview and the Stores
+  // list, and it has to stay identical: a sent-or-sold test alone lets a dark
+  // store through, because it is still being delivered to, and with a NULL waste
+  // (migration 027) jb_status has nothing to fail it on and returns green.
+  const hasData = (s: (typeof stores)[number]) =>
+    s.has_sales_feed !== false && (Number(s.total_sent) > 0 || Number(s.total_sold) > 0);
   const red = stores.filter((s) => hasData(s) && s.status === "red").length;
   const amber = stores.filter((s) => hasData(s) && s.status === "amber").length;
   const green = stores.filter((s) => hasData(s) && s.status === "green").length;

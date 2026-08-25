@@ -40,6 +40,9 @@ export type RegionWeek = {
   region_id: string; region: string; stores: number;
   red: number; amber: number; green: number;
   total_sent: number; total_sold: number; total_wasted: number; waste_pct: number | null;
+  // Measured population, same rule as NetworkWeek (migration 032). waste_pct is
+  // computed over these stores; total_* still covers the whole region.
+  feed_stores: number; feed_sent: number; feed_sold: number;
 };
 
 // Every reader below is wrapped so a transient DB blip (notably Supabase being

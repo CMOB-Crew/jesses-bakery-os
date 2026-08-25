@@ -63,12 +63,18 @@ export default async function Overview() {
     revenue = { salesWk: Math.round(salesWk), wasteWk: Math.round(wasteWk) };
   }
 
-  // Honest status counts: a store with nothing delivered AND nothing sold has no
-  // loaded feed yet (Coles/Harris) — it is NOT "on track". Count it separately as
-  // "awaiting feed" so the headline reflects real coverage, not ~110 blank stores
-  // glowing green. Computed here from the store rows so the hero and the region
-  // cards stay in lockstep.
-  const hasData = (s: StoreWeek) => Number(s.total_sent) > 0 || Number(s.total_sold) > 0;
+  // Honest status counts. A store is only scored if we can actually see its
+  // sales — otherwise it goes in "awaiting feed", not in a colour.
+  //
+  // This rule has to be IDENTICAL to the one on the Stores list, and for a while
+  // it wasn't. Testing only `sent > 0 || sold > 0` let every dark store through:
+  // a Coles store is still being delivered to, so it passed, and with migration
+  // 027 giving it a NULL waste, jb_status found nothing to fail on and returned
+  // green. The Overview read "154 On track" while the Stores list read "Green 1
+  // · No data 170" — the same 265 stores, 153 of them called healthy on one page
+  // and unmeasurable on the other. The Stores list was right.
+  const hasData = (s: StoreWeek) =>
+    s.has_sales_feed !== false && (Number(s.total_sent) > 0 || Number(s.total_sold) > 0);
   const eff: Record<"red" | "amber" | "green" | "nodata", number> = { red: 0, amber: 0, green: 0, nodata: 0 };
   const ndByRegion = new Map<string, number>();
   for (const s of stores) {
@@ -95,7 +101,15 @@ export default async function Overview() {
       <div className="hero">
         <div className="line">
           {eff.red ? <><b>{eff.red} stores</b> need you today.</> : <>Everything&apos;s on track today.</>}{" "}
-          <span className="dim">The rest are running themselves.</span>
+          {/* "The rest are running themselves" is only true when the rest are
+              actually green. With the Coles feed down, 170 of 265 stores have no
+              sales reaching us at all — saying they're running themselves is the
+              most reassuring possible reading of the least information. */}
+          <span className="dim">
+            {eff.nodata > eff.green
+              ? <>{eff.nodata} more aren&apos;t reporting sales, so we can&apos;t tell you either way.</>
+              : <>The rest are running themselves.</>}
+          </span>
         </div>
         <div className="hstats">
           <Stat dot="var(--red)" n={eff.red} l="Need attention" />
