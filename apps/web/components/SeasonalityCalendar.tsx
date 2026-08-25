@@ -31,6 +31,10 @@ type Evt = {
   end: string; // YYYY-MM-DD inclusive
   uplift: number; // network-blend % (matches events.uplift_pct)
   note: string;
+  // How many stores the ENGINE will actually move. null on the built-in seed
+  // (nothing is planned from the seed). 0 means the event is parked: it's real,
+  // but we don't yet know which stores it applies to, so it moves nobody.
+  storesAffected?: number | null;
 };
 
 // Seeded from the 12 Aug production session + Questions-for-Simona.
@@ -52,9 +56,6 @@ const SEED: Evt[] = [
   { id: "labour", kind: "public", name: "Labour Day (NSW)", scope: "Network · long weekend",
     start: "2026-10-05", end: "2026-10-05", uplift: 10,
     note: "Long-weekend lift; some runs shift a day — check delivery days that week." },
-  { id: "heat", kind: "weather", name: "Forecast heatwave", scope: "Example — weather layer",
-    start: "2026-09-18", end: "2026-09-19", uplift: -6,
-    note: "Example only. Hot days soften bread. The weather layer stays off until a forecast feed is wired; Simona can add days by hand." },
   { id: "xmas", kind: "retail", name: "Christmas", scope: "Network",
     start: "2026-12-18", end: "2026-12-24", uplift: 40,
     note: "Biggest lift of the year, ~+40%. Ramp from mid-December." },
@@ -90,6 +91,7 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
             id: e.id,
             kind: (e.kind in KIND_META ? e.kind : "custom") as Kind,
             name: e.name, scope: e.scope, start: e.start, end: e.end, uplift: e.uplift, note: e.note,
+            storesAffected: e.storesAffected,
           }))
         : SEED,
     [liveEvents],
@@ -116,10 +118,19 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
   function eventsOn(key: string) {
     return events.filter((e) => key >= e.start && key <= e.end);
   }
+  // An event scoped to zero stores is parked — real, but waiting on its store
+  // list. It shows in the month list so it isn't forgotten; it must not colour
+  // a day, because the plan for that day is unchanged.
+  const movesThePlan = (e: Evt) => e.storesAffected == null || e.storesAffected > 0;
   function dayMult(dow: number, key: string) {
-    let m = BASE[dow];
-    for (const e of eventsOn(key)) m *= 1 + e.uplift / 100;
-    return m;
+    // ADD the uplifts, don't compound them. jb_plan_day does
+    // `sum(uplift_pct) / 100`, so two events on one day give 1 + (a+b)/100.
+    // Multiplying gave (1+a)(1+b) — for Sukkot +8 overlapping the spring school
+    // holidays -30 that's -24.4% here against the engine's -22%. Small, and
+    // exactly the kind of small that turns into "the calendar said one thing
+    // and the run sheet said another".
+    const pct = eventsOn(key).filter(movesThePlan).reduce((a, e) => a + e.uplift, 0);
+    return BASE[dow] * (1 + pct / 100);
   }
   function tint(m: number) {
     if (m >= 1.28) return "rgba(176,116,28,.24)";
@@ -337,8 +348,23 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
                     <button onClick={() => bump(e.id, +1)} aria-label="Raise uplift">+</button>
                   </div>
                 </div>
-                <div className="ev-scope">{e.scope}</div>
+                <div className="ev-scope">
+                  {e.scope}
+                  {e.storesAffected != null && (
+                    <span className={`ev-reach${e.storesAffected === 0 ? " parked" : ""}`}>
+                      {e.storesAffected === 0
+                        ? "not applied — no stores picked yet"
+                        : `moves ${e.storesAffected} ${e.storesAffected === 1 ? "store" : "stores"}`}
+                    </span>
+                  )}
+                </div>
                 <div className="ev-note">{e.note}</div>
+                {e.storesAffected === 0 && (
+                  <div className="ev-parked">
+                    This is a real event, but it only applies to some stores and nobody has told us which.
+                    Until someone does, it changes nothing — better than lifting all 265.
+                  </div>
+                )}
               </div>
             ))}
             {!adding ? (
@@ -447,6 +473,9 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
         .seasn .ev-up{min-width:44px;text-align:center;font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--muted)}
         .seasn .ev-up.up{color:var(--crust-deep)} .seasn .ev-up.dn{color:#4f7396}
         .seasn .ev-scope{font-size:12px;color:var(--ink2);font-weight:600;margin-top:6px}
+        .seasn .ev-reach{font-weight:500;color:var(--muted);margin-left:8px}
+        .seasn .ev-reach.parked{color:var(--amber-t);font-weight:600}
+        .seasn .ev-parked{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:6px;padding-left:10px;border-left:2px solid var(--amber)}
         .seasn .ev-note{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.5}
         .seasn .addev{width:100%;border:none;border-top:1px solid var(--line2);background:var(--surface);padding:11px;font-size:12.5px;font-weight:600;color:var(--crust-deep);cursor:pointer;font-family:inherit}
         .seasn .addev:hover{background:#f3ecdd}

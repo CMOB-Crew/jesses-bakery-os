@@ -1826,20 +1826,29 @@ export async function getWeekdayShape(): Promise<WeekdayShape | null> {
 // category (ui_kind). Returns [] when the table is empty or absent, and
 // the calendar falls back to its built-in seed.
 // ---------------------------------------------------------------------
-export type SeasonEvent = { id: string; kind: string; name: string; scope: string; start: string; end: string; uplift: number; note: string };
+// storesAffected is how many stores the event will ACTUALLY move, from
+// v_event_scope (migration 036). It is not decoration: until 036, the engine
+// ignored every event's store scope and applied a "~6 Jewish-demographic
+// stores" challah spike to all 265. The calendar showed the right scope text
+// the whole time, which is precisely why nobody caught it — the words were
+// right and the arithmetic wasn't. Now the page shows the number the engine
+// uses, so the two can never drift apart silently again.
+export type SeasonEvent = { id: string; kind: string; name: string; scope: string; start: string; end: string; uplift: number; note: string; storesAffected: number | null };
 export async function getSeasonalEvents(): Promise<SeasonEvent[]> {
   try {
-    const rows = await sql<{ id: string; ui_kind: string | null; name: string; scope: string | null; start: string; end: string; uplift: number | null; note: string | null }[]>`
-      select id::text                              as id,
-             coalesce(ui_kind, 'custom')           as ui_kind,
-             name,
-             scope,
-             to_char(start_date, 'YYYY-MM-DD')     as start,
-             to_char(end_date,   'YYYY-MM-DD')     as end,
-             uplift_pct                            as uplift,
-             note
-      from events
-      order by start_date, name`;
+    const rows = await sql<{ id: string; ui_kind: string | null; name: string; scope: string | null; start: string; end: string; uplift: number | null; note: string | null; stores_affected: number | null }[]>`
+      select e.id::text                            as id,
+             coalesce(e.ui_kind, 'custom')         as ui_kind,
+             e.name,
+             e.scope,
+             to_char(e.start_date, 'YYYY-MM-DD')   as start,
+             to_char(e.end_date,   'YYYY-MM-DD')   as end,
+             e.uplift_pct                          as uplift,
+             e.note,
+             sc.stores_affected
+      from events e
+      left join v_event_scope sc on sc.id = e.id
+      order by e.start_date, e.name`;
     return rows.map((r) => ({
       id: r.id,
       kind: r.ui_kind ?? "custom",
@@ -1849,6 +1858,7 @@ export async function getSeasonalEvents(): Promise<SeasonEvent[]> {
       end: r.end,
       uplift: Number(r.uplift ?? 0),
       note: r.note ?? "",
+      storesAffected: r.stores_affected == null ? null : Number(r.stores_affected),
     }));
   } catch {
     return []; // events table not seeded yet — calendar uses its seed
