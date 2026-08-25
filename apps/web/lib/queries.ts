@@ -293,6 +293,7 @@ export async function getProducts(): Promise<ProductPerf[]> {
 export type ProductDetail = {
   product_id: string; name: string; category: string; launched: boolean;
   stores: number; sent: number; sold: number; recommended: number;
+  feed_stores: number; feed_sent: number;
   sell_through: number | null; waste_pct: number | null; change: number;
 };
 export async function getProductById(id: string): Promise<ProductDetail | null> {
@@ -300,25 +301,33 @@ export async function getProductById(id: string): Promise<ProductDetail | null> 
     const rows = await sql<{
       product_id: string; name: string; category: string; launched_at: Date | null;
       stores: number; sent: number; sold: number; recommended: number;
+      feed_stores: number; feed_sent: number;
     }[]>`
       select p.id::text as product_id, p.name, p.category::text as category, p.launched_at,
              count(distinct r.store_id)::int as stores,
              coalesce(sum(r.sent), 0)::int as sent,
              coalesce(sum(r.sold), 0)::int as sold,
-             coalesce(sum(r.recommended), 0)::int as recommended
+             coalesce(sum(r.recommended), 0)::int as recommended,
+             count(distinct r.store_id) filter (where w.has_sales_feed)::int as feed_stores,
+             coalesce(sum(r.sent) filter (where w.has_sales_feed), 0)::int as feed_sent
       from products p
       left join store_reco r on r.product_id = p.id
+      left join v_store_week w on w.store_id = r.store_id
       where p.id = ${id}::uuid
       group by p.id, p.name, p.category, p.launched_at`;
     const r = rows[0];
     if (!r) return null;
-    const sent = Number(r.sent), sold = Number(r.sold);
+    // Same rule as the Products list: sold can only be counted where there's a
+    // feed, so the denominator has to be the feed's deliveries too. Delivered
+    // stays as everything that left the bakery.
+    const sent = Number(r.sent), sold = Number(r.sold), feedSent = Number(r.feed_sent);
     return {
       product_id: r.product_id, name: r.name, category: r.category,
       launched: r.launched_at != null,
       stores: Number(r.stores), sent, sold, recommended: Number(r.recommended),
-      sell_through: sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null,
-      waste_pct: sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null,
+      feed_stores: Number(r.feed_stores), feed_sent: feedSent,
+      sell_through: feedSent > 0 ? Math.round((1000 * sold) / feedSent) / 10 : null,
+      waste_pct: feedSent > 0 ? Math.round((1000 * (feedSent - sold)) / feedSent) / 10 : null,
       change: Number(r.recommended) - sent,
     };
   } catch {
@@ -331,25 +340,33 @@ export async function getProductById(id: string): Promise<ProductDetail | null> 
 export type ProductStore = {
   store_id: string; name: string; region: string | null;
   sent: number; sold: number; recommended: number;
+  has_sales_feed: boolean;
   sell_through: number | null; waste_pct: number | null; change: number;
 };
 export async function getProductStores(id: string): Promise<ProductStore[]> {
   try {
-    const rows = await sql<{ store_id: string; name: string; region: string | null; sent: number; sold: number; recommended: number }[]>`
+    const rows = await sql<{ store_id: string; name: string; region: string | null; sent: number; sold: number; recommended: number; has_sales_feed: boolean }[]>`
       select s.id::text as store_id, s.name, reg.name as region,
-             r.sent, r.sold, r.recommended
+             r.sent, r.sold, r.recommended,
+             coalesce(w.has_sales_feed, false) as has_sales_feed
       from store_reco r
       join stores s on s.id = r.store_id
       left join regions reg on reg.id = s.region_id
+      left join v_store_week w on w.store_id = r.store_id
       where r.product_id = ${id}::uuid
-      order by (r.sent - r.sold) desc, s.name`;
+      -- Measured stores first. Ordering on (sent - sold) alone floats every
+      -- invoice customer to the top of a "worst waste first" table, because a
+      -- store that never scans a sale looks like a store that sold nothing.
+      order by coalesce(w.has_sales_feed, false) desc, (r.sent - r.sold) desc, s.name`;
     return rows.map((r) => {
       const sent = Number(r.sent), sold = Number(r.sold);
+      const measured = r.has_sales_feed !== false;
       return {
         store_id: r.store_id, name: r.name, region: r.region,
         sent, sold, recommended: Number(r.recommended),
-        sell_through: sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null,
-        waste_pct: sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null,
+        has_sales_feed: measured,
+        sell_through: measured && sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null,
+        waste_pct: measured && sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null,
         change: Number(r.recommended) - sent,
       };
     });
@@ -371,6 +388,7 @@ export type ProductLaunch = {
   product_id: string; name: string; category: string;
   launched_at: Date | null; days_since: number | null;
   stores: number; sent: number; sold: number;
+  feed_stores: number; feed_sent: number;
   sell_through: number | null; waste_pct: number | null; units_per_day: number | null;
   // Simona's trial call — Expand / Continue / Modify / Remove — from the SAME
   // engine the store-cohort trials use, so a product and a store rollout are
@@ -384,38 +402,57 @@ export async function getProductLaunches(): Promise<ProductLaunch[]> {
     const rows = await sql<{
       product_id: string; name: string; category: string;
       launched_at: Date | null; days_since: number | null;
-      stores: number; sent: number; sold: number;
+      stores: number; sent: number; sold: number; feed_stores: number; feed_sent: number;
     }[]>`
       select p.id::text as product_id, p.name, p.category::text as category,
              p.launched_at,
              (current_date - p.launched_at)::int as days_since,
              count(distinct r.store_id) filter (where r.sent > 0 or r.sold > 0) as stores,
              coalesce(sum(r.sent), 0)::int as sent,
-             coalesce(sum(r.sold), 0)::int as sold
+             coalesce(sum(r.sold), 0)::int as sold,
+             count(distinct r.store_id) filter (where w.has_sales_feed and (r.sent > 0 or r.sold > 0))::int as feed_stores,
+             coalesce(sum(r.sent) filter (where w.has_sales_feed), 0)::int as feed_sent
       from products p
       left join store_reco r on r.product_id = p.id
+      left join v_store_week w on w.store_id = r.store_id
       where p.launched_at is not null
         and p.launched_at >= current_date - ${PRODUCT_LAUNCH_WINDOW}::int
       group by p.id, p.name, p.category, p.launched_at
       order by p.launched_at desc, p.name`;
     return rows.map((r) => {
       const sent = Number(r.sent), sold = Number(r.sold), stores = Number(r.stores);
+      const feedStores = Number(r.feed_stores), feedSent = Number(r.feed_sent);
       const days = r.days_since == null ? null : Number(r.days_since);
-      // Units per store per day = this week's units over the stores ranging it,
-      // spread across the days observed (capped at 7). ~ until the daily feed lands.
-      const denom = stores > 0 ? stores * Math.min(7, Math.max(1, days ?? 7)) : 0;
-      const sellThrough = sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null;
-      const wastePct = sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null;
+      // Units per store per day is measured over the stores we can see selling,
+      // not every store ranging the line — otherwise a line launched half into
+      // Coles reads as half as popular as it is.
+      const denom = feedStores > 0 ? feedStores * Math.min(7, Math.max(1, days ?? 7)) : 0;
+      // This one matters more than the other surfaces. A new line rolled into
+      // stores that don't report sales has sold = 0 through no fault of the
+      // product, which reads as 0% sell-through and 100% waste — and
+      // trialVerdict turns that into "remove: weak demand for the space". That
+      // is a wrong number becoming a wrong RECOMMENDATION, and Simona could
+      // reasonably kill a good line on it. Measuring over feed_sent means an
+      // unmeasurable launch comes back null and lands on "early" instead.
+      const sellThrough = feedSent > 0 ? Math.round((1000 * sold) / feedSent) / 10 : null;
+      const wastePct = feedSent > 0 ? Math.round((1000 * (feedSent - sold)) / feedSent) / 10 : null;
       const noData = sent === 0 && sold === 0;
+      const blind = !noData && feedSent === 0;
       const { verdict, reason } = trialVerdict(days ?? 0, sellThrough, wastePct, null);
       return {
         product_id: r.product_id, name: r.name, category: r.category,
         launched_at: r.launched_at, days_since: days,
         stores, sent, sold,
+        feed_stores: feedStores, feed_sent: feedSent,
         sell_through: sellThrough,
         waste_pct: wastePct,
         units_per_day: sold > 0 && denom > 0 ? Math.round((10 * sold) / denom) / 10 : null,
-        verdict, verdictReason: noData ? "Gathering data — no sales in yet" : reason,
+        verdict,
+        verdictReason: noData
+          ? "Gathering data — no sales in yet"
+          : blind
+            ? `Out in ${stores} ${stores === 1 ? "store" : "stores"}, none of which send us their sales yet — no read possible`
+            : reason,
       };
     });
   } catch {
@@ -776,8 +813,10 @@ async function getRecosForStores(ids: string[]): Promise<Map<string, StoreReco[]
 // is already half spent before any query runs.
 export async function getRecommendations(limit = 3, stores?: StoreWeek[]): Promise<Recommendation[]> {
   const all = stores ?? (await getStoreWeek());
+  // Only recommend action on stores we can actually see. Same guard as the
+  // Overview's own counting rule — these cards sit on that page.
   const red = all
-    .filter((s) => s.status === "red")
+    .filter((s) => s.has_sales_feed !== false && s.status === "red")
     .sort((a, b) => b.total_wasted - a.total_wasted)
     .slice(0, limit);
 
@@ -958,8 +997,13 @@ export async function getOpportunities(): Promise<Opportunities> {
   const opps: Opp[] = [];
 
   // Trim waste — over-delivering stores, sized from store_reco where present.
+  // Feed-live only, belt and braces. A dark store should already be green (waste
+  // is NULL, so jb_status has nothing to fail it on) and therefore shouldn't
+  // reach here — but "should already" is how this bug got onto seven pages, and
+  // the cost of stating it is one clause. sent > sold is trivially true for any
+  // store that never reports a sale.
   const wasteCand = stores
-    .filter((s) => (s.status === "red" || s.status === "amber") && Number(s.total_sent) > Number(s.total_sold))
+    .filter((s) => s.has_sales_feed !== false && (s.status === "red" || s.status === "amber") && Number(s.total_sent) > Number(s.total_sold))
     .sort((a, b) => Number(b.total_wasted) - Number(a.total_wasted))
     .slice(0, 6);
   // overByStore (fetched above) carries every store's worst over-supplied line,
@@ -1168,6 +1212,7 @@ export async function getStockouts(): Promise<LostSales> {
 export type MapStore = {
   store_id: string; name: string; retailer: string; region: string | null;
   status: Status; sent: number; sold: number; waste_pct: number | null;
+  has_sales_feed: boolean;
 };
 export async function getMapStores(): Promise<MapStore[]> {
   try {
@@ -1180,7 +1225,7 @@ export async function getMapStores(): Promise<MapStore[]> {
     // status than the dashboards.)
     return await sql<MapStore[]>`
       select store_id, name, retailer, region, status,
-             total_sent as sent, total_sold as sold, waste_pct
+             total_sent as sent, total_sold as sold, waste_pct, has_sales_feed
       from v_store_week`;
   } catch {
     return [];
@@ -1246,7 +1291,7 @@ export type LiveLaunch = {
   size: string | null; onboarded_at: Date | null; days_live: number | null;
   total_sent: number; total_sold: number; total_sold_prev: number;
   stockout_days: number; waste_pct: number | null; status: Status;
-  units_per_day: number | null;
+  units_per_day: number | null; has_sales_feed: boolean;
 };
 export type LaunchCohort = {
   key: string; label: string; region: string | null; go_live_at: Date | null;
@@ -1261,7 +1306,7 @@ export type LaunchCohort = {
 export type TrialVerdict = "early" | "expand" | "continue" | "modify" | "remove";
 export type LaunchTrial = {
   key: string; label: string; region: string | null; retailers: string;
-  storeCount: number; daysLive: number; weeksLive: number;
+  storeCount: number; measuredStores: number; daysLive: number; weeksLive: number;
   unitsPerStorePerDay: number | null; sellThrough: number | null;
   wastePct: number | null; salesGrowth: number | null;
   growingStores: number; hasData: boolean;
@@ -1327,19 +1372,33 @@ export function buildTrials(live: LiveLaunch[]): LaunchTrial[] {
   for (const [key, stores] of groups) {
     const storeCount = stores.length;
     const daysLive = Math.max(...stores.map((s) => s.days_live ?? 0));
-    const sent = stores.reduce((a, s) => a + s.total_sent, 0);
-    const sold = stores.reduce((a, s) => a + s.total_sold, 0);
-    const soldPrev = stores.reduce((a, s) => a + s.total_sold_prev, 0);
-    const hasData = sent > 0 || sold > 0;
 
-    const sellThrough = sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null;
-    const wastePct = sent > 0 ? Math.round((1000 * Math.max(0, sent - sold)) / sent) / 10 : null;
+    // THE ONE THAT MATTERS MOST. This function's output is a recommendation
+    // Simona acts on, not a number she reads past. A cohort of new Coles stores
+    // is delivered to (sent > 0) but sends us nothing back (sold = 0, because
+    // the feed stopped on 3 Aug), so measuring across every store in the cohort
+    // gives 0% sell-through and 100% waste, and trialVerdict turns that into
+    // "remove — weak demand for the space". A perfectly good rollout gets
+    // recommended for the chop because of a data outage at the retailer.
+    //
+    // So the cohort is scored ONLY on the stores whose sales we can see. If
+    // none of them report, there is no read: hasData goes false and the cohort
+    // sits on "gathering data" until the feed lands, which is the honest answer.
+    const measured = stores.filter((s) => s.has_sales_feed !== false);
+    const sent = measured.reduce((a, s) => a + s.total_sent, 0);
+    const sold = measured.reduce((a, s) => a + s.total_sold, 0);
+    const soldPrev = measured.reduce((a, s) => a + s.total_sold_prev, 0);
+    const hasData = measured.length > 0 && (sent > 0 || sold > 0);
+
+    const sellThrough = hasData && sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null;
+    const wastePct = hasData && sent > 0 ? Math.round((1000 * Math.max(0, sent - sold)) / sent) / 10 : null;
     const salesGrowth = soldPrev > 0 ? Math.round((1000 * (sold - soldPrev)) / soldPrev) / 10 : null;
-    // Units per store per day: cohort units spread over store-days observed.
-    const storeDays = stores.reduce((a, s) => a + Math.min(7, Math.max(1, s.days_live ?? 1)), 0);
+    // Units per store per day: cohort units spread over the store-days we can
+    // actually observe, so a half-dark cohort isn't reported as half as busy.
+    const storeDays = measured.reduce((a, s) => a + Math.min(7, Math.max(1, s.days_live ?? 1)), 0);
     const unitsPerStorePerDay = sold > 0 && storeDays > 0 ? Math.round((10 * sold) / storeDays) / 10 : null;
     // Repeat-performance proxy: stores holding or growing week-on-week.
-    const growingStores = stores.filter((s) => s.total_sold >= s.total_sold_prev && s.total_sold > 0).length;
+    const growingStores = measured.filter((s) => s.total_sold >= s.total_sold_prev && s.total_sold > 0).length;
 
     const { verdict, reason } = trialVerdict(daysLive, sellThrough, hasData ? wastePct : null, salesGrowth);
     const retailers = [...new Set(stores.map((s) => s.retailer).filter(Boolean))]
@@ -1348,9 +1407,14 @@ export function buildTrials(live: LiveLaunch[]): LaunchTrial[] {
 
     trials.push({
       key, label: stores[0].region ?? "Unassigned", region: stores[0].region, retailers,
-      storeCount, daysLive, weeksLive: Math.max(1, Math.round(daysLive / 7)),
+      storeCount, measuredStores: measured.length, daysLive, weeksLive: Math.max(1, Math.round(daysLive / 7)),
       unitsPerStorePerDay, sellThrough, wastePct, salesGrowth, growingStores,
-      hasData, verdict, verdictReason: hasData ? reason : "Gathering data — no sales in yet",
+      hasData, verdict,
+      verdictReason: hasData
+        ? reason
+        : measured.length === 0
+          ? `${storeCount === 1 ? "This store doesn't" : "None of these stores"} send us sales yet — nothing to judge the launch on`
+          : "Gathering data — no sales in yet",
     });
   }
   // Most-recently-launched first.
@@ -1427,6 +1491,7 @@ async function getLiveLaunchStores(): Promise<LiveLaunch[]> {
         waste_pct: w?.waste_pct == null ? null : Number(w.waste_pct),
         status: w?.status ?? "green",
         units_per_day: sold > 0 ? Math.round((10 * sold) / denom) / 10 : null,
+        has_sales_feed: w?.has_sales_feed !== false,
       };
     });
   } catch {

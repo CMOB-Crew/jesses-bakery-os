@@ -32,10 +32,10 @@ export default function ProductProfile({ product, stores }: { product: ProductDe
       </div>
 
       <div className="strip">
-        <div className="tile"><div className="tn">{nf(p.sent)}</div><div className="tl">Delivered · units / wk</div></div>
-        <div className="tile"><div className="tn">{nf(p.sold)}</div><div className="tl">Sold · units / wk</div></div>
-        <div className="tile"><div className="tn">{p.sell_through == null ? "—" : `${p.sell_through}%`}</div><div className="tl">Sell-through</div></div>
-        <div className="tile"><div className={`tn wp ${wasteClass(p.waste_pct)}`}>{p.waste_pct == null ? "—" : `${p.waste_pct}%`}</div><div className="tl">Implied waste · delivered − sold</div></div>
+        <div className="tile"><div className="tn">{nf(p.sent)}</div><div className="tl">Delivered · units / wk, every store</div></div>
+        <div className="tile"><div className="tn">{nf(p.sold)}</div><div className="tl">Sold · units / wk, stores that report</div></div>
+        <div className="tile"><div className="tn">{p.sell_through == null ? "—" : `${p.sell_through}%`}</div><div className="tl">Sell-through{p.feed_sent > 0 ? ` · of ${nf(p.feed_sent)} units` : ""}</div></div>
+        <div className="tile"><div className={`tn wp ${wasteClass(p.waste_pct)}`}>{p.waste_pct == null ? "—" : `${p.waste_pct}%`}</div><div className="tl">Waste · across the {p.feed_stores} {p.feed_stores === 1 ? "store" : "stores"} we can see</div></div>
         <div className="tile"><div className={`tn chg ${chgClass(p.change)}`}>{p.change > 0 ? "+" : ""}{nf(p.change)}</div><div className="tl">Difference · units / wk</div></div>
       </div>
 
@@ -56,7 +56,7 @@ export default function ProductProfile({ product, stores }: { product: ProductDe
                   <td className="strong"><Link href={`/store/${s.store_id}`}>{s.name}</Link></td>
                   <td style={{ color: "var(--ink2)" }}>{s.region ?? "—"}</td>
                   <td className="num">{nf(s.sent)}</td>
-                  <td className="num">{nf(s.sold)}</td>
+                  <td className="num">{s.has_sales_feed ? nf(s.sold) : <span className="nofeed" title="This store doesn't send us its sales, so there is no sold figure — the zero would be an absence of data, not an absence of sales.">no feed</span>}</td>
                   <td className="num">{s.sell_through == null ? "—" : `${s.sell_through}%`}</td>
                   <td className="num"><span className={`wp ${wasteClass(s.waste_pct)}`}>{s.waste_pct == null ? "—" : `${s.waste_pct}%`}</span></td>
                   <td className="num"><span className={`chg ${chgClass(s.change)}`}>{s.change > 0 ? "+" : ""}{nf(s.change)}</span></td>
@@ -70,10 +70,11 @@ export default function ProductProfile({ product, stores }: { product: ProductDe
       )}
 
       <div className="foot">
-        Live from the plan (store_reco) — the same core lines and method as the Products page. Sell-through is
-        sold ÷ delivered; waste is delivered − sold. Difference is the order move the plan recommends for this line at
-        each store — a cut trims an over-delivered store, a lift raises an under-ordered one. Store names open the full
-        store profile.
+        Live from the plan (store_reco) — the same core lines and method as the Products page. Delivered counts
+        every store. Sell-through and waste only count the stores that send us their sales, so a store marked
+        <b> no feed</b> is left out of both rather than counted as a total loss. Difference is the order move the plan
+        recommends for this line at each store — a cut trims an over-delivered store, a lift raises an under-ordered
+        one. Store names open the full store profile.
       </div>
 
       <style>{`
@@ -86,6 +87,7 @@ export default function ProductProfile({ product, stores }: { product: ProductDe
         .pprof .tn{font-family:var(--serif);font-size:28px;font-weight:600;line-height:1;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
         .pprof .tl{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.4}
         .pprof .wp.hi{color:var(--red-t)} .pprof .wp.mid{color:var(--amber-t)} .pprof .wp.lo{color:var(--ink2)}
+        .pprof .nofeed{font-size:11.5px;color:var(--muted);cursor:help}
         .pprof .chg{font-variant-numeric:tabular-nums;font-weight:600}
         .pprof .chg.cut{color:var(--green-t)} .pprof .chg.add{color:var(--ink2)} .pprof .chg.flat{color:var(--muted)}
         .pprof td.strong a{color:inherit;text-decoration:none} .pprof td.strong a:hover{color:var(--crust-deep);text-decoration:underline}

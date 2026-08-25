@@ -37,8 +37,13 @@ function whenLive(days: number | null): string {
   return `in ~${wk} week${wk === 1 ? "" : "s"}`;
 }
 const num = (n: number) => n.toLocaleString("en-AU");
+// A launch store with no sales feed has sold = 0 for want of data, not for want
+// of customers. Returning null keeps it off the scoreboard instead of printing
+// a 0% that reads as a failing store.
 const sellThrough = (l: LiveLaunch): number | null =>
-  l.total_sent > 0 ? Math.round((1000 * l.total_sold) / l.total_sent) / 10 : null;
+  l.has_sales_feed !== false && l.total_sent > 0
+    ? Math.round((1000 * l.total_sold) / l.total_sent) / 10
+    : null;
 
 const VERDICT: Record<TrialVerdict, { label: string; cls: string }> = {
   expand: { label: "Expand", cls: "v-expand" },
@@ -192,6 +197,7 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
         .lau .tc-head{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-bottom:13px}
         .lau .tc-title{font-family:var(--serif);font-size:16.5px;font-weight:600}
         .lau .tc-sub{font-size:12.5px;color:var(--muted);margin-left:auto}
+        .lau .tc-part{color:var(--amber-t)}
         .lau .tc-badge{font-size:11.5px;font-weight:700;letter-spacing:.02em;border-radius:999px;padding:4px 12px;text-transform:uppercase}
         .lau .tc-badge.v-expand{color:#2f6b34;background:#e3efd9}
         .lau .tc-badge.v-continue{color:#2b5573;background:#dfeaf3}
@@ -225,6 +231,13 @@ function TrialCard({ t }: { t: LaunchTrial }) {
         <span className={`tc-badge ${v.cls}`}>{v.label}</span>
         <span className="tc-sub">
           {t.storeCount} {t.storeCount === 1 ? "store" : "stores"} · {t.retailers || "—"} · {t.weeksLive} {t.weeksLive === 1 ? "week" : "weeks"} in
+          {t.measuredStores < t.storeCount && (
+            <span className="tc-part">
+              {t.measuredStores === 0
+                ? " · no sales feed yet"
+                : ` · read from the ${t.measuredStores} that report sales`}
+            </span>
+          )}
         </span>
       </div>
       <div className="tc-mets">
@@ -233,7 +246,7 @@ function TrialCard({ t }: { t: LaunchTrial }) {
         <div className="met"><div className="mv">{t.sellThrough != null ? `${t.sellThrough}%` : "—"}</div><div className="ml">Sell-through</div></div>
         <div className="met"><div className="mv">{t.wastePct != null ? `${t.wastePct}%` : "—"}</div><div className="ml">Waste</div></div>
         <div className="met"><div className={`mv${t.salesGrowth == null ? "" : t.salesGrowth >= 0 ? " up" : " down"}`}>{growth}</div><div className="ml">Sales growth</div></div>
-        <div className="met"><div className="mv">{t.hasData ? `${t.growingStores}/${t.storeCount}` : "—"}</div><div className="ml">Holding / growing</div></div>
+        <div className="met"><div className="mv">{t.hasData ? `${t.growingStores}/${t.measuredStores}` : "—"}</div><div className="ml">Holding / growing</div></div>
       </div>
       <div className="tc-reason">{t.verdictReason}</div>
     </div>

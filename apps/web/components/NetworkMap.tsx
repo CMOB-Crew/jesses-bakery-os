@@ -16,14 +16,24 @@ type Kind = "green" | "amber" | "red" | "nodata";
 const COLOR: Record<Kind, string> = { green: "var(--green)", amber: "var(--amber)", red: "var(--red)", nodata: "var(--muted)" };
 const STLABEL: Record<Kind, string> = { green: "On track", amber: "Watch", red: "Needs attention", nodata: "No data" };
 
-// A mapped store with nothing delivered AND nothing sold has no loaded feed yet
-// (Coles/Harris) — neutral grey, never green. Same rule as the dashboards/Stores.
-const hasData = (s: MapStore) => Number(s.sent) > 0 || Number(s.sold) > 0;
+// Neutral grey, never green, for a store whose sales we can't actually see.
+// The sent-or-sold test alone is NOT enough, and this is the third page it has
+// caught out: a Coles store is still being delivered to, so sent > 0, and with
+// a NULL waste (migration 027) jb_status has nothing to fail it on and hands
+// back green. The feed flag is the only honest test. Same rule as the Overview,
+// the Stores list and the region pages — it has to stay identical across all of
+// them or the counts stop reconciling, and Simona is the one who notices.
+const hasData = (s: MapStore) =>
+  s.has_sales_feed !== false && (Number(s.sent) > 0 || Number(s.sold) > 0);
 const effOf = (s: MapStore): Kind => (hasData(s) ? (s.status as Kind) : "nodata");
 
 export default function NetworkMap({ stores }: { stores: MapStore[] }) {
   const router = useRouter();
-  const worst = [...stores].filter((s) => s.status === "red").sort((a, b) => Number(b.waste_pct ?? 0) - Number(a.waste_pct ?? 0));
+  // Open on the worst store we can actually measure — a red badge on a store
+  // with no feed is the status view's default, not a finding.
+  const worst = [...stores]
+    .filter((s) => hasData(s) && s.status === "red")
+    .sort((a, b) => Number(b.waste_pct ?? 0) - Number(a.waste_pct ?? 0));
   const [sel, setSel] = useState<MapStore | null>(worst[0] ?? stores[0] ?? null);
   const [hover, setHover] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -43,9 +53,16 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
 
   const counts: Record<Kind, number> = { green: 0, amber: 0, red: 0, nodata: 0 };
   stores.forEach((s) => (counts[effOf(s)] += 1));
+  // Both halves of the fraction come from the same stores. Sold can only ever
+  // be counted where there's a feed; sent is counted everywhere. Divide one by
+  // the other across the whole network and the answer is wrong by the size of
+  // the dark half of it — 170 of 265 stores today. Delivered stays as the total
+  // that actually left the bakery; the waste figure is measured on the 95.
+  const measured = stores.filter(hasData);
   const sent = stores.reduce((a, s) => a + Number(s.sent), 0);
-  const sold = stores.reduce((a, s) => a + Number(s.sold), 0);
-  const wastePct = sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : 0;
+  const feedSent = measured.reduce((a, s) => a + Number(s.sent), 0);
+  const sold = measured.reduce((a, s) => a + Number(s.sold), 0);
+  const wastePct = feedSent > 0 ? Math.round((1000 * (feedSent - sold)) / feedSent) / 10 : null;
 
   // Group by the store's REAL region — no hardcoded region names, so the
   // diagram works whatever the regions are actually called.
@@ -153,14 +170,19 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
         <div className="rail">
           <div className="panel sumcard">
             <div className="sc-h">Network this week</div>
-            <div className="sc-big">{wastePct}<span className="u">% waste</span></div>
+            <div className="sc-big">{wastePct ?? "—"}<span className="u">% waste</span></div>
             <div className="sc-counts">
               <span className="c green">{counts.green} on track</span>
               <span className="c amber">{counts.amber} watch</span>
               <span className="c red">{counts.red} attention</span>
               {counts.nodata > 0 && <span className="c nodata">{counts.nodata} no data</span>}
             </div>
-            <div className="sc-meta">{stores.length} stores mapped · {sent.toLocaleString("en-AU")} sent · {sold.toLocaleString("en-AU")} sold / wk</div>
+            <div className="sc-meta">
+              {stores.length} stores mapped · {sent.toLocaleString("en-AU")} sent / wk.
+              {measured.length < stores.length
+                ? ` Waste and sold come from the ${measured.length} that report their sales — ${sold.toLocaleString("en-AU")} sold / wk.`
+                : ` ${sold.toLocaleString("en-AU")} sold / wk.`}
+            </div>
           </div>
 
           {sel && (
