@@ -241,26 +241,45 @@ export type ProductPerf = {
   stores: number; sent: number; sold: number; recommended: number;
   sell_through: number | null; waste_pct: number | null; change: number;
   launched: boolean; // tagged as a tracked launch (launched_at set)
+  // Measured population, same rule as the network and region rollups
+  // (migrations 031/032). stores/sent/recommended cover everywhere we deliver;
+  // feed_* is only where sales come back. Any RATIO uses the feed_* pair.
+  feed_stores: number; feed_sent: number;
 };
 export async function getProducts(): Promise<ProductPerf[]> {
   try {
-    const rows = await sql<{ product_id: string; name: string; category: string; stores: number; sent: number; sold: number; recommended: number; launched_at: Date | null }[]>`
+    const rows = await sql<{ product_id: string; name: string; category: string; stores: number; sent: number; sold: number; recommended: number; feed_stores: number; feed_sent: number; launched_at: Date | null }[]>`
       select p.id as product_id, p.name, p.category::text as category,
              count(distinct r.store_id)::int as stores,
              sum(r.sent)::int as sent, sum(r.sold)::int as sold,
              sum(r.recommended)::int as recommended,
+             -- Where the sales actually come back from. A product delivered
+             -- only to invoice customers has no measurable waste at all, and
+             -- must not be reported as 100%.
+             count(distinct r.store_id) filter (where w.has_sales_feed)::int as feed_stores,
+             coalesce(sum(r.sent) filter (where w.has_sales_feed), 0)::int      as feed_sent,
              p.launched_at
-      from store_reco r join products p on p.id = r.product_id
+      from store_reco r
+      join products p on p.id = r.product_id
+      left join v_store_week w on w.store_id = r.store_id
       where p.active
       group by p.id, p.name, p.category, p.launched_at
       order by sum(r.sent - r.sold) desc`;
     return rows.map((r) => {
       const sent = Number(r.sent), sold = Number(r.sold);
+      // Sell-through and waste divide by what the REPORTING stores received, not
+      // by everything delivered. Bagel - Mini goes to two invoice customers who
+      // never scan a sale, so the old sums read 1,080 delivered / 0 sold / 100%
+      // waste and sat at the top of a list sorted worst-first. It is not 100%
+      // waste, it is unmeasurable — and "—" is the honest answer. Same rule as
+      // migrations 027/031/032.
+      const feedSent = Number(r.feed_sent);
       return {
         product_id: r.product_id, name: r.name, category: r.category,
         stores: Number(r.stores), sent, sold, recommended: Number(r.recommended),
-        sell_through: sent > 0 ? Math.round((1000 * sold) / sent) / 10 : null,
-        waste_pct: sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null,
+        feed_stores: Number(r.feed_stores), feed_sent: feedSent,
+        sell_through: feedSent > 0 ? Math.round((1000 * sold) / feedSent) / 10 : null,
+        waste_pct: feedSent > 0 ? Math.round((1000 * (feedSent - sold)) / feedSent) / 10 : null,
         change: Number(r.recommended) - sent,
         launched: r.launched_at != null,
       };

@@ -75,15 +75,23 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
 
   const filtered = q || category !== "all";
 
-  // Network totals for the header strip — real, summed from the rows.
+  // Network totals for the header strip.
+  //
+  // Delivered is everything we send. Waste divides by what the REPORTING stores
+  // received, because that is the only volume we can see the other side of.
+  // Dividing 12,759 sold by all 43,062 delivered gave 70.4% — the same
+  // mixed-population error that put 15.6% waste on the Overview, in the other
+  // direction. Migrations 027/031/032 are the same rule at other levels.
   const totals = useMemo(() => {
     const sent = products.reduce((a, p) => a + num(p.sent), 0);
     const sold = products.reduce((a, p) => a + num(p.sold), 0);
+    const feedSent = products.reduce((a, p) => a + num(p.feed_sent), 0);
     return {
       lines: products.length,
       sent,
       sold,
-      wastePct: sent > 0 ? Math.round((1000 * (sent - sold)) / sent) / 10 : null,
+      feedSent,
+      wastePct: feedSent > 0 ? Math.round((1000 * (feedSent - sold)) / feedSent) / 10 : null,
     };
   }, [products]);
 
@@ -129,15 +137,16 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
     <div className="plist">
       <div className="strip">
         <div className="tile"><div className="tn">{totals.lines}</div><div className="tl">Core lines · planned</div></div>
-        <div className="tile"><div className="tn">{nf(totals.sent)}</div><div className="tl">Delivered · units / wk</div></div>
-        <div className="tile"><div className="tn">{nf(totals.sold)}</div><div className="tl">Sold · units / wk</div></div>
-        <div className="tile"><div className="tn">{totals.wastePct ?? "—"}<span className="u">%</span></div><div className="tl">Implied waste · delivered − sold</div></div>
+        <div className="tile"><div className="tn">{nf(totals.sent)}</div><div className="tl">Delivered · units / wk, every store</div></div>
+        <div className="tile"><div className="tn">{nf(totals.sold)}</div><div className="tl">Sold · units / wk, stores that report</div></div>
+        <div className="tile"><div className="tn">{totals.wastePct ?? "—"}<span className="u">%</span></div><div className="tl">Waste · of the {nf(totals.feedSent)} units sent to reporting stores</div></div>
       </div>
 
       <div className="scopenote">
-        These are the plan&apos;s core planned lines (store_reco), not the full catalogue. Waste here is the
-        <b> current plan&apos;s over-delivery</b> — it runs higher than realised network waste on Overview because it&apos;s
-        exactly what the <b>Difference</b> column trims. Click a line to see which stores drive it.
+        These are the plan&apos;s core planned lines (store_reco), not the full catalogue. <b>Delivered</b> counts
+        every store. <b>Sell-through</b> and <b>Waste</b> only count the stores whose sales we can actually see — so a
+        line that goes mostly to invoice customers shows a dash rather than pretending all of it went in the bin.
+        Click a line to see which stores drive it.
       </div>
 
       <NewProductLaunch />
@@ -193,7 +202,13 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
                     <td className="num">{nf(num(p.sent))}</td>
                     <td className="num">{nf(num(p.sold))}</td>
                     <td className="num">{p.sell_through == null ? "—" : `${p.sell_through}%`}</td>
-                    <td className="num"><span className={`wp ${num(p.waste_pct) >= 25 ? "hi" : num(p.waste_pct) >= 12 ? "mid" : "lo"}`}>{p.waste_pct == null ? "—" : `${p.waste_pct}%`}</span></td>
+                    <td className="num">
+                      {p.waste_pct == null ? (
+                        <span className="wp na" title="No store carrying this line reports its sales, so there is nothing to measure waste against.">—</span>
+                      ) : (
+                        <span className={`wp ${num(p.waste_pct) >= 25 ? "hi" : num(p.waste_pct) >= 12 ? "mid" : "lo"}`}>{p.waste_pct}%</span>
+                      )}
+                    </td>
                     <td className="num"><span className={`chg ${chg < 0 ? "cut" : chg > 0 ? "add" : "flat"}`}>{chg > 0 ? "+" : ""}{nf(chg)}</span></td>
                     <td className="launchcol"><ProductLaunchCell id={p.product_id} launched={p.launched} /></td>
                   </tr>
@@ -239,6 +254,7 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
         .plist td.strong a{color:inherit;text-decoration:none} .plist td.strong a:hover{color:var(--crust-deep);text-decoration:underline}
         .plist .wp{font-weight:600;font-variant-numeric:tabular-nums}
         .plist .wp.hi{color:var(--red-t)} .plist .wp.mid{color:var(--amber-t)} .plist .wp.lo{color:var(--ink2)}
+        .plist .wp.na{color:var(--ink3,var(--ink2));font-weight:400;opacity:.6;cursor:help}
         .plist .chg{font-weight:700;font-variant-numeric:tabular-nums}
         /* Difference: a cut trims over-delivery (waste win) -> green; a lift
            raises an under-ordered line -> neutral. Never alarm-red. */
