@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { signInWithPassword, signInWithMicrosoft } from "./actions";
 import SubmitButton from "./SubmitButton";
 
@@ -10,10 +11,11 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; next?: string }>;
+  searchParams: Promise<{ error?: string; next?: string; reset?: string }>;
 }) {
   const sp = await searchParams;
   const error = sp.error;
+  const reset = sp.reset === "1";
   const next = sp.next && sp.next.startsWith("/") ? sp.next : "/";
 
   return (
@@ -26,6 +28,7 @@ export default async function LoginPage({
         <h1>Sign in</h1>
         <p className="sub">Welcome back. Sign in to manage your stores.</p>
 
+        {reset && <div className="loginok">Password updated. Sign in with your new one.</div>}
         {error && <div className="loginerr">{error}</div>}
 
         <form action={signInWithPassword} className="loginform">
@@ -50,6 +53,9 @@ export default async function LoginPage({
               placeholder="••••••••"
             />
           </label>
+          <div className="loginforgot">
+            <Link href="/login/forgot">Forgot your password?</Link>
+          </div>
           <SubmitButton className="loginbtn primary" pendingText="Signing in…">
             Sign in
           </SubmitButton>
@@ -105,6 +111,12 @@ export default async function LoginPage({
         .loginor::before,.loginor::after{content:"";flex:1;height:1px;background:var(--line)}
         .loginor span{padding:0 12px}
         .loginfoot{font-size:12px;color:var(--faint);margin:18px 0 0;line-height:1.5}
+        .loginok{background:var(--green-b,#eef6ee);color:var(--green-t,#2c5c34);
+          border:1px solid var(--green,#9ec5a4);border-radius:var(--rc);padding:9px 12px;
+          font-size:13px;margin-bottom:16px}
+        .loginforgot{margin:-4px 0 0;text-align:right}
+        .loginforgot a{font-size:12.5px;font-weight:600;color:var(--ink2);text-decoration:none}
+        .loginforgot a:hover{color:var(--ink)}
       `}</style>
     </div>
   );
