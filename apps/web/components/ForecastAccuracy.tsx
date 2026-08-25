@@ -84,7 +84,7 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
     );
   }
 
-  const { weeks, network, improve, netBias, onTrack, target, lookback, snapshots } = data;
+  const { weeks, network, improve, netBias, onTrack, target, lookback, snapshots, panelStores, panelBalanced } = data;
   const shown = showAll ? ranked : ranked.slice(0, TABLE_CAP);
   const hasProducts = data.hard.length > 0 && data.easy.length > 0;
 
@@ -141,6 +141,11 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
             <div className={`cc-sub ${improve >= 0 ? "good" : "bad"}`}>
               {improve >= 0 ? "↑" : "↓"} {Math.abs(improve)} points across the window
             </div>
+            <div className="cc-panel">
+              {panelBalanced
+                ? `Same ${panelStores} stores at every point — the line moves because the forecast moved, not because a different set of stores reported.`
+                : "Too few stores report in every week of this window for a like-for-like line, so each point is whoever reported that week. Read the shape with that in mind."}
+            </div>
           </div>
           <div className="cc-legend"><span className="dash" /> {target}% target</div>
         </div>
@@ -172,7 +177,7 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
       {/* Per-store table */}
       <div className="section-h" style={{ marginTop: 22, marginBottom: 10 }}>
         <span className="tick" />Accuracy by store
-        <span className="cnt">{ranked.length} stores scored · lowest first</span>
+        <span className="cnt">{ranked.length} stores scored on their sales history · lowest first</span>
       </div>
       <div className="tablewrap">
         <table>
@@ -259,6 +264,7 @@ const faccCss = `
   .facc .cc-big{font-family:var(--serif);font-size:38px;font-weight:600;line-height:1;letter-spacing:-1px;font-variant-numeric:tabular-nums;margin-top:6px}
   .facc .cc-big .u{font-size:.5em;color:var(--muted);font-weight:500}
   .facc .cc-sub{font-size:12.5px;margin-top:6px;font-weight:600}
+  .facc .cc-panel{font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.5;max-width:520px}
   .facc .cc-sub.good{color:var(--green-t)} .facc .cc-sub.bad{color:var(--red-t)}
   .facc .cc-legend{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px}
   .facc .cc-legend .dash{width:16px;height:0;border-top:1.5px dashed var(--crust);display:inline-block}

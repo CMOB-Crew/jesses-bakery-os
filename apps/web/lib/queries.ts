@@ -1550,6 +1550,8 @@ export type ForecastAccuracyData = {
   weeks: number[];          // network weekly closeness, oldest -> newest (up to 8)
   network: number;          // latest complete week's network closeness
   improve: number;          // network vs ~4 weeks ago (points)
+  panelStores: number;      // stores scored in EVERY week of the trend window
+  panelBalanced: boolean;   // false when the panel was too thin and we fell back
   netBias: number;          // mean store bias, %
   onTrack: number;          // % of stores at/above target
   target: number;
@@ -1636,18 +1638,25 @@ export async function getForecastAccuracy(): Promise<ForecastAccuracyData | null
     const series = jbGroupSeries(storeRows.map((r) => ({ key: r.key, wk: r.wk, sold: r.sold })));
 
     // Per-store scoring + network-by-week accumulation.
+    // byStore keeps each store's week -> closeness so the trend line can be
+    // built from a BALANCED panel (see below) rather than from whoever
+    // happened to be reporting that week.
     const netByWeek = new Map<string, number[]>();
+    const byStore = new Map<string, Map<string, number>>();
     const stores: FaccStore[] = [];
     let snapshots = 0;
     for (const [key, ser] of series) {
       const scored = jbBacktest(ser, K);
       if (scored.length < MIN_STORE_WEEKS) continue;
       snapshots += scored.length;
+      const mine = new Map<string, number>();
       for (const sc of scored) {
         const arr = netByWeek.get(sc.wk) ?? [];
         arr.push(sc.closeness);
         netByWeek.set(sc.wk, arr);
+        mine.set(sc.wk, sc.closeness);
       }
+      byStore.set(key, mine);
       const acc = Math.round(scored.reduce((a, b) => a + b.closeness, 0) / scored.length);
       const bias = Math.round(scored.reduce((a, b) => a + b.err, 0) / scored.length);
       const trend = scored.slice(-6).map((x) => Math.round(x.closeness));
@@ -1658,12 +1667,32 @@ export async function getForecastAccuracy(): Promise<ForecastAccuracyData | null
     if (!stores.length) return null;
 
     // Network weekly closeness series (oldest -> newest), last 8 complete weeks.
+    //
+    // BALANCED PANEL. Averaging every store that happened to be scorable in a
+    // given week makes the trend line a measure of WHO REPORTED, not of how the
+    // forecast is doing. Coles stopped sending sales on 3 Aug, so the weeks
+    // before that were scored across ~200 stores and the weeks after across
+    // ~95. The line then shows a dip and a recovery that is purely the
+    // population changing underneath it, and "+1 point vs 4 weeks ago" compares
+    // 95 stores against 200 different ones. On a page whose entire job is to
+    // answer "is the plan getting it right?", that is the one number that must
+    // not be an artefact.
+    //
+    // So the trend is built only from stores scored in EVERY week of the
+    // window. Same stores, every point, like for like.
     const weekKeys = [...netByWeek.keys()].sort();
-    const weekly = weekKeys.map((w) => {
-      const v = netByWeek.get(w)!;
+    const windowKeys = weekKeys.slice(-8);
+    const panel = [...byStore.entries()]
+      .filter(([, m]) => windowKeys.every((w) => m.has(w)))
+      .map(([, m]) => m);
+    // Below ~20 stores a balanced panel is noisier than the bias it removes, so
+    // fall back to the all-comers average and say so rather than showing a
+    // confident line drawn from a handful of stores.
+    const panelBalanced = panel.length >= 20;
+    const weeks = windowKeys.map((w) => {
+      const v = panelBalanced ? panel.map((m) => m.get(w)!) : netByWeek.get(w)!;
       return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
     });
-    const weeks = weekly.slice(-8);
     const network = weeks[weeks.length - 1] ?? 0;
     const improve = weeks.length >= 5 ? network - weeks[weeks.length - 5] : network - weeks[0];
     const netBias = Math.round(stores.reduce((a, s) => a + s.bias, 0) / stores.length);
@@ -1722,7 +1751,11 @@ export async function getForecastAccuracy(): Promise<ForecastAccuracyData | null
       }
     } catch { /* products optional — leave hard/easy empty */ }
 
-    return { weeks, network, improve, netBias, onTrack, target: TARGET, lookback: K, snapshots, stores, hard, easy };
+    return {
+      weeks, network, improve, netBias, onTrack, target: TARGET, lookback: K, snapshots,
+      panelStores: panel.length, panelBalanced,
+      stores, hard, easy,
+    };
   } catch {
     return null; // no history yet / query failed — page shows an honest empty state
   }
