@@ -195,12 +195,74 @@ begin
     select (p2.target_date - (7 * g.n))::date as d
     from p2, generate_series(1, 6) g(n)
   ),
+  -- Which stores are still reporting sales? Computed ONCE as a set, then
+  -- joined — not asked per candidate row.
+  --
+  -- This used to be `exists (select 1 from sales_daily ...)` sitting inside
+  -- combos, which is `stores CROSS JOIN products` — 265 x 116 = 30,740 rows,
+  -- each firing its own index probe into a 366MB table. On a warm cache that is
+  -- survivable; it is not something to depend on. One scan of a seven-day window
+  -- answers the same question for every store at once.
+  --
+  -- The test itself is unchanged: sold something in the seven days to as_of.
+  -- Same rule migration 027 uses for the dashboard, so "live" means one thing
+  -- across the whole system. Without it the engine sizes the 115 dead Coles
+  -- stores off stale history and asks for 24% MORE than they currently receive,
+  -- against zero recorded sales.
+  live_stores as (
+    select distinct sd.store_id
+    from sales_daily sd, p2
+    where sd.sale_date >  p2.as_of - 7
+      and sd.sale_date <= p2.as_of
+  ),
+  -- Days of stock this drop has to cover: how long until this store's NEXT
+  -- delivery. Also computed once per store rather than once per store-product —
+  -- it never depended on the product in the first place.
+  --
+  -- app.py used products.lead_time_days, which is a bake offset, not a coverage
+  -- window, so a store delivered Thu + Sat was sent one day of stock to last two.
+  cover as (
+    select st.id as store_id,
+           coalesce((select min(g.n) from generate_series(1,7) g(n)
+                      where trim(to_char(p2.target_date + g.n, 'dy'))::weekday
+                            = any(st.delivery_days)), 1) as days_to_next
+    from stores st, p2
+    where st.active
+      -- Only plan a store on a day it actually receives a delivery. Without this
+      -- the engine recommends for every store every day, roughly doubling the
+      -- plan against Jesse's real sheet. (migration 026)
+      and trim(to_char(p2.target_date, 'dy'))::weekday = any(st.delivery_days)
+  ),
+  -- The stores this run will actually plan: live feed AND delivered on the day.
+  -- Everything downstream is restricted to these, which is the whole point —
+  -- see the note on `pairs`.
+  plan_stores as (
+    select cv.store_id from cover cv join live_stores ls on ls.store_id = cv.store_id
+  ),
   -- Only plan pairs that are actually ranged here: anything that sold at this
   -- store in the six weeks to as_of. No sale in six weeks means delisted or never
   -- ranged, and a zero-filled grid would otherwise invent a plan for it.
+  --
+  -- Restricted to plan_stores, and that restriction is where the time went. It
+  -- used to gather every pair in the network — 2,596 of them — build a six-week
+  -- grid over all of it, and compute stats for all of it, before `calc` inner
+  -- joined to combos and threw most of it away. Two things fell out of that:
+  --
+  --   1. The grid's left join to sales_daily was planned as a hash of the ENTIRE
+  --      1,155,692-row table, in 32 batches spilling 8,183 blocks to disk. 6.4s.
+  --   2. Worse, the planner estimated combos at 116 rows when it is 5,452 — a
+  --      47x miss — so it chose a nested loop and re-ran the stats aggregate
+  --      once per combos row. 4.8ms x 5,452 loops = 26 of the 27.6 seconds, with
+  --      13,345,953 rows discarded by the join filter.
+  --
+  -- Only ~47 stores are delivered on any given day. Computing stats for the
+  -- other 218 was always waste; it just cost nothing measurable until the table
+  -- reached a million rows.
   pairs as (
     select distinct sd.store_id, sd.product_id
-    from sales_daily sd, p2
+    from sales_daily sd
+    join plan_stores ps on ps.store_id = sd.store_id
+    cross join p2
     where sd.sale_date > p2.as_of - 42 and sd.sale_date <= p2.as_of
   ),
   grid as (
@@ -213,7 +275,11 @@ begin
      and sd.product_id = pr.product_id
      and sd.sale_date  = cal.d
   ),
-  stats as (
+  -- MATERIALIZED on purpose. Postgres 12+ inlines CTEs by default, which is
+  -- what let the planner re-execute this aggregate 5,452 times. Even with the
+  -- restriction above, a bad cardinality estimate should cost a rescan of a
+  -- small tuplestore, never a fresh aggregation.
+  stats as materialized (
     select store_id, product_id,
            count(*)                    as n,
            avg(units)::numeric         as mean,
@@ -228,40 +294,20 @@ begin
            p.lead_time_days,
            p.min_on_shelf,
            reg.state,
-           -- Days of stock this drop has to cover: how long until this store's
-           -- NEXT delivery. app.py used products.lead_time_days, which is a bake
-           -- offset, not a coverage window — so a store delivered Thu + Sat was
-           -- being sent one day of stock to last two.
            -- ...but never more days than the bread stays good for. 23 active
            -- stores take one delivery a week; sending them 7 days of stock when
            -- shelf life is 5 would manufacture the exact waste this engine
            -- exists to remove. Those stores are structurally under-served — the
            -- honest answer is to fill to shelf life and flag the gap, not to
            -- pretend a week's bread survives a week.
-           least(
-             coalesce((select min(g.n) from generate_series(1,7) g(n)
-                        where trim(to_char(p2.target_date + g.n, 'dy'))::weekday
-                              = any(st.delivery_days)), 1),
-             greatest(1, p.shelf_life_days)
-           ) as cover_days
+           least(cv.days_to_next, greatest(1, p.shelf_life_days)) as cover_days
     from stores st
+    join cover       cv on cv.store_id = st.id
+    join live_stores ls on ls.store_id = st.id
     cross join products p
     cross join p2
     left join regions reg on reg.id = st.region_id
-    -- Only plan a store for a day it actually receives a delivery. Without this
-    -- the engine recommends for every store every day, which roughly doubles the
-    -- plan against Jesse's real sheet. (migration 026)
     where st.active and p.active
-      and trim(to_char(p2.target_date, 'dy'))::weekday = any(st.delivery_days)
-      -- Only plan a store whose feed is still alive. Same seven-day test migration
-      -- 027 uses for the dashboard, so "live" means one thing across the system.
-      -- Without it the engine sizes the 110 Coles stores -- dead since 8 Aug --
-      -- off stale history and asks for 24% MORE than they currently receive, on
-      -- zero recorded sales.
-      and exists (select 1 from sales_daily sd
-                  where sd.store_id = st.id
-                    and sd.sale_date >  p2.as_of - 7
-                    and sd.sale_date <= p2.as_of)
   ),
   uplift as (
     select c.store_id, c.product_id,
