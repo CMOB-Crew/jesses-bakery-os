@@ -29,7 +29,15 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
         <div className="eng-top">
           <span className="dot" />
           <h2>Waste this week — today vs. the plan</h2>
-          <span className="src">95 stores that report sales · this week · real sent vs sold</span>
+          {/* The tiles below the fold read 34.5% from the live view; this panel
+              reads 34.3% from the last engine run, because the engine measured
+              the 1,189 store-product lines it actually planned (19,408 units)
+              while the view measures everything those same 95 stores received
+              (19,491). Same stores, same week, 83 units apart. Saying which is
+              which beats two unexplained numbers on one screen — and the
+              scenarios below are all computed on the engine's basis, so this
+              number has to stay on it too. */}
+          <span className="src">95 stores that report sales · this week · at the last engine run</span>
         </div>
 
         <div className="eng-grid">

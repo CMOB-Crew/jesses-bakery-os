@@ -18,8 +18,15 @@ function fmtDate(d: Date) {
 }
 
 export default async function Overview() {
+  // The store-week rows are started once and shared. getRecommendations used to
+  // fetch the same 265 rows a second time and then run three more per-store
+  // lookups, so this page made 14 round trips to Singapore where 10 would do —
+  // and on a cold Netlify function that was the difference between rendering
+  // and streaming an empty body. Chaining off storesP rather than awaiting it
+  // first keeps everything else running in parallel.
+  const storesP = getStoreWeek();
   const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings, states] = await Promise.all([
-    getNetwork(), getRegions(), getRecommendations(3), getAsOf(), getFeedStatus(), getEngineProjection(), getStoreWeek(), getStoreRevenueWeek(), getAppSettings(), getStoreStates(),
+    getNetwork(), getRegions(), storesP.then((s) => getRecommendations(3, s)), getAsOf(), getFeedStatus(), getEngineProjection(), storesP, getStoreRevenueWeek(), getAppSettings(), getStoreStates(),
   ]);
 
   // Per-store revenue as a plain object — a Map doesn't survive the server →

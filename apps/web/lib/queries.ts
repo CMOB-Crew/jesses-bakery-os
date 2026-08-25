@@ -723,19 +723,51 @@ export async function getStoreProducts(id: string): Promise<ProductRow[]> {
 
 const titleCase = (t: string) => t.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
-export async function getRecommendations(limit = 3): Promise<Recommendation[]> {
-  const stores = await getStoreWeek();
-  const red = stores
+// Every recommendation line for a handful of stores, in one query rather than
+// one per store. Same rows and same ordering as getStoreRecos, so callers can
+// swap between them freely.
+async function getRecosForStores(ids: string[]): Promise<Map<string, StoreReco[]>> {
+  const m = new Map<string, StoreReco[]>();
+  if (!ids.length) return m;
+  try {
+    const rows = await sql<(StoreReco & { store_id: string })[]>`
+      select r.store_id::text as store_id, p.id::text as product_id, p.name as product_name,
+             r.sold, r.sent, r.recommended
+      from store_reco r join products p on p.id = r.product_id
+      where r.store_id::text = any(${ids})
+      order by r.store_id, (r.sent - r.recommended) desc, p.name`;
+    for (const r of rows) {
+      const list = m.get(r.store_id) ?? [];
+      list.push({ product_id: r.product_id, product_name: r.product_name, sold: Number(r.sold), sent: Number(r.sent), recommended: Number(r.recommended) });
+      m.set(r.store_id, list);
+    }
+  } catch {
+    // store_reco absent — callers fall back to their generic wording.
+  }
+  return m;
+}
+
+// `stores` is optional so the Overview can hand over the store-week rows it has
+// already fetched in its own Promise.all, instead of this asking for the same
+// 265 rows a second time. Every round trip to the Singapore pooler is ~130ms of
+// the Overview's 10s Netlify budget, and on a cold function start that budget
+// is already half spent before any query runs.
+export async function getRecommendations(limit = 3, stores?: StoreWeek[]): Promise<Recommendation[]> {
+  const all = stores ?? (await getStoreWeek());
+  const red = all
     .filter((s) => s.status === "red")
     .sort((a, b) => b.total_wasted - a.total_wasted)
     .slice(0, limit);
+
+  // One query for all three stores' lines, not three.
+  const recosByStore = await getRecosForStores(red.map((s) => s.store_id));
 
   return Promise.all(
     red.map(async (s, i) => {
       // Units wasted per week — the real, cost-feed-free figure. Labelled as
       // units (not $) until Invoice_Cost lands and we can price it.
       const atStake = Math.round(Number(s.total_wasted) || 0);
-      const recos = await getStoreRecos(s.store_id);
+      const recos = recosByStore.get(s.store_id) ?? [];
 
       // Real engine numbers when we have a plan for this store — the card text is
       // built straight from store_reco so it matches the store drill-down exactly.
