@@ -57,7 +57,11 @@ const growthOf = (s: StoreWeek) => {
 };
 const VIEWS: Record<string, { label: string; test: (s: StoreWeek) => boolean }> = {
   waste30: { label: "Excessive waste (>30%)", test: (s) => s.waste_pct != null && num(s.waste_pct) > 30 },
-  stockouts: { label: "Likely to sell out", test: (s) => num(s.stockout_days) > 0 },
+  // Same gate as the Overview action list, so the count on the tile and the
+  // length of this list are always the same number: a store that sells out on a
+  // line but still wastes 20%+ of its delivery has a range/cadence problem, not
+  // a volume one, and doesn't belong under "increase allocation".
+  stockouts: { label: "Selling out without over-supplying", test: (s) => num(s.stockout_days) > 0 && (s.waste_pct == null || num(s.waste_pct) < 20) },
   overdeliver: { label: "Allocation opportunities · over-delivering", test: (s) => num(s.total_sent) - num(s.total_sold) > Math.max(20, num(s.total_sold) * 0.2) },
   expandrange: { label: "Could expand range", test: (s) => { const st = sellThroughOf(s); const w = s.waste_pct == null ? null : num(s.waste_pct); return st != null && st >= 95 && (w == null || w < 12); } },
   outperform: { label: "Outperforming comparable stores", test: (s) => { const st = sellThroughOf(s); return s.status === "green" && st != null && st >= 92; } },

@@ -104,7 +104,22 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
 
   // ---- Today's action list (Simona's format: issue -> action) ----
   const highWastage = rows.filter((r) => r.waste != null && r.waste > 30).length;
-  const stockOuts = rows.filter((r) => r.stockouts > 0).length;
+  // "Increase allocation" only where sending more is actually the answer.
+  //
+  // Any sell-out used to qualify. With the on-hand ledger loaded that became
+  // 172 of 265 stores telling Simona to send more -- in a network running 34.3%
+  // waste, on the same screen that tells her 64 stores are over-supplying. The
+  // two lines contradict each other and the wrong one is more prominent.
+  //
+  // A store wasting 30%+ that also runs out of two lines does not need more
+  // bread; it needs the same bread allocated differently across its range, and
+  // the high-wastage row above already has it. So a sell-out is only actionable
+  // as "send more" where waste is under Simona's 20% comfort line -- or where we
+  // cannot measure waste at all, in which case the sell-out is the only signal
+  // there is and she should see it.
+  const stockOuts = rows.filter(
+    (r) => r.stockouts > 0 && (r.waste == null || r.waste < 20),
+  ).length;
   const salesDecline = rows.filter((r) => r.growth != null && r.growth < -10).length;
   const strongSellers = rows.filter((r) => r.sellThrough != null && r.sellThrough >= 95 && (r.waste == null || r.waste < 12)).length;
   const needAttention = rows.filter((r) => r.s.status === "red").length;

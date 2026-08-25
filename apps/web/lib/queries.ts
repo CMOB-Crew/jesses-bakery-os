@@ -955,12 +955,45 @@ export async function getStoreRevenueWeek(): Promise<Map<string, StoreRevenue>> 
   }
 }
 
+// The single most under-supplied line per store, for every store in one query.
+// This used to be a per-store getStoreRecos() call inside the Lost sales loop —
+// harmless while stockout_days was near-empty, fatal once the on-hand ledger
+// load populated it for 172 stores: 172 sequential pooler round-trips overran
+// Netlify's 10s function budget, the render never finished, and the page
+// streamed its shell with an empty body. One DISTINCT ON makes the same
+// selection the JS did — largest (recommended - sent) gap, product name as the
+// tie-break — in a single round trip.
+type UnderLine = { product_id: string; product_name: string; sent: number; recommended: number };
+async function getTopUnderSuppliedByStore(): Promise<Map<string, UnderLine>> {
+  const m = new Map<string, UnderLine>();
+  try {
+    const rows = await sql<{ store_id: string; product_id: string; product_name: string; sent: number; recommended: number }[]>`
+      select distinct on (r.store_id)
+             r.store_id::text as store_id, p.id::text as product_id, p.name as product_name,
+             r.sent, r.recommended
+      from store_reco r join products p on p.id = r.product_id
+      where r.recommended > r.sent
+      order by r.store_id, (r.recommended - r.sent) desc, p.name`;
+    for (const r of rows) {
+      m.set(r.store_id, {
+        product_id: r.product_id, product_name: r.product_name,
+        sent: Number(r.sent), recommended: Number(r.recommended),
+      });
+    }
+  } catch {
+    // store_reco not present yet — every card falls back to "peak lines", the
+    // same graceful degradation getStoreRecos() had.
+  }
+  return m;
+}
+
 export async function getStockouts(): Promise<LostSales> {
   const stores = await getStoreWeek();
   // Revenue overlay: empty until the Invoice_Cost extract is loaded, so lost
   // revenue stays null and the UI keeps its "$ —, lights up with the price feed"
   // placeholder. The moment the feed lands this fills in with no code change.
   const revByStore = await getStoreRevenueWeek();
+  const underByStore = await getTopUnderSuppliedByStore();
   const cand = stores.filter((s) => Number(s.stockout_days) > 0);
   const losses: Stockout[] = [];
   for (const s of cand) {
@@ -968,8 +1001,7 @@ export async function getStockouts(): Promise<LostSales> {
     const lostWk = Math.max(1, Math.round((Number(s.total_sold) / 7) * days * 0.5));
     const unitRev = revByStore.get(s.store_id)?.avg_unit_revenue ?? null;
     const lostRevenueWk = unitRev != null ? Math.round(lostWk * unitRev) : null;
-    const recos = await getStoreRecos(s.store_id);
-    const under = recos.filter((r) => r.recommended > r.sent).sort((a, b) => (b.recommended - b.sent) - (a.recommended - a.sent))[0];
+    const under = underByStore.get(s.store_id);
     losses.push({
       id: `so-${s.store_id}`, store_id: s.store_id, store: s.name, retailer: s.retailer, region: s.region ?? "—",
       product: under ? titleCase(under.product_name) : "peak lines", product_id: under ? under.product_id : null,
