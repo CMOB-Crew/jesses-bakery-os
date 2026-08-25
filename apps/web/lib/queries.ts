@@ -410,19 +410,27 @@ export async function getFeedStatus(): Promise<FeedStatus[]> {
     // days' grace because a retailer reporting a day late is normal.
     // Ordered oldest-first so the caller's find() picks the WORST feed, not
     // whichever happened to sort first.
+    // Shape note: this asks the question per retailer rather than grouping the
+    // whole table. `group by source` had to aggregate all 1.15M sales rows to
+    // return three, which cost 2.2s and made this the slowest thing on the
+    // Overview. There are only ever a handful of retailers (it's an enum), so
+    // walk them and ask each one for its latest date — with the
+    // sales_daily (source, sale_date) index from migration 030 that's one
+    // backward index scan each, stopping on the first row.
     return await sql<FeedStatus[]>`
       with a as (select as_of from v_asof),
       last_seen as (
-        select sd.source::text as source, max(sd.sale_date) as as_of
-        from sales_daily sd, a
-        where sd.sale_date <= a.as_of
-        group by 1
+        select r.source::text as source,
+               (select max(sd.sale_date) from sales_daily sd
+                 where sd.source = r.source and sd.sale_date <= (select as_of from a)) as as_of
+        from (select unnest(enum_range(null::retailer_type)) as source) r
       )
       select l.source,
              case when (select as_of from a) - l.as_of <= 2 then 'ok' else 'stale' end as status,
              l.as_of,
              null::text as detail
       from last_seen l
+      where l.as_of is not null
       order by l.as_of asc`;
   } catch {
     return [];
@@ -1099,14 +1107,22 @@ export type ArchivedStore = {
 };
 export async function getArchivedStores(): Promise<ArchivedStore[]> {
   try {
+    // The last-sale lookup is a LATERAL, not a grouped subquery over the whole
+    // table. As `group by store_id` across all of sales_daily it aggregated
+    // every row in the network — over a million now that the legacy history is
+    // loaded — to answer a question about the handful of stores that are
+    // archived, and the page blew Netlify's 10s budget and rendered blank. Per
+    // store, max(sale_date) is a backward walk of one index
+    // (sales_daily (store_id, sale_date)) that stops on the first row.
     return await sql<ArchivedStore[]>`
-      with last as (select store_id, max(sale_date) as last_sale from sales_daily group by store_id)
       select s.id as store_id, s.name, s.retailer::text as retailer, reg.name as region,
              s.size_category::text as size, last.last_sale as last_active,
              (current_date - last.last_sale)::int as days_since
       from stores s
       left join regions reg on reg.id = s.region_id
-      left join last on last.store_id = s.id
+      left join lateral (
+        select max(sd.sale_date) as last_sale from sales_daily sd where sd.store_id = s.id
+      ) last on true
       where s.active = false
         -- Exclude upcoming rollouts (added, planned go-live, not yet live).
         -- They belong on the Launches page, not in the dormant Archive.
