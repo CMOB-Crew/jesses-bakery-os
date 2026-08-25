@@ -1,0 +1,175 @@
+<!--
+  Jesse's Bakery — Supabase auth email templates
+  Paste into: Authentication > Emails > Templates
+
+  Written to Simona's plain-language standard (see the project doc): say what it
+  is, few words, no system jargon, and always tell the reader what to do if it
+  wasn't them. That last line is what stops a bakery packer deleting it as
+  phishing — which, with a sender domain they don't recognise, is the realistic
+  failure mode.
+
+  Deliberately plain HTML. No images, no external CSS, no web fonts, inline
+  styles only, and the raw URL printed under every button. Outlook renders a lot
+  of this differently and some clients strip buttons entirely; the plain link
+  underneath means the email still works when the pretty part doesn't. Heavy
+  markup also scores worse with spam filters, which matters more than looks for
+  an email whose only job is to be clicked once.
+
+  Supabase variables: {{ .ConfirmationURL }} {{ .SiteURL }} {{ .Email }} {{ .Token }}
+-->
+
+
+<!-- ================================================================
+     1. INVITE USER
+     Subject:  You've been added to Jesse's Bakery
+     This is the one go-live depends on. It is NOT the reset template.
+     ================================================================ -->
+
+<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.55;color:#1d2530;max-width:520px;margin:0 auto;padding:24px">
+  <p style="margin:0 0 16px">Hello,</p>
+
+  <p style="margin:0 0 16px">
+    An account has been set up for you on <strong>Jesse's Bakery</strong> &mdash;
+    where the delivery run sheets, the bake sheets and the store numbers live.
+  </p>
+
+  <p style="margin:0 0 24px">Pick a password and you're in:</p>
+
+  <p style="margin:0 0 24px">
+    <a href="{{ .ConfirmationURL }}"
+       style="background:#1f5f8b;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:6px;display:inline-block;font-weight:600">
+      Set your password
+    </a>
+  </p>
+
+  <p style="margin:0 0 8px;font-size:14px;color:#5b6b7a">
+    Or paste this into your browser:
+  </p>
+  <p style="margin:0 0 24px;font-size:13px;word-break:break-all">
+    <a href="{{ .ConfirmationURL }}" style="color:#1f5f8b">{{ .ConfirmationURL }}</a>
+  </p>
+
+  <p style="margin:0 0 16px;font-size:14px;color:#5b6b7a">
+    The link only works once. If it's stopped working, ask whoever set you up to
+    send another &mdash; it takes them a few seconds.
+  </p>
+
+  <p style="margin:0;font-size:14px;color:#5b6b7a">
+    Not expecting this? You can ignore it. Nothing happens until someone sets a
+    password.
+  </p>
+</div>
+
+
+<!-- ================================================================
+     2. RESET PASSWORD
+     Subject:  Reset your Jesse's Bakery password
+     ================================================================ -->
+
+<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.55;color:#1d2530;max-width:520px;margin:0 auto;padding:24px">
+  <p style="margin:0 0 16px">Hello,</p>
+
+  <p style="margin:0 0 24px">
+    Someone asked to reset the password for this address on
+    <strong>Jesse's Bakery</strong>.
+  </p>
+
+  <p style="margin:0 0 24px">
+    <a href="{{ .ConfirmationURL }}"
+       style="background:#1f5f8b;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:6px;display:inline-block;font-weight:600">
+      Set a new password
+    </a>
+  </p>
+
+  <p style="margin:0 0 8px;font-size:14px;color:#5b6b7a">
+    Or paste this into your browser:
+  </p>
+  <p style="margin:0 0 24px;font-size:13px;word-break:break-all">
+    <a href="{{ .ConfirmationURL }}" style="color:#1f5f8b">{{ .ConfirmationURL }}</a>
+  </p>
+
+  <p style="margin:0 0 16px;font-size:14px;color:#5b6b7a">
+    The link works once, and only for the next hour.
+  </p>
+
+  <p style="margin:0;font-size:14px;color:#5b6b7a">
+    If that wasn't you, ignore this email. Your password hasn't changed and
+    nobody has been let in.
+  </p>
+</div>
+
+
+<!-- ================================================================
+     3. CONFIRM SIGNUP
+     Subject:  Confirm your email for Jesse's Bakery
+     Only fires if someone signs up directly rather than being invited. A new
+     account gets no role and no access until an admin grants one (migration
+     012), so this confirms the address and nothing more — worth saying, so a
+     new starter isn't left wondering why they can't see anything yet.
+     ================================================================ -->
+
+<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.55;color:#1d2530;max-width:520px;margin:0 auto;padding:24px">
+  <p style="margin:0 0 16px">Hello,</p>
+
+  <p style="margin:0 0 24px">
+    Please confirm this is your email address for <strong>Jesse's Bakery</strong>.
+  </p>
+
+  <p style="margin:0 0 24px">
+    <a href="{{ .ConfirmationURL }}"
+       style="background:#1f5f8b;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:6px;display:inline-block;font-weight:600">
+      Confirm my email
+    </a>
+  </p>
+
+  <p style="margin:0 0 8px;font-size:14px;color:#5b6b7a">
+    Or paste this into your browser:
+  </p>
+  <p style="margin:0 0 24px;font-size:13px;word-break:break-all">
+    <a href="{{ .ConfirmationURL }}" style="color:#1f5f8b">{{ .ConfirmationURL }}</a>
+  </p>
+
+  <p style="margin:0 0 16px;font-size:14px;color:#5b6b7a">
+    Confirming your address doesn't give you access on its own &mdash; someone at
+    the bakery still has to say what you're allowed to see. If you're waiting on
+    that, give them a nudge.
+  </p>
+
+  <p style="margin:0;font-size:14px;color:#5b6b7a">
+    Didn't sign up? Ignore this and no account will be created.
+  </p>
+</div>
+
+
+<!-- ================================================================
+     4. CHANGE EMAIL ADDRESS
+     Subject:  Confirm your new email for Jesse's Bakery
+     ================================================================ -->
+
+<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.55;color:#1d2530;max-width:520px;margin:0 auto;padding:24px">
+  <p style="margin:0 0 16px">Hello,</p>
+
+  <p style="margin:0 0 24px">
+    You asked to change the email address on your <strong>Jesse's Bakery</strong>
+    account to <strong>{{ .Email }}</strong>. Confirm it and you'll sign in with
+    the new one from then on.
+  </p>
+
+  <p style="margin:0 0 24px">
+    <a href="{{ .ConfirmationURL }}"
+       style="background:#1f5f8b;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:6px;display:inline-block;font-weight:600">
+      Confirm the change
+    </a>
+  </p>
+
+  <p style="margin:0 0 8px;font-size:14px;color:#5b6b7a">
+    Or paste this into your browser:
+  </p>
+  <p style="margin:0 0 24px;font-size:13px;word-break:break-all">
+    <a href="{{ .ConfirmationURL }}" style="color:#1f5f8b">{{ .ConfirmationURL }}</a>
+  </p>
+
+  <p style="margin:0;font-size:14px;color:#5b6b7a">
+    If you didn't ask for this, ignore it &mdash; the address stays as it is.
+  </p>
+</div>
