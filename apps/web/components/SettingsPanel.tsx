@@ -1,8 +1,17 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
-import type { EngineScenario, AppSettings } from "@/lib/queries";
+import type { EngineScenario, AppSettings, FeedStatus } from "@/lib/queries";
 import { saveSetting } from "@/app/settings/actions";
+
+const RETAILER: Record<string, string> = {
+  woolworths: "Woolworths",
+  coles: "Coles",
+  harris_farm: "Harris Farm",
+  invoice: "Invoice customers",
+};
+const fmtDate = (d: Date | string) =>
+  new Date(d).toLocaleDateString("en-AU", { day: "numeric", month: "long" });
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 // Null-safe first word. Guards prerender: if the plan_projection feed is slow
@@ -32,8 +41,13 @@ const FACTORS0: Factor[] = [
   { key: "weather", name: "Weather", note: "Cold snaps lift bread (toasties, soup). Needs a weather feed — off until wired.", weight: "Low", on: false },
 ];
 
-export default function SettingsPanel({ scenarios, settings = {} }: { scenarios: EngineScenario[]; settings?: AppSettings }) {
+export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: { scenarios: EngineScenario[]; settings?: AppSettings; feeds?: FeedStatus[] }) {
   const engines = useMemo(() => scenarios.filter((s) => s.scenario !== "current").sort((a, b) => a.ord - b.ord), [scenarios]);
+  // What the network is doing TODAY, so the projection below is never read as a
+  // statement of the present. Overview says 34.5%; this panel used to say 22.6%
+  // with no indication it was a forecast, on the same screen a client clicks
+  // between. Both numbers were right and the pair of them was misleading.
+  const current = useMemo(() => scenarios.find((s) => s.scenario === "current"), [scenarios]);
   const [, startSave] = useTransition();
 
   // Saved config (migration 016) hydrates the controls; missing keys fall back
@@ -100,7 +114,20 @@ export default function SettingsPanel({ scenarios, settings = {} }: { scenarios:
       <div className="sec"><span className="tick" />Service level</div>
       <div className="card">
         <div className="row-top">
-          <div className="desc">The one dial that trades waste against selling out. {eng ? <>At <b>{firstWord(eng.label)}</b> the network runs <b>{eng.waste_pct}%</b> waste for <b>{eng.lost_sales_pct ?? "—"}%</b> lost sales, saving <b>{nf(Number(eng.units_saved_wk) || 0)}</b> loaves a week.</> : null}</div>
+          <div className="desc">
+            The one dial that trades waste against selling out.
+            {eng ? (
+              <>
+                {" "}Today the stores we can measure run <b>{current?.waste_pct ?? "—"}%</b> waste.
+                At <b>{firstWord(eng.label)}</b> the plan <b>would</b> bring that to <b>{eng.waste_pct}%</b>,
+                for <b>{eng.lost_sales_pct ?? "—"}%</b> lost sales, saving <b>{nf(Number(eng.units_saved_wk) || 0)}</b> loaves a week.
+              </>
+            ) : null}
+            <span className="scopenote">
+              Every figure on this dial is measured across the stores that send us their sales — not the whole network.
+              Stores with no feed keep their standing order and are not part of these numbers.
+            </span>
+          </div>
           <div className="scope">
             {(["network", "store", "product"] as const).map((sc) => (
               <button key={sc} type="button" className={scope === sc ? "on" : ""} onClick={() => setScope(sc)}>{sc === "network" ? "Network" : sc === "store" ? "Per store" : "Per product"}</button>
@@ -195,14 +222,30 @@ export default function SettingsPanel({ scenarios, settings = {} }: { scenarios:
       {/* FEED COVERAGE */}
       <div className="sec"><span className="tick" />Feed coverage</div>
       <div className="card">
-        <div className="feed"><b className="g">● Woolworths</b> — live feed, live on plan. Full per-store, per-product orders.</div>
-        <div className="feed"><b className="a">● Coles &amp; Harris Farm</b> — feeds still filling in the ledger. They light up automatically as sales data lands; nothing to configure. Sales and waste $ are already live from the cost feed — these feeds filling extends them network-wide (profit unlocks with per-product cost).</div>
+        {feeds.length === 0 ? (
+          <div className="feed"><b className="a">● No feed readings yet</b> — this fills in as sales data lands.</div>
+        ) : (
+          feeds.map((f) => (
+            <div className="feed" key={f.source}>
+              <b className={f.status === "ok" ? "g" : "a"}>● {RETAILER[f.source] ?? f.source}</b>
+              {f.status === "ok"
+                ? " — sending sales. Full per-store, per-product orders on the plan."
+                : ` — nothing received since ${fmtDate(f.as_of)}. These stores keep their standing order and are left out of the waste and sell-through figures until it comes back.`}
+            </div>
+          ))
+        )}
+        <div className="feednote">
+          Read from the sales data itself, not from a list someone maintains by hand — so it cannot say a feed is
+          healthy when it has gone quiet.
+        </div>
       </div>
 
       {toast && <div className="settoast">{toast}</div>}
 
       <style>{`
       .setp{display:block;padding-bottom:40px}
+      .setp .scopenote{display:block;margin-top:8px;font-size:11.5px;color:var(--muted);line-height:1.5;max-width:560px}
+      .setp .feednote{margin-top:10px;font-size:11.5px;color:var(--muted);line-height:1.5}
       .setp .lead-panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:18px 22px;font-size:14.5px;line-height:1.6;color:var(--ink2)}
       .setp .lead-panel b{color:var(--ink);font-weight:600}
       .setp .sec{font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);font-weight:700;display:flex;align-items:center;gap:9px;margin:24px 2px 10px;flex-wrap:wrap}
