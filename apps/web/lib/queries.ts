@@ -416,30 +416,39 @@ export async function getFeedStatus(): Promise<FeedStatus[]> {
     // days' grace because a retailer reporting a day late is normal.
     // Ordered oldest-first so the caller's find() picks the WORST feed, not
     // whichever happened to sort first.
-    // Shape note, and the order it has to happen in. `group by source` over the
-    // whole of sales_daily aggregates 1.15M rows to return three, costs ~2.2s,
-    // and was the slowest query on the Overview. Asking each retailer for its
-    // own latest date instead is three cheap index scans — but ONLY once
-    // sales_daily carries the (source, sale_date) index from migration 030.
-    // Shipped ahead of that index it became three full passes rather than one,
-    // took the Overview from 6.8s past Netlify's 10s limit, and blanked the
-    // front page. The index is applied on the live database now; this form
-    // depends on it, so 030 must be applied before this code is deployed to any
-    // new environment.
+    // Bounded to the last 120 days, with integer date arithmetic.
+    //
+    // Two attempts at this on 25 Aug, both instructive. Unbounded
+    // `group by source` aggregates all 1.15M rows to return three: 2.2s, and
+    // the slowest query on the Overview. Asking each retailer separately, which
+    // should be three index seeks, measured WORSE — the correlated subquery
+    // doesn't get the plan the shape suggests it should — and pushed the
+    // Overview past Netlify's 10s limit, blanking the front page.
+    //
+    // This is the shape with an EXPLAIN behind it: a bounded sale_date range is
+    // a Bitmap Index Scan with both ends in the Index Cond (~128ms for 91 days).
+    // The bound must be `date - integer`, never `date - interval` — an interval
+    // yields a TIMESTAMP, which silently demotes the Index Cond to a row Filter
+    // and scans the table anyway. Same trap as getWeekdayShape.
+    //
+    // What 120 days costs us: a retailer that has sent nothing for four months
+    // drops off this list rather than showing as very stale. The worst feed
+    // today is Coles at 17 days, and a four-month silence is a different
+    // conversation from a stale badge, so that's an acceptable edge for now.
     return await sql<FeedStatus[]>`
       with a as (select as_of from v_asof),
       last_seen as (
-        select r.source::text as source,
-               (select max(sd.sale_date) from sales_daily sd
-                 where sd.source = r.source and sd.sale_date <= (select as_of from a)) as as_of
-        from (select unnest(enum_range(null::retailer_type)) as source) r
+        select sd.source::text as source, max(sd.sale_date) as as_of
+        from sales_daily sd
+        where sd.sale_date >  (select as_of from a)::date - 120
+          and sd.sale_date <= (select as_of from a)::date
+        group by 1
       )
       select l.source,
              case when (select as_of from a) - l.as_of <= 2 then 'ok' else 'stale' end as status,
              l.as_of,
              null::text as detail
       from last_seen l
-      where l.as_of is not null
       order by l.as_of asc`;
   } catch {
     return [];
