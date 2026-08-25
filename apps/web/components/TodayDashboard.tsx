@@ -69,23 +69,35 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
   });
 
   // ---- headline ----
-  // Filtered: summed from the rows above. Waste is inferred as delivered minus
-  // sold — the same method the $ waste figure and the store profiles use, since
-  // the reported wastage table is empty in prod.
+  // Every RATIO here is computed over the stores whose sales we can actually
+  // see, and nothing else. Jesse delivers to 265 stores but only 94 of them
+  // report a scan sale back; the rest are invoice customers who never will.
+  // Divide what those 94 sold by what all 265 received and you get the answer
+  // the Overview used to give — 15.6% waste, 29.6% sell-through — sitting
+  // directly under an engine panel saying 34.3%, both from the same rows.
+  // Migration 027 already refuses to score an invoice customer's waste; this is
+  // the same refusal applied to the network total. See migration 031.
+  //
+  // Waste is inferred as delivered minus sold: the reported wastage table is
+  // empty in prod, so there is nothing else to read.
   const filtered = stateF !== "all";
-  const rowSent = rows.reduce((a, r) => a + r.sent, 0);
-  const rowSold = rows.reduce((a, r) => a + r.sold, 0);
-  const netSent = filtered ? rowSent : Number(net.total_sent) || 0;
-  const netSold = filtered ? rowSold : Number(net.total_sold) || 0;
+  const measured = rows.filter((r) => r.s.has_sales_feed !== false && r.waste != null);
+  const rowSent = measured.reduce((a, r) => a + r.sent, 0);
+  const rowSold = measured.reduce((a, r) => a + r.sold, 0);
+  const netSent = filtered ? rowSent : Number(net.feed_sent) || 0;
+  const netSold = filtered ? rowSold : Number(net.feed_sold) || 0;
   const netSellThrough = netSent > 0 ? Math.round((1000 * netSold) / netSent) / 10 : null;
   const netWaste = filtered
     ? rowSent > 0
-      ? Math.round((1000 * rows.reduce((a, r) => a + Math.max(0, r.sent - r.sold), 0)) / rowSent) / 10
+      ? Math.round((1000 * measured.reduce((a, r) => a + Math.max(0, r.sent - r.sold), 0)) / rowSent) / 10
       : null
     : net.waste_pct == null
       ? null
       : Number(net.waste_pct);
+  // Two different counts, deliberately: how many stores Jesse supplies, and how
+  // many of them the percentages above are actually about.
   const netStores = filtered ? rows.length : Number(net.stores) || 0;
+  const measuredStores = filtered ? measured.length : Number(net.feed_stores) || 0;
   // Revenue tiles follow the same rule — recomputed per store rather than
   // hidden, so a filtered view still answers "what is this state worth".
   const rev = filtered
@@ -199,8 +211,8 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
 
       <div className="t-strip">
         <div className="t-tile"><div className="tv">{nf(netStores)}</div><div className="tl">{filtered ? `Stores supplied · ${stateF}` : "Active stores supplied"}</div></div>
-        <div className="t-tile"><div className="tv g">{netSellThrough == null ? "—" : `${netSellThrough}%`}</div><div className="tl">Sell-through</div></div>
-        <div className="t-tile"><div className={`tv ${netWaste != null && netWaste <= 20 ? "g" : "a"}`}>{netWaste == null ? "—" : `${netWaste}%`}</div><div className="tl">Network waste</div></div>
+        <div className="t-tile"><div className="tv g">{netSellThrough == null ? "—" : `${netSellThrough}%`}</div><div className="tl">Sell-through · {nf(measuredStores)} stores that report sales</div></div>
+        <div className="t-tile"><div className={`tv ${netWaste != null && netWaste <= 20 ? "g" : "a"}`}>{netWaste == null ? "—" : `${netWaste}%`}</div><div className="tl">Waste · the same {nf(measuredStores)} stores</div></div>
       </div>
       {rev ? (
         <div className="t-strip" style={{ marginTop: 12 }}>

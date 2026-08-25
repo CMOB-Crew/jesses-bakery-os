@@ -28,6 +28,12 @@ export type StoreWeek = {
 export type NetworkWeek = {
   stores: number; red: number; amber: number; green: number;
   total_sent: number; total_sold: number; total_wasted: number; waste_pct: number | null;
+  // The measured population (migration 031). total_* covers every supplied
+  // store, including the invoice customers who never report a scan sale; feed_*
+  // covers only the stores whose sales we can actually see. Any RATIO must come
+  // from the feed_* pair — mixing them put 15.6% waste and 29.6% sell-through on
+  // the Overview next to the engine panel's 34.3%, all from the same rows.
+  feed_stores: number; feed_sent: number; feed_sold: number; feed_wasted: number;
 };
 
 export type RegionWeek = {
@@ -50,7 +56,7 @@ export async function getAsOf(): Promise<Date> {
   }
 }
 
-const EMPTY_NETWORK: NetworkWeek = { stores: 0, red: 0, amber: 0, green: 0, total_sent: 0, total_sold: 0, total_wasted: 0, waste_pct: null };
+const EMPTY_NETWORK: NetworkWeek = { stores: 0, red: 0, amber: 0, green: 0, total_sent: 0, total_sold: 0, total_wasted: 0, waste_pct: null, feed_stores: 0, feed_sent: 0, feed_sold: 0, feed_wasted: 0 };
 export async function getNetwork(): Promise<NetworkWeek> {
   try {
     const [row] = await sql<NetworkWeek[]>`select * from v_network_week`;
@@ -410,13 +416,16 @@ export async function getFeedStatus(): Promise<FeedStatus[]> {
     // days' grace because a retailer reporting a day late is normal.
     // Ordered oldest-first so the caller's find() picks the WORST feed, not
     // whichever happened to sort first.
-    // Shape note: this asks the question per retailer rather than grouping the
-    // whole table. `group by source` had to aggregate all 1.15M sales rows to
-    // return three, which cost 2.2s and made this the slowest thing on the
-    // Overview. There are only ever a handful of retailers (it's an enum), so
-    // walk them and ask each one for its latest date — with the
-    // sales_daily (source, sale_date) index from migration 030 that's one
-    // backward index scan each, stopping on the first row.
+    // Shape note, and the order it has to happen in. `group by source` over the
+    // whole of sales_daily aggregates 1.15M rows to return three, costs ~2.2s,
+    // and was the slowest query on the Overview. Asking each retailer for its
+    // own latest date instead is three cheap index scans — but ONLY once
+    // sales_daily carries the (source, sale_date) index from migration 030.
+    // Shipped ahead of that index it became three full passes rather than one,
+    // took the Overview from 6.8s past Netlify's 10s limit, and blanked the
+    // front page. The index is applied on the live database now; this form
+    // depends on it, so 030 must be applied before this code is deployed to any
+    // new environment.
     return await sql<FeedStatus[]>`
       with a as (select as_of from v_asof),
       last_seen as (
@@ -787,8 +796,13 @@ export async function getBenchmarks(): Promise<Benchmarks> {
   // flag it red for a gap it can never close. Retail = Woolworths/Coles/Harris
   // Farm scan feeds (real sell-through); Invoice = everything on direct invoice.
   const channelOf = (retailer: string) => (retailer === "invoice" ? "Invoice" : "Retail");
+  // Only stores whose sales we can see. An invoice customer is delivered to and
+  // never scans, so its sell-through reads 0% — and with 153 of them in a 265
+  // store network they were half the population, which pinned the headline
+  // "network median sell-through" tile at a flat 0%. Same rule as migration 027
+  // and the Overview: no feed, no score.
   const base = (await getStoreWeek())
-    .filter((s) => Number(s.total_sent) > 0)
+    .filter((s) => Number(s.total_sent) > 0 && s.has_sales_feed !== false)
     .map((s) => {
       const sent = Number(s.total_sent), sold = Number(s.total_sold), prev = Number(s.total_sold_prev);
       return {

@@ -30,8 +30,15 @@ function computePeer(store: StoreWeek, all: StoreWeek[]): PeerStat {
   // direct-invoice store invoices exactly what it sells (~100% sell-through,
   // 0 waste), so mixing it into a retail store's peer set would pin the median
   // at an unreachable target and flag the retail store unfairly.
+  // A peer also has to be a store we can actually measure. An invoice customer
+  // never reports a scan sale, so it reads 0% sell-through and null waste; with
+  // 153 of those in the network the "vs 11 large retail stores" strip was
+  // quoting a peer median of 0% waste and 0% sell-through and calling every
+  // real store an underperformer against it. Same rule as migration 027.
   const chan = channelOf(store);
-  const active = all.filter((s) => Number(s.total_sent) > 0 && channelOf(s) === chan);
+  const active = all.filter(
+    (s) => Number(s.total_sent) > 0 && channelOf(s) === chan && s.has_sales_feed !== false,
+  );
   const chanLabel = chan.toLowerCase(); // "retail" | "invoice"
   let group = store.size_category ? active.filter((s) => s.size_category === store.size_category) : [];
   let basis = store.size_category ? `${store.size_category} ${chanLabel} stores` : "";
@@ -39,7 +46,11 @@ function computePeer(store: StoreWeek, all: StoreWeek[]): PeerStat {
   if (group.length < 4) { group = active; basis = `${chanLabel} stores`; }
   const peers = group.filter((s) => s.store_id !== store.store_id);
   const thisWaste = Number(store.waste_pct);
-  const peerWastes = peers.map((s) => Number(s.waste_pct)).filter(Number.isFinite);
+  // Number(null) is 0, and 0 is finite — so a null waste used to enter the
+  // median as a perfect score rather than being left out of it.
+  const peerWastes = peers
+    .map((s) => (s.waste_pct == null ? null : Number(s.waste_pct)))
+    .filter((w): w is number => w != null && Number.isFinite(w));
   const betterPct =
     peerWastes.length && Number.isFinite(thisWaste)
       ? Math.round((peerWastes.filter((w) => w > thisWaste).length / peerWastes.length) * 100)
