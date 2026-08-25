@@ -13,6 +13,44 @@ These two files run the identical arithmetic server-side in one pass, in seconds
 | `plan_dryrun.sql` | Reports what the engine *would* recommend. Writes nothing. |
 | `plan_write.sql`  | Same maths, writes to `replenishment_plans`. Transactional. |
 
+## How it runs in production (since migration 033)
+
+The engine is no longer a script somebody remembers to run. `plan_write.sql`'s
+body now also lives as a database function, and pg_cron calls it nightly:
+
+```
+call jb_run_engine(7);          -- today + the next 6 days, then fold into store_reco
+select * from v_engine_health;  -- did last night's run work, and how stale is the feed
+```
+
+| Function | What it is |
+|---|---|
+| `jb_plan_day(target, z)` | this file's body, psql variables replaced with parameters |
+| `jb_rebuild_store_reco(from, to)` | `29_rebuild_with_guards.sql`, both rails intact, window relative |
+| `jb_run_engine(days, z, trigger)` | the nightly job — a procedure, not a function |
+| `jb_engine_z()` | resolves z from Simona's Settings choice |
+
+Two things changed on the way in, both of which were bugs rather than plumbing:
+
+- **The dates were hardcoded.** `27_replan_week.sh` planned `2026-08-23..29`
+  literally. Run it next week and it rebuilds last week.
+- **Simona's service-level control did nothing.** Settings writes
+  `app_settings.service_level`; the z that shaped the plan came from a shell
+  argument. `engine_service_levels` is the missing mapping between the two, so
+  the dial on the Settings page now moves the plan (lean 0.18 / balanced 0.28 /
+  service 0.39).
+
+`jb_run_engine` is a **procedure** so it can commit its `engine_runs` row before
+doing the work — otherwise a failure would roll the log row back with it and a
+2am failure would leave no trace. A day with no deliveries is survivable and
+counted; the whole window coming back empty raises.
+
+These two `.sql` files stay as the reference implementation and the dry run.
+`plan_dryrun.sql` is still the right way to see what a change would do before
+committing to it.
+
+---
+
 Both take the target date as a psql variable:
 
 ```

@@ -1,0 +1,401 @@
+<title>Simona Session Run Sheet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+  :root{
+    --paper:#F2F4F5;
+    --card:#FBFCFC;
+    --ink:#141D26;
+    --ink-2:#3C4A57;
+    --muted:#6B7B89;
+    --faint:#93A1AD;
+    --rule:#DCE2E6;
+    --rule-soft:#E8ECEF;
+    --steel:#1F5F8B;
+    --steel-soft:#E3EDF4;
+    --live:#2C6E52;
+    --live-soft:#DFEBE5;
+    --alarm:#A8461C;
+    --alarm-soft:#F6E4DA;
+    --amberish:#8A6410;
+    --amber-soft:#F5EBD5;
+    --shadow:0 1px 2px rgba(20,29,38,.05), 0 8px 24px -16px rgba(20,29,38,.28);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#0F161C;
+      --card:#161F27;
+      --ink:#E7EDF2;
+      --ink-2:#B9C6D1;
+      --muted:#8B9BA8;
+      --faint:#6A7987;
+      --rule:#2A3945;
+      --rule-soft:#212D37;
+      --steel:#6FB2DC;
+      --steel-soft:#17303F;
+      --live:#6FC59B;
+      --live-soft:#123026;
+      --alarm:#E08757;
+      --alarm-soft:#38200F;
+      --amberish:#D6A93F;
+      --amber-soft:#302713;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#0F161C;
+    --card:#161F27;
+    --ink:#E7EDF2;
+    --ink-2:#B9C6D1;
+    --muted:#8B9BA8;
+    --faint:#6A7987;
+    --rule:#2A3945;
+    --rule-soft:#212D37;
+    --steel:#6FB2DC;
+    --steel-soft:#17303F;
+    --live:#6FC59B;
+    --live-soft:#123026;
+    --alarm:#E08757;
+    --alarm-soft:#38200F;
+    --amberish:#D6A93F;
+    --amber-soft:#302713;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"Source Serif 4","Iowan Old Style",Georgia,serif;
+    font-size:16.5px;
+    line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:44px 26px 90px;display:grid;grid-template-columns:198px minmax(0,1fr);gap:44px;align-items:start}
+  @media(max-width:900px){.wrap{grid-template-columns:1fr;gap:26px;padding-top:30px}}
+
+  /* ---- masthead ---- */
+  .mast{grid-column:1/-1;border-bottom:2px solid var(--ink);padding-bottom:16px;margin-bottom:6px}
+  .kicker{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--steel);font-weight:600;display:flex;flex-wrap:wrap;gap:14px}
+  h1{font-family:Archivo,"Helvetica Neue",Arial,sans-serif;font-weight:700;font-size:clamp(30px,4.4vw,44px);line-height:1.04;letter-spacing:-.022em;margin:12px 0 8px;text-wrap:balance}
+  .standfirst{color:var(--ink-2);max-width:62ch;margin:0;font-size:17px}
+
+  /* ---- rail ---- */
+  .rail{position:sticky;top:26px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;line-height:1.5}
+  @media(max-width:900px){.rail{position:static}}
+  .rail h2{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:600;margin:0 0 12px;font-family:inherit}
+  .rail ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+  .rail a{display:grid;grid-template-columns:22px 1fr;gap:8px;padding:6px 8px;border-radius:5px;text-decoration:none;color:var(--ink-2);border-left:2px solid transparent}
+  .rail a:hover{background:var(--card);color:var(--ink);border-left-color:var(--steel)}
+  .rail a:focus-visible{outline:2px solid var(--steel);outline-offset:1px}
+  .rail .n{color:var(--faint);font-variant-numeric:tabular-nums}
+  .rail .sep{height:1px;background:var(--rule);margin:12px 0}
+
+  main{min-width:0;display:flex;flex-direction:column;gap:38px}
+
+  /* ---- the one thing ---- */
+  .alarm{background:var(--alarm-soft);border:1px solid var(--alarm);border-radius:8px;padding:22px 24px}
+  .alarm .lab{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--alarm);font-weight:600}
+  .alarm h2{font-family:Archivo,sans-serif;font-weight:600;font-size:22px;letter-spacing:-.015em;margin:8px 0 10px;line-height:1.2;text-wrap:balance}
+  .alarm p{margin:0 0 10px;color:var(--ink-2)}
+  .alarm p:last-child{margin-bottom:0}
+
+  /* ---- data strip ---- */
+  .strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:7px;overflow:hidden;margin:16px 0 0}
+  .cell{background:var(--card);padding:11px 13px}
+  .cell .v{font-family:Archivo,sans-serif;font-weight:600;font-size:21px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15}
+  .cell .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:3px;line-height:1.35}
+  .v.live{color:var(--live)}
+  .v.warn{color:var(--alarm)}
+  .v.amb{color:var(--amberish)}
+
+  /* ---- screen blocks ---- */
+  .screen{scroll-margin-top:22px}
+  .shead{display:grid;grid-template-columns:34px 1fr;gap:14px;align-items:baseline;border-top:1px solid var(--rule);padding-top:18px}
+  .snum{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px;font-weight:600;color:var(--steel);font-variant-numeric:tabular-nums}
+  .stitle{margin:0;font-family:Archivo,sans-serif;font-weight:600;font-size:25px;letter-spacing:-.02em;line-height:1.15;text-wrap:balance}
+  .route{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;color:var(--muted);background:var(--rule-soft);border-radius:4px;padding:2px 7px;margin-left:2px;white-space:nowrap;font-weight:500}
+  .sbody{margin-left:48px}
+  @media(max-width:640px){.sbody{margin-left:0}.shead{grid-template-columns:1fr;gap:4px}}
+  .sbody p{margin:12px 0 0;max-width:64ch;color:var(--ink-2)}
+  .sbody p strong{color:var(--ink);font-weight:600}
+
+  /* ---- q&a ---- */
+  .qa{margin-top:18px;display:flex;flex-direction:column;gap:0;border-top:1px solid var(--rule-soft)}
+  .qa details{border-bottom:1px solid var(--rule-soft)}
+  .qa summary{cursor:pointer;list-style:none;padding:11px 2px;display:grid;grid-template-columns:1fr 16px;gap:10px;align-items:center;font-family:Archivo,sans-serif;font-weight:500;font-size:15.5px;color:var(--ink)}
+  .qa summary::-webkit-details-marker{display:none}
+  .qa summary::after{content:"+";font-family:"IBM Plex Mono",monospace;color:var(--steel);font-size:15px;text-align:center}
+  .qa details[open] summary::after{content:"–"}
+  .qa summary:focus-visible{outline:2px solid var(--steel);outline-offset:2px;border-radius:3px}
+  .qa .ans{padding:0 2px 14px;color:var(--ink-2);max-width:64ch}
+  .qa .ans p{margin:0 0 9px}
+  .qa .ans p:last-child{margin-bottom:0}
+  .say{border-left:2px solid var(--steel);background:var(--steel-soft);padding:10px 14px;border-radius:0 5px 5px 0;margin:2px 0 9px}
+  .say .lab{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--steel);font-weight:600;display:block;margin-bottom:4px}
+  .say q{quotes:none;color:var(--ink);font-size:16px}
+
+  /* ---- rough edges ---- */
+  .edges{border:1px solid var(--rule);background:var(--card);border-radius:8px;padding:22px 24px;box-shadow:var(--shadow)}
+  .edges h2,.close h2{font-family:Archivo,sans-serif;font-weight:600;font-size:20px;letter-spacing:-.015em;margin:0 0 4px}
+  .edges > p{color:var(--muted);margin:0 0 16px;font-size:15px}
+  .edge{display:grid;grid-template-columns:88px 1fr;gap:16px;padding:12px 0;border-top:1px solid var(--rule-soft)}
+  @media(max-width:640px){.edge{grid-template-columns:1fr;gap:3px}}
+  .tag{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;padding:3px 0;color:var(--muted);white-space:nowrap}
+  .tag.hot{color:var(--alarm)}
+  .tag.watch{color:var(--amberish)}
+  .edge p{margin:0;color:var(--ink-2);font-size:15.5px;line-height:1.55}
+  .edge b{color:var(--ink);font-weight:600}
+
+  .close{border-top:2px solid var(--ink);padding-top:18px}
+  .close p{color:var(--ink-2);max-width:64ch;margin:10px 0 0}
+  .foot{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--faint);margin-top:26px;line-height:1.6}
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <div class="kicker">
+      <span>Wed 26 Aug · 11:30</span>
+      <span>Simona + Jesse</span>
+      <span>jesses-bakery-os.netlify.app</span>
+    </div>
+    <h1>Simona Session Run Sheet</h1>
+    <p class="standfirst">Six screens, in this order. The numbers on each one, and what to say when she asks the hard question — because on three of these screens there is a hard question, and it is better asked by you than found by her.</p>
+  </header>
+
+  <nav class="rail" aria-label="Running order">
+    <h2>Running order</h2>
+    <ol>
+      <li><a href="#first"><span class="n">00</span><span>Before you open anything</span></a></li>
+      <li><a href="#overview"><span class="n">01</span><span>Overview</span></a></li>
+      <li><a href="#stores"><span class="n">02</span><span>Stores</span></a></li>
+      <li><a href="#store"><span class="n">03</span><span>Mascot DC</span></a></li>
+      <li><a href="#production"><span class="n">04</span><span>Production</span></a></li>
+      <li><a href="#deliveries"><span class="n">05</span><span>Deliveries</span></a></li>
+      <li><a href="#lost"><span class="n">06</span><span>Lost sales</span></a></li>
+    </ol>
+    <div class="sep"></div>
+    <ol>
+      <li><a href="#edges"><span class="n">△</span><span>Rough edges</span></a></li>
+      <li><a href="#close"><span class="n">→</span><span>How to close</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section class="alarm" id="first">
+      <span class="lab">00 · Before you open anything</span>
+      <h2>Two-fifths of the business is invisible, and it isn't our fault — but it is our problem</h2>
+      <p>Coles changed their report layout on <strong>3 August</strong>: new tab name, header row moved up two, and the <em>Metrics</em> column dropped so every measure shifts one column left. Jesse's Azure pipeline reads the file, logs <em>Success</em>, and writes nothing. Diagnosed and documented on 16 August. It is a fix on their pipeline, not ours.</p>
+      <p>Say it in the first two minutes, before she reaches a screen that shows it. If she discovers it herself on screen four, every number after that is suspect.</p>
+      <div class="strip">
+        <div class="cell"><div class="v warn">115</div><div class="k">Coles stores dark</div></div>
+        <div class="cell"><div class="v warn">16,849</div><div class="k">Loaves / wk unseen</div></div>
+        <div class="cell"><div class="v warn">39%</div><div class="k">Of all deliveries</div></div>
+        <div class="cell"><div class="v">22</div><div class="k">Days down</div></div>
+        <div class="cell"><div class="v live">95</div><div class="k">Stores still reporting</div></div>
+      </div>
+    </section>
+
+    <section class="screen" id="overview">
+      <div class="shead">
+        <span class="snum">01</span>
+        <h2 class="stitle">Overview <span class="route">/</span></h2>
+      </div>
+      <div class="sbody">
+        <p>Open on the engine panel, not the store counts. <strong>34.3% waste today, 22.6% with the plan</strong> — 2,926 loaves a week, ~152,000 a year. That is the entire pitch in one line, and it is measured, not modelled.</p>
+        <p>Then drop to the Today strip. Both waste figures now agree and both name their population: <strong>95 stores that report sales</strong>. This is the number that changed this week and the change is worth owning out loud.</p>
+        <p>The hero line above it reads <em>“64 stores need you today. 170 more aren't reporting sales, so we can't tell you either way.”</em> Until this morning that second half said “the rest are running themselves” and counted 154 of them as on track. Don't skip past it — a system that tells her what it doesn't know is the one she can trust on what it does.</p>
+        <div class="strip">
+          <div class="cell"><div class="v warn">34.3%</div><div class="k">Waste right now</div></div>
+          <div class="cell"><div class="v live">22.6%</div><div class="k">With the plan</div></div>
+          <div class="cell"><div class="v">65.5%</div><div class="k">Sell-through</div></div>
+          <div class="cell"><div class="v">$92,931</div><div class="k">Sold this week</div></div>
+          <div class="cell"><div class="v amb">$49,935</div><div class="k">Unsold this week</div></div>
+        </div>
+        <div class="qa">
+          <details>
+            <summary>“Why does it say only 1 store is on track?”</summary>
+            <div class="ans">
+              <p>Because the thresholds are hers. Red above 30% waste; amber at 20% or on any sold-out day. The network runs 34.5%. So 64 red, 30 amber, 1 clear — and 170 we can't see at all.</p>
+              <div class="say"><span class="lab">Say</span><q>That's not the system being harsh. That's your own numbers, applied to every store at once for the first time. The line underneath is the point: the plan takes it to 22.6%.</q></div>
+            </div>
+          </details>
+          <details>
+            <summary>“$49,935 against $92,931 — that's 54%, not 34.5%.”</summary>
+            <div class="ans">
+              <p>Both right, different denominators. 34.5% of what was <em>delivered</em> came back. That returned stock is worth 53% of what <em>sold</em>. The tiles are now labelled <strong>Sold</strong> and <strong>Unsold</strong> rather than “Sales” and “Waste $” for exactly this reason.</p>
+            </div>
+          </details>
+          <details>
+            <summary>“Why is the waste number different from last time?”</summary>
+            <div class="ans">
+              <p>Because it was wrong, and it was wrong in the flattering direction. We were dividing the waste of the 95 reporting stores by the deliveries of all 265. Don't dress this up — she will trust the next number more, not less.</p>
+              <div class="say"><span class="lab">Say</span><q>We found it dividing across two different sets of stores. Fixed this morning. 34.5% is the real figure and it's the same one the engine has been quoting all along.</q></div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="stores">
+      <div class="shead">
+        <span class="snum">02</span>
+        <h2 class="stitle">Stores <span class="route">/stores</span></h2>
+      </div>
+      <div class="sbody">
+        <p>The exception list she asked for. Show the chips — <strong>Red 64 · Amber 30 · Green 1 · No data 170</strong> — then the size and state filters, then <em>Download CSV</em>. She works in spreadsheets; the export matters more to her than it looks.</p>
+        <p>Sort is worst-first by default. Mascot DC sits at the top, which sets up the next screen.</p>
+        <div class="qa">
+          <details>
+            <summary>“Why 170 with no data?”</summary>
+            <div class="ans">
+              <p>115 Coles (broken feed) + 54 invoice customers (never scan) + 1 dormant Woolworths.</p>
+              <div class="say"><span class="lab">Say</span><q>Two different things in one bucket. The 54 invoice customers will never report a scan sale — that's normal and permanent. The 115 Coles stores should be reporting and aren't, and that's the outage.</q></div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="store">
+      <div class="shead">
+        <span class="snum">03</span>
+        <h2 class="stitle">Woolworths Mascot DC <span class="route">/store/…</span></h2>
+      </div>
+      <div class="sbody">
+        <p>Her own example, from session two — the store that “looked like a dud” until un-ranged products were excluded. Open the <strong>Adjust</strong> toggle; she called it a game changer. Show the shelf-cap override too, since Mascot picks for online and has no real limit.</p>
+        <p>The peer strip now reads honest medians: <strong>60.6% waste against a peer median of 40.4%</strong>, sell-through 39.4% against 59.6%. Until this morning that strip claimed a peer median of 0% on both — which called every store in the network an underperformer against an impossible standard.</p>
+        <div class="strip">
+          <div class="cell"><div class="v warn">60.6%</div><div class="k">Waste</div></div>
+          <div class="cell"><div class="v">40.4%</div><div class="k">Peer median</div></div>
+          <div class="cell"><div class="v">444 / 175</div><div class="k">Sent / sold</div></div>
+          <div class="cell"><div class="v amb">5</div><div class="k">Sold-out days</div></div>
+        </div>
+        <div class="qa">
+          <details>
+            <summary>“It wastes 60% and still sells out five days a week?”</summary>
+            <div class="ans">
+              <p>Yes, and that is the most useful thing on the screen. It means the volume is roughly right and the <em>range</em> is wrong — the wrong lines in the wrong quantities. Sending more would make both problems worse.</p>
+              <div class="say"><span class="lab">Say</span><q>This store doesn't need more bread. It needs the same bread split differently — and that's the adjustment we make right here.</q></div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="production">
+      <div class="shead">
+        <span class="snum">04</span>
+        <h2 class="stitle">Production <span class="route">/production</span></h2>
+      </div>
+      <div class="sbody">
+        <p>The screen she was most critical of last time, so lead with what changed. <strong>Trays lead</strong> — bagels and challah by the tray with units underneath, sourdough and pita individually. Mini bagels at <strong>45 to a tray</strong>, her number over Jesse's 40. Regular and Sourdough are separate sheets. NSW / ACT filter is in.</p>
+        <p>Then <em>Export bake sheet</em> and <em>Confirm all</em> — she wants to hand paper to the floor.</p>
+        <div class="strip">
+          <div class="cell"><div class="v">21,543</div><div class="k">Baking now / wk</div></div>
+          <div class="cell"><div class="v live">20,469</div><div class="k">Sized to sales</div></div>
+          <div class="cell"><div class="v">1,074</div><div class="k">Over-bake trimmed</div></div>
+          <div class="cell"><div class="v">69</div><div class="k">Product lines</div></div>
+        </div>
+        <div class="qa">
+          <details>
+            <summary>“Only 1,074 fewer? I expected more.”</summary>
+            <div class="ans">
+              <p>Because the trim only comes from the 95 stores whose sales we can read. The other 155 keep their standing volume — there is nothing to size them against. The sheet now says so on the page.</p>
+              <div class="say"><span class="lab">Say</span><q>That number roughly doubles the day Coles comes back. Right now the engine is sizing 39% less of your network than it should be.</q></div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="deliveries">
+      <div class="shead">
+        <span class="snum">05</span>
+        <h2 class="stitle">Deliveries <span class="route">/deliveries</span></h2>
+      </div>
+      <div class="sbody">
+        <p>Runs by name, exactly as asked — <strong>South East run · Tue Thu Sun</strong> — with the days auto-filled from the Stores Master she sent during session two. Per-store <em>Sending now</em> against <em>Final delivery</em>, tick to approve, nudge to disagree, nothing reaches the bakery until she approves it.</p>
+        <p>Show one store expanded so she sees it is per product, not a blanket percentage.</p>
+        <p>Under the headline the sheet now says the quiet part: <em>“All of that comes from the 94 stores whose sales we can see. The other 156 keep their standing order untouched.”</em> If she asks why it's 94 here and 95 on the Overview — this sheet covers the 250 stores on a delivery run, and one of them happens to already be sending exactly what the plan would.</p>
+        <div class="strip">
+          <div class="cell"><div class="v">43,062</div><div class="k">Standing orders</div></div>
+          <div class="cell"><div class="v live">40,136</div><div class="k">What the plan sends</div></div>
+          <div class="cell"><div class="v">2,926</div><div class="k">Trimmed / wk</div></div>
+          <div class="cell"><div class="v">250 / 14</div><div class="k">Stores / regions</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="lost">
+      <div class="shead">
+        <span class="snum">06</span>
+        <h2 class="stitle">Lost sales <span class="route">/lost-sales</span></h2>
+      </div>
+      <div class="sbody">
+        <p>Close here, not on waste. This is the half of the problem her old reports could never show her — the shelf hitting zero before the next drop, demand walking away unseen, because retailers only send what <em>sold</em>, never what someone wanted and couldn't get.</p>
+        <p>Every card carries a sized fix and an <em>Apply</em> button that writes back into the delivery plan. That is the loop closing in front of her. <strong>Apply all 68 high-confidence fixes</strong> is one button, and it is the strongest single moment in the demo.</p>
+        <p>The lost-revenue figure is new as of this afternoon and it is the number she will remember: <strong>$31,463 a week</strong> walking out the door unseen — and that is Woolworths and Harris Farm only. Coles isn't in it.</p>
+        <div class="strip">
+          <div class="cell"><div class="v">4,329</div><div class="k">Units / wk lost</div></div>
+          <div class="cell"><div class="v amb">88</div><div class="k">Stores flagged</div></div>
+          <div class="cell"><div class="v warn">$31,463</div><div class="k">Lost revenue / wk</div></div>
+          <div class="cell"><div class="v">72</div><div class="k">Repeat · 3+ days</div></div>
+        </div>
+        <div class="qa">
+          <details>
+            <summary>“88 of 95 stores are selling out? And wasting a third?”</summary>
+            <div class="ans">
+              <p>Yes — and those are not the same lines. A store runs dry on white sourdough on Saturday and bins challah on Tuesday. One network-wide waste number hides that completely; this is the half the old reports could never show her.</p>
+              <div class="say"><span class="lab">Say</span><q>Every one of these is a store already paying for bread it can't sell, while turning away demand for bread it doesn't have. That's the same delivery, split wrong.</q></div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="edges" id="edges">
+      <h2>Rough edges</h2>
+      <p>Known, and better steered than stumbled into.</p>
+      <div class="edge">
+        <span class="tag hot">Cold start</span>
+        <p><b>Load the Overview five minutes before she joins.</b> Warm it renders in about four seconds; on a cold server it has been slower. Opening it once keeps it warm for the session.</p>
+      </div>
+      <div class="edge">
+        <span class="tag watch">34.3 vs 34.5</span>
+        <p>The panel says <b>34.3%</b>, the tile below says <b>34.5%</b>. Same stores, same week, 83 units apart — the engine scored the 1,189 lines it planned, the view scores everything those stores received. The caption says “at the last engine run”. If she spots it, that is the answer.</p>
+      </div>
+      <div class="edge">
+        <span class="tag watch">Accuracy</span>
+        <p><b>Don't open it unprompted.</b> It reads 91%, which next to 34.5% waste invites a fair question. It is a backtest of the baseline the plan has to beat, not a score for the plan. Fine if asked, distracting if volunteered.</p>
+      </div>
+      <div class="edge">
+        <span class="tag watch">On-hand</span>
+        <p>Still off. The ledger doesn't reconcile — 23% of store-days hold more than the shelf physically fits, and 72% of the stock on it sits on lines that sold nothing all week. If she asks whether the system knows what's on the shelf: not yet, and we won't switch it on until it's right.</p>
+      </div>
+      <div class="edge">
+        <span class="tag">Reset email</span>
+        <p>Password reset works but the email still arrives from <b>Supabase Auth</b>, not Jesse's Bakery, and it's rate-limited. Fine for testing, not for the people who go live on 3 Sept.</p>
+      </div>
+      <div class="edge">
+        <span class="tag hot">Xero</span>
+        <p>Still the only unscoped leg, and the real risk to 3 Sept. What's needed from her, concretely: the product list with exact codes, the tier pricing formula, and a walk-through of how she places a one-off order today, on paper, start to finish.</p>
+      </div>
+    </section>
+
+    <section class="close" id="close">
+      <h2>How to close</h2>
+      <p>Three things to leave in the room, in this order.</p>
+      <p><strong>One.</strong> The system is measuring her whole network honestly for the first time — including telling her, plainly, which 170 stores it cannot see. That's the part worth trusting.</p>
+      <p><strong>Two.</strong> Coles is the biggest single thing standing between her and the full picture, it has been down 22 days, and the fix is on their pipeline. She needs to push it, and she needs to know what to push for.</p>
+      <p><strong>Three.</strong> Xero is the last unscoped piece before 3 September. Get the product list, the pricing formula, and the paper walk-through of a one-off order — in the meeting, not after it.</p>
+      <p class="foot">Prepared 25 Aug 2026 · figures live from the deployed app that afternoon · re-check anything marked as moving before you open it in front of her.</p>
+    </section>
+
+  </main>
+</div>
