@@ -962,8 +962,11 @@ export async function getOpportunities(): Promise<Opportunities> {
   }
 
   // Capture demand — stores running out (stockout days = lost sales we can't see).
+  // Feed-live stores only, same as Lost sales: the size of the opportunity comes
+  // from total_sold, which is 0 for a dark store, so it would rank by stockout
+  // days and then quote a gain of 1 unit.
   const demandCand = stores
-    .filter((s) => Number(s.stockout_days) > 0)
+    .filter((s) => Number(s.stockout_days) > 0 && s.has_sales_feed !== false)
     .sort((a, b) => Number(b.stockout_days) - Number(a.stockout_days))
     .slice(0, 6);
   for (const s of demandCand) {
@@ -1096,7 +1099,18 @@ export async function getStockouts(): Promise<LostSales> {
     getStoreRevenueWeek(),
     getTopUnderSuppliedByStore(),
   ]);
-  const cand = stores.filter((s) => Number(s.stockout_days) > 0);
+  // Only stores whose sales are reaching us. The ledger records a zero shelf for
+  // dark stores too, but nothing downstream of it works for them: lost units are
+  // sized from `total_sold`, which is 0, so every one of them landed on the page
+  // as a flat "1 unit lost"; there is no revenue to price it with, which left
+  // the "Lost revenue / wk" tile stuck on "$ —" while the individual cards
+  // showed real dollar figures beside it; and the suggested fix comes from
+  // store_reco, where a dark store's row is its own standing order passed
+  // through, so the "fix" is to change nothing. 172 flagged stores were 95 real
+  // ones and 77 rows of noise that broke the total.
+  const cand = stores.filter(
+    (s) => Number(s.stockout_days) > 0 && s.has_sales_feed !== false,
+  );
   const losses: Stockout[] = [];
   for (const s of cand) {
     const days = Number(s.stockout_days);
