@@ -375,6 +375,18 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
                 <b>{dayName}{isToday ? " (today)" : ""}</b> — the bakery makes <b>{nf(totalEng)}</b> loaves, down from <b>{nf(totalSent)}</b> under the old standing order{trim > 0 ? <>, so <span className="fewer">{nf(trim)} less</span> comes back at day&apos;s end</> : <></>}. This is the sheet for the floor.
               </>
             )}
+            {/* Same caveat as the Deliveries board. The trim comes entirely from
+                the stores whose sales the engine can read; a store with no live
+                feed has nothing to size against and keeps its standing volume.
+                With Coles dark since 3 Aug that's most of the network, so the
+                bake number is a real number over a partial network and the sheet
+                should say so rather than let the floor assume otherwise. */}
+            {trim > 0 && (
+              <span className="carried">
+                {" "}The trim comes from the stores whose sales are reaching us. Any store with no feed keeps its
+                current volume, so this sheet is never smaller than what those stores already receive.
+              </span>
+            )}
           </div>
           <div className="babar">
             <div className="eng" style={{ width: `${engPct}%` }}>Bake {nf(totalEng)}</div>
@@ -542,6 +554,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
       .pcalm .hero{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:22px 26px;margin-bottom:16px;display:grid;grid-template-columns:1.5fr 1fr;gap:30px;align-items:center}
       @media(max-width:960px){.pcalm .hero{grid-template-columns:1fr;gap:22px}}
       .pcalm .lead{font-size:15.5px;line-height:1.5}
+      .pcalm .carried{display:block;margin-top:6px;font-size:13px;color:var(--muted)}
       .pcalm .lead b{font-weight:700}
       .pcalm .fewer{color:var(--green-t);font-weight:700}
       .pcalm .babar{margin-top:16px;height:24px;border-radius:8px;overflow:hidden;display:flex;background:#f0e9db;box-shadow:inset 0 0 0 1px var(--line2)}

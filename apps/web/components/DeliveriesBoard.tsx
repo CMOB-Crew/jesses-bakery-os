@@ -97,6 +97,15 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
   const apprCount = lines.filter((l) => approved[l.store_id]).length;
   const dirty = lines.some((l) => v(l.store_id) !== orig[l.store_id]);
   const engPct = totalSent ? (totalEng / totalSent) * 100 : 100;
+  // Stores the plan actually re-sized, vs stores carried through untouched. A
+  // store with no live sales feed has nothing to size against, so the engine
+  // passes its standing order straight through — correct, but it means "250
+  // stores on plan · 2,926 trimmed" reads as if the trim were spread across all
+  // 250 when every unit of it comes from the ones we can see. With the Coles
+  // feed down since 3 Aug that's most of the network, and it is the first thing
+  // anyone will ask about.
+  const untouched = lines.filter((l) => v(l.store_id) === dv(l.sent) || v(l.store_id) === l.sent).length;
+  const sized = total - untouched;
   const allCollapsed = groups.length > 0 && groups.every((g) => collapsed[g.region]);
 
   function showToast(msg: string) {
@@ -230,6 +239,13 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
               <> — <span className="fewer" style={{ color: "var(--amber-t)" }}>{nf(-trim)} more</span> after your adjustments.</>
             ) : (
               <>.</>
+            )}
+            {untouched > 0 && (
+              <span className="carried">
+                {" "}All of that comes from the <b>{nf(sized)}</b> stores whose sales we can see. The other{" "}
+                <b>{nf(untouched)}</b> keep their standing order untouched — there&apos;s nothing to size them against
+                until their feed comes back.
+              </span>
             )}
           </div>
           <div className="babar">
@@ -419,6 +435,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
       .dcalm .hero{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:22px 26px;margin-bottom:16px;display:grid;grid-template-columns:1.5fr 1fr;gap:30px;align-items:center}
       @media(max-width:960px){.dcalm .hero{grid-template-columns:1fr;gap:22px}}
       .dcalm .lead{font-size:15.5px;line-height:1.5}
+      .dcalm .carried{display:block;margin-top:6px;font-size:13px;color:var(--muted)}
       .dcalm .lead b{font-weight:700}
       .dcalm .fewer{color:var(--green-t);font-weight:700}
       .dcalm .babar{margin-top:16px;height:24px;border-radius:8px;overflow:hidden;display:flex;background:#f0e9db;box-shadow:inset 0 0 0 1px var(--line2)}
