@@ -856,10 +856,19 @@ export type Opp = {
 export type Opportunities = { opps: Opp[]; total: number; totalRevenue: number | null; wasteUnits: number; demandUnits: number; hasData: boolean };
 
 export async function getOpportunities(): Promise<Opportunities> {
-  const stores = await getStoreWeek();
-  // Revenue overlay: empty until Invoice_Cost loads, so gainRevenue stays null and
-  // the page keeps units + the "revenue weighting lights up with the feed" note.
-  const revByStore = await getStoreRevenueWeek();
+  // All three reads at once. Awaited one after another, this page spent its
+  // whole 10s Netlify budget waiting on round trips to Singapore and streamed
+  // an empty body — the Overview only stayed healthy because it happened to use
+  // Promise.all. Nothing here depends on anything else here, so nothing should
+  // be waiting on anything else here.
+  //
+  // Revenue overlay: empty until Invoice_Cost loads, so gainRevenue stays null
+  // and the page keeps units + the "revenue weighting lights up" note.
+  const [stores, revByStore, overByStore] = await Promise.all([
+    getStoreWeek(),
+    getStoreRevenueWeek(),
+    getTopOverSuppliedByStore(),
+  ]);
   const unitRev = (storeId: string) => revByStore.get(storeId)?.avg_unit_revenue ?? null;
   const opps: Opp[] = [];
 
@@ -868,9 +877,10 @@ export async function getOpportunities(): Promise<Opportunities> {
     .filter((s) => (s.status === "red" || s.status === "amber") && Number(s.total_sent) > Number(s.total_sold))
     .sort((a, b) => Number(b.total_wasted) - Number(a.total_wasted))
     .slice(0, 6);
+  // overByStore (fetched above) carries every store's worst over-supplied line,
+  // replacing six more sequential per-store round trips.
   for (const s of wasteCand) {
-    const recos = await getStoreRecos(s.store_id);
-    const top = recos.filter((r) => r.sent > r.recommended).sort((a, b) => (b.sent - b.recommended) - (a.sent - a.recommended))[0];
+    const top = overByStore.get(s.store_id);
     opps.push({
       id: `w-${s.store_id}`, lever: "waste", store: s.name, region: s.region ?? "—",
       product: top ? titleCase(top.product_name) : "across lines",
@@ -965,15 +975,37 @@ export async function getStoreRevenueWeek(): Promise<Map<string, StoreRevenue>> 
 // tie-break — in a single round trip.
 type UnderLine = { product_id: string; product_name: string; sent: number; recommended: number };
 async function getTopUnderSuppliedByStore(): Promise<Map<string, UnderLine>> {
+  return topGapByStore("under");
+}
+
+// The mirror of the above: the worst OVER-supplied line per store, for the
+// Opportunities "trim waste" cards, which had the same six-round-trip loop.
+async function getTopOverSuppliedByStore(): Promise<Map<string, UnderLine>> {
+  return topGapByStore("over");
+}
+
+async function topGapByStore(dir: "under" | "over"): Promise<Map<string, UnderLine>> {
   const m = new Map<string, UnderLine>();
   try {
-    const rows = await sql<{ store_id: string; product_id: string; product_name: string; sent: number; recommended: number }[]>`
-      select distinct on (r.store_id)
-             r.store_id::text as store_id, p.id::text as product_id, p.name as product_name,
-             r.sent, r.recommended
-      from store_reco r join products p on p.id = r.product_id
-      where r.recommended > r.sent
-      order by r.store_id, (r.recommended - r.sent) desc, p.name`;
+    // Two near-identical statements rather than one interpolated ordering —
+    // postgres.js parameterises values, not SQL fragments, and a hand-built
+    // order-by string is exactly the kind of thing that rots silently.
+    const rows =
+      dir === "under"
+        ? await sql<{ store_id: string; product_id: string; product_name: string; sent: number; recommended: number }[]>`
+            select distinct on (r.store_id)
+                   r.store_id::text as store_id, p.id::text as product_id, p.name as product_name,
+                   r.sent, r.recommended
+            from store_reco r join products p on p.id = r.product_id
+            where r.recommended > r.sent
+            order by r.store_id, (r.recommended - r.sent) desc, p.name`
+        : await sql<{ store_id: string; product_id: string; product_name: string; sent: number; recommended: number }[]>`
+            select distinct on (r.store_id)
+                   r.store_id::text as store_id, p.id::text as product_id, p.name as product_name,
+                   r.sent, r.recommended
+            from store_reco r join products p on p.id = r.product_id
+            where r.sent > r.recommended
+            order by r.store_id, (r.sent - r.recommended) desc, p.name`;
     for (const r of rows) {
       m.set(r.store_id, {
         product_id: r.product_id, product_name: r.product_name,
@@ -981,19 +1013,23 @@ async function getTopUnderSuppliedByStore(): Promise<Map<string, UnderLine>> {
       });
     }
   } catch {
-    // store_reco not present yet — every card falls back to "peak lines", the
-    // same graceful degradation getStoreRecos() had.
+    // store_reco not present yet — every card falls back to its generic wording,
+    // the same graceful degradation getStoreRecos() had.
   }
   return m;
 }
 
 export async function getStockouts(): Promise<LostSales> {
-  const stores = await getStoreWeek();
+  // Three independent reads, so three at once rather than three in a queue.
+  //
   // Revenue overlay: empty until the Invoice_Cost extract is loaded, so lost
   // revenue stays null and the UI keeps its "$ —, lights up with the price feed"
   // placeholder. The moment the feed lands this fills in with no code change.
-  const revByStore = await getStoreRevenueWeek();
-  const underByStore = await getTopUnderSuppliedByStore();
+  const [stores, revByStore, underByStore] = await Promise.all([
+    getStoreWeek(),
+    getStoreRevenueWeek(),
+    getTopUnderSuppliedByStore(),
+  ]);
   const cand = stores.filter((s) => Number(s.stockout_days) > 0);
   const losses: Stockout[] = [];
   for (const s of cand) {
