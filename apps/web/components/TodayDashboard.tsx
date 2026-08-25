@@ -70,9 +70,9 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
 
   // ---- headline ----
   // Every RATIO here is computed over the stores whose sales we can actually
-  // see, and nothing else. Jesse delivers to 265 stores but only 94 of them
+  // see, and nothing else. Jesse delivers to 265 stores but only 95 of them
   // report a scan sale back; the rest are invoice customers who never will.
-  // Divide what those 94 sold by what all 265 received and you get the answer
+  // Divide what those 95 sold by what all 265 received and you get the answer
   // the Overview used to give — 15.6% waste, 29.6% sell-through — sitting
   // directly under an engine panel saying 34.3%, both from the same rows.
   // Migration 027 already refuses to score an invoice customer's waste; this is
@@ -216,15 +216,23 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
       </div>
       {rev ? (
         <div className="t-strip" style={{ marginTop: 12 }}>
-          <div className="t-tile"><div className="tv">${nf(Math.round(rev.salesWk))}</div><div className="tl">Sales this week · revenue</div></div>
-          <div className="t-tile"><div className="tv a">${nf(Math.round(rev.wasteWk))}</div><div className="tl">Waste this week · $ (revenue-weighted)</div></div>
+          {/* "Sold" and "unsold", not "sales" and "waste". The two dollar
+              figures are priced off the same per-unit revenue, so they invite
+              being divided into each other — and $49,935 against $92,931 reads
+              54%, not the 34.5% in the tile above. Both are right: 34.5% of what
+              was DELIVERED came back, and that stock is worth 53% of what SOLD.
+              Different denominators, and the old labels ("Sales" / "Waste $")
+              gave no hint of that. Sold-vs-unsold names the pair for what it is
+              and stops the wrong division looking meaningful. */}
+          <div className="t-tile"><div className="tv">${nf(Math.round(rev.salesWk))}</div><div className="tl">Sold this week · revenue</div></div>
+          <div className="t-tile"><div className="tv a">${nf(Math.round(rev.wasteWk))}</div><div className="tl">Unsold this week · what it would have sold for</div></div>
           <div className="t-tile"><div className="tv dim">$ —</div><div className="tl">Profit · needs Simona&apos;s production cost</div></div>
         </div>
       ) : (
         <div className="t-locked">
           <span className="lk">🔒 Unlocks with the cost feed</span>
-          <span className="lkm">Sales this week</span>
-          <span className="lkm">Estimated waste $</span>
+          <span className="lkm">Sold this week</span>
+          <span className="lkm">Unsold this week</span>
           <span className="lkm">Profit</span>
           <span className="lknote">the per-unit figures already sit in the retailer data</span>
         </div>
