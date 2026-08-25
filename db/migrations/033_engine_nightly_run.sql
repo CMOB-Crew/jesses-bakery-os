@@ -427,6 +427,12 @@ declare
   v_asof  date;
   v_err   text;
 begin
+  -- Named up front rather than discovered two minutes in — see migration 035.
+  -- statement_timeout is armed when the CALL begins, so this cannot fix a
+  -- budget that is already too small; it can only say so before the clock runs
+  -- out and the error points somewhere misleading.
+  perform jb_check_run_budget();
+
   v_z    := coalesce(p_z, jb_engine_z());
   v_scen := (select a.value ->> 'level' from app_settings a where a.key = 'service_level');
   v_asof := (select max(sale_date) from sales_daily);
