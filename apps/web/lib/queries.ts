@@ -2128,3 +2128,121 @@ export async function getSeasonalEvents(): Promise<SeasonEvent[]> {
     return []; // events table not seeded yet — calendar uses its seed
   }
 }
+
+// ---------------------------------------------------------------------
+// DELIVERY RUNS BOARD — item 5 of Simona's 26 Aug brief.
+//
+// [32:01] "Click a run card, see every store on that run and the order they go
+// out in, see what days that run goes out, add a day, change a day."
+// [33:43] the bare minimum she'd accept: "click a run, see its stores, and
+// tweak the days."
+// [23:01] and the hard limit: "I don't want to play with numbers too much. I
+// think playing with numbers is really dangerous." So there are NO quantities
+// anywhere in these queries. Days and membership only, deliberately.
+//
+// [31:42] is why this replaces the status map rather than sitting beside it:
+// "this whole concept of tracking which region has errors isn't functional,
+// because all it's telling us is data about it and then we've got to open up
+// the store to get to it." This screen stops reporting and starts editing.
+//
+// Only runs with days set are returned — the same filter getRuns() uses. The
+// twenty legacy "Run N" rows (migration 043) are not runs anyone drives.
+// ---------------------------------------------------------------------
+export type RunCard = {
+  id: string; name: string; region: string; days: string[];
+  stores: number;        // stores whose home run this is
+  visitors: number;      // stores that ride it on some days but live elsewhere
+  exceptions: number;    // home stores that don't take every one of the run's days
+};
+export async function getRunBoard(): Promise<RunCard[]> {
+  try {
+    return await sql<RunCard[]>`
+      select rn.id::text                              as id,
+             rn.name                                  as name,
+             reg.name                                 as region,
+             rn.run_days::text[]                      as days,
+             (select count(*) from stores s
+               where s.default_run_id = rn.id and s.active)::int          as stores,
+             (select count(distinct o.store_id) from store_run_overrides o
+                join stores s2 on s2.id = o.store_id and s2.active
+               where o.run_id = rn.id)::int                               as visitors,
+             -- A store on this run that does NOT take every day the run goes
+             -- out. Edgecliff and Metro Paddington are her example: the run's
+             -- headline days are not true for every store on it, which is
+             -- exactly what section 11 of the brief is about.
+             (select count(*) from stores s3
+               where s3.default_run_id = rn.id and s3.active
+                 and not (rn.run_days <@ s3.delivery_days))::int           as exceptions
+        from runs rn
+        join regions reg on reg.id = rn.region_id
+       where cardinality(rn.run_days) > 0
+       order by rn.name`;
+  } catch {
+    return [];
+  }
+}
+
+export type RunMember = {
+  run_id: string; store_id: string; name: string; retailer: string;
+  days: string[];
+  away: { day: string; run: string }[];   // days this store rides someone else's run
+};
+export type RunVisitor = {
+  run_id: string; store_id: string; name: string; retailer: string;
+  days: string[]; home_run: string;
+};
+
+// Every run's roster in TWO queries, not two per run.
+//
+// The board is a master-detail on one page — she clicks a run and the stores
+// appear beside it, which is exactly how she described it at [29:23]. Fetching
+// per selection would be a round trip to the Singapore pooler at ~130ms on
+// every click; fetching per run up front would be 42 of them. The whole roster
+// is 265 stores and 28 exception rows, so it comes back whole and the client
+// groups it.
+//
+// `visitors` is not decoration. For Eastern Suburbs it is the stores from South
+// East and City that ride it on Saturdays. A detail showing home members only
+// would make the Saturday Eastern Suburbs van look half as busy as it is, and
+// Coles Maroubra would be missing from the screen on the exact day Simona goes
+// looking for it.
+export async function getRunRoster(): Promise<{ members: RunMember[]; visitors: RunVisitor[] }> {
+  try {
+    const [members, visitors] = await Promise.all([
+      sql<RunMember[]>`
+        select s.default_run_id::text as run_id,
+               s.id::text             as store_id,
+               s.name,
+               s.retailer::text       as retailer,
+               s.delivery_days::text[] as days,
+               coalesce(
+                 (select json_agg(json_build_object('day', o.day::text, 'run', r2.name))
+                    from store_run_overrides o
+                    join runs r2 on r2.id = o.run_id
+                   where o.store_id = s.id),
+                 '[]'::json) as away
+          from stores s
+         where s.active and s.default_run_id is not null
+         order by s.name`,
+      sql<RunVisitor[]>`
+        select o.run_id::text as run_id,
+               s.id::text     as store_id,
+               s.name,
+               s.retailer::text as retailer,
+               array_agg(o.day::text order by
+                 array_position(array['mon','tue','wed','thu','fri','sat','sun'], o.day::text)) as days,
+               coalesce(hr.name, '(no run)') as home_run
+          from store_run_overrides o
+          join stores s on s.id = o.store_id and s.active
+          left join runs hr on hr.id = s.default_run_id
+         group by o.run_id, s.id, s.name, s.retailer, hr.name
+         order by s.name`,
+    ]);
+    return {
+      members: (members ?? []).map((m) => ({ ...m, days: m.days ?? [], away: m.away ?? [] })),
+      visitors: (visitors ?? []).map((v) => ({ ...v, days: v.days ?? [] })),
+    };
+  } catch {
+    return { members: [], visitors: [] };
+  }
+}
