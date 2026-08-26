@@ -1,7 +1,14 @@
 "use server";
 
+// NO revalidatePath in this file. See the long note in app/map/actions.ts for
+// the measurement: every page here except the two prototypes is force-dynamic,
+// so there is no cached server render to invalidate. All revalidatePath does is
+// clear the CLIENT router cache, and the router then re-prefetches all 23
+// sidebar links. One Save on /map with eight of them fired 46 requests and drew
+// three 503s. Components refresh themselves — local state, a toast, or an
+// explicit router.refresh().
+
 import { q as sql } from "@/lib/db";
-import { revalidatePath } from "next/cache";
 
 // Write-back layer, slice 1: persist the per-product overrides Simona sets on the
 // store profile. Before this, an adjustment lived only in the browser and reset
@@ -49,7 +56,6 @@ export async function setStoreOverride(input: OverrideInput): Promise<OverrideRe
         updated_at = now(),
         updated_by = excluded.updated_by`;
 
-    revalidatePath(`/store/${storeId}`);
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not save the adjustment.";
@@ -72,7 +78,6 @@ export async function applyStockoutFixes(fixes: BulkFix[]): Promise<BulkResult> 
       .filter((f) => f.storeId && f.productId && Number.isFinite(f.qty) && f.qty >= 0);
     if (!clean.length) return { ok: false, error: "No valid fixes to apply." };
 
-    const stores = new Set<string>();
     for (const f of clean) {
       await sql`
         insert into store_product_overrides
@@ -85,14 +90,8 @@ export async function applyStockoutFixes(fixes: BulkFix[]): Promise<BulkResult> 
           ends_on    = excluded.ends_on,
           updated_at = now(),
           updated_by = excluded.updated_by`;
-      stores.add(f.storeId);
     }
 
-    for (const s of stores) revalidatePath(`/store/${s}`);
-    revalidatePath("/lost-sales");
-    revalidatePath("/deliveries");
-    revalidatePath("/delivery-sheet");
-    revalidatePath("/production");
     return { ok: true, count: clean.length };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not apply the fixes." };
@@ -111,7 +110,6 @@ export async function clearStoreOverride(storeId: string, productId: string): Pr
       delete from store_product_overrides
       where store_id = ${sid}::uuid and product_id = ${pid}::uuid`;
 
-    revalidatePath(`/store/${sid}`);
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not remove the adjustment.";
@@ -133,7 +131,6 @@ export async function setStoreRanging(storeId: string, productId: string, ranged
       values (${sid}::uuid, ${pid}::uuid, ${ranged}, now(), 'app')
       on conflict (store_id, product_id) do update set
         ranged = excluded.ranged, updated_at = now(), updated_by = excluded.updated_by`;
-    revalidatePath(`/store/${sid}`);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save ranging." };
@@ -156,8 +153,6 @@ export async function setStoreLastVisit(storeId: string, dateStr: string): Promi
       values (${sid}::uuid, ${d}::date, now(), 'app')
       on conflict (store_id) do update set
         last_visit_on = excluded.last_visit_on, updated_at = now(), updated_by = excluded.updated_by`;
-    revalidatePath(`/store/${sid}`);
-    revalidatePath("/stores");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save the visit date." };
@@ -184,7 +179,6 @@ export async function setStorePhoto(storeId: string, dataUrl: string): Promise<O
       values (${sid}::uuid, ${url}, now(), 'app')
       on conflict (store_id) do update set
         photo_url = excluded.photo_url, updated_at = now(), updated_by = excluded.updated_by`;
-    revalidatePath(`/store/${sid}`);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save the photo." };
@@ -216,8 +210,6 @@ export async function setStoreShelfCap(storeId: string, cap: number | null, noCa
       values (${sid}::uuid, ${capVal}::int, ${nolimit}, now(), 'app')
       on conflict (store_id) do update set
         shelf_cap = excluded.shelf_cap, no_cap = excluded.no_cap, updated_at = now(), updated_by = excluded.updated_by`;
-    revalidatePath(`/store/${sid}`);
-    revalidatePath("/stores");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save the shelf cap." };
@@ -342,7 +334,6 @@ export async function setStoreServiceLevel(storeId: string, level: string): Prom
       values (${sid}::uuid, ${lvl}, now(), 'app')
       on conflict (store_id) do update set
         service_level = excluded.service_level, updated_at = now(), updated_by = excluded.updated_by`;
-    revalidatePath(`/store/${sid}`);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save service level." };

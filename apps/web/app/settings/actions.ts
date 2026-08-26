@@ -1,7 +1,14 @@
 "use server";
 
+// NO revalidatePath in this file. See the long note in app/map/actions.ts for
+// the measurement: every page here except the two prototypes is force-dynamic,
+// so there is no cached server render to invalidate. All revalidatePath does is
+// clear the CLIENT router cache, and the router then re-prefetches all 23
+// sidebar links. One Save on /map with eight of them fired 46 requests and drew
+// three 503s. Components refresh themselves — local state, a toast, or an
+// explicit router.refresh().
+
 import { q as sql, sql as db } from "@/lib/db";
-import { revalidatePath } from "next/cache";
 
 // Write-back for the Settings page. Each config group (service level, per-product
 // minimums, size baskets, shelf/lead, seasonality factors) saves as one JSONB row
@@ -33,7 +40,6 @@ export async function saveSetting(key: string, value: unknown): Promise<WriteRes
       values (${k}, ${db.json((value ?? null) as Parameters<typeof db.json>[0])}, now(), 'app')
       on conflict (key) do update set
         value = excluded.value, updated_at = now(), updated_by = excluded.updated_by`;
-    revalidatePath("/settings");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save the setting." };

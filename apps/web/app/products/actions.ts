@@ -1,7 +1,14 @@
 "use server";
 
+// NO revalidatePath in this file. See the long note in app/map/actions.ts for
+// the measurement: every page here except the two prototypes is force-dynamic,
+// so there is no cached server render to invalidate. All revalidatePath does is
+// clear the CLIENT router cache, and the router then re-prefetches all 23
+// sidebar links. One Save on /map with eight of them fired 46 requests and drew
+// three 503s. Components refresh themselves — local state, a toast, or an
+// explicit router.refresh().
+
 import { q as sql } from "@/lib/db";
-import { revalidatePath } from "next/cache";
 
 const CATEGORIES = new Set([
   "sourdough", "bagel", "challah", "pita", "pastry", "cake", "other",
@@ -35,8 +42,6 @@ export async function createProductLaunch(input: CreateProductLaunchInput): Prom
       insert into products (name, category, active, launched_at)
       values (${name}, ${category}::product_category, true, coalesce(${date}::date, current_date))
       returning id::text as id`;
-    revalidatePath("/launches");
-    revalidatePath("/products");
     return { ok: true, id: rows[0].id };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not add the product." };
@@ -55,8 +60,6 @@ export async function setProductLaunch(productId: string, dateStr?: string): Pro
        where id = ${productId}::uuid
       returning id::text as id`;
     if (!rows.length) return { ok: false, error: "Product not found." };
-    revalidatePath("/launches");
-    revalidatePath("/products");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not tag the launch." };
@@ -69,8 +72,6 @@ export async function clearProductLaunch(productId: string): Promise<ProductActi
   try {
     if (!isUuid(productId)) return { ok: false, error: "Unknown product." };
     await sql`update products set launched_at = null where id = ${productId}::uuid`;
-    revalidatePath("/launches");
-    revalidatePath("/products");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not update the product." };

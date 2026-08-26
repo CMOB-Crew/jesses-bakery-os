@@ -1,7 +1,14 @@
 "use server";
 
+// NO revalidatePath in this file. See the long note in app/map/actions.ts for
+// the measurement: every page here except the two prototypes is force-dynamic,
+// so there is no cached server render to invalidate. All revalidatePath does is
+// clear the CLIENT router cache, and the router then re-prefetches all 23
+// sidebar links. One Save on /map with eight of them fired 46 requests and drew
+// three 503s. Components refresh themselves — local state, a toast, or an
+// explicit router.refresh().
+
 import { q as sql } from "@/lib/db";
-import { revalidatePath } from "next/cache";
 
 // Write-back for the seasonality calendar: persist uplift nudges and let Simona
 // add her own events (holidays, school breaks, local events) to the shared
@@ -20,7 +27,6 @@ export async function setEventUplift(eventId: string, uplift: number): Promise<W
     const up = Math.round(Number(uplift));
     if (!Number.isFinite(up)) return { ok: false, error: "Uplift must be a number." };
     await sql`update events set uplift_pct = ${up} where id = ${id}::uuid`;
-    revalidatePath("/seasonality");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save the uplift." };
@@ -44,7 +50,6 @@ export async function addSeasonalEvent(input: NewEventInput): Promise<WriteResul
     await sql`
       insert into events (name, kind, ui_kind, start_date, end_date, uplift_pct, scope)
       values (${name}, 'custom', 'custom', ${start}::date, ${end}::date, ${up}, ${scope})`;
-    revalidatePath("/seasonality");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not add the event." };

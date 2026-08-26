@@ -1,7 +1,14 @@
 "use server";
 
+// NO revalidatePath in this file. See the long note in app/map/actions.ts for
+// the measurement: every page here except the two prototypes is force-dynamic,
+// so there is no cached server render to invalidate. All revalidatePath does is
+// clear the CLIENT router cache, and the router then re-prefetches all 23
+// sidebar links. One Save on /map with eight of them fired 46 requests and drew
+// three 503s. Components refresh themselves — local state, a toast, or an
+// explicit router.refresh().
+
 import { q as sql } from "@/lib/db";
-import { revalidatePath } from "next/cache";
 
 // Retailer ids used by the New store form -> the DB retailer_type enum.
 const RETAILER_MAP: Record<string, string> = {
@@ -81,9 +88,6 @@ export async function createStore(input: CreateStoreInput): Promise<CreateStoreR
       } catch { /* store is created regardless; service level is best-effort */ }
     }
 
-    revalidatePath("/launches");
-    revalidatePath("/archive");
-    revalidatePath("/stores");
     return { ok: true, id: rows[0].id };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not create the store.";
