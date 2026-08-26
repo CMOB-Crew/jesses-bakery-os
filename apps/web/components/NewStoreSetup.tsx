@@ -256,13 +256,27 @@ export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: s
                 </div>
               </div>
               <label className="fld">
-                <span>Region</span>
+                <span>Delivery run</span>
                 <select value={region} onChange={(e) => setRegion(e.target.value)}>
                   {regionOpts.map((r) => <option key={r} value={r}>{titleCaseRegion(r)}</option>)}
                 </select>
               </label>
+              {/* NOT a second "Delivery run" field. Renaming Region -> Delivery run
+                  briefly gave this form two fields with the same label, which is
+                  the exact confusion Simona asked us to remove.
+                  
+                  They are genuinely two different things in the legacy data:
+                  Stores_Master carries a named Region (EASTERN SUBURBS, HILLS —
+                  what she calls "the run") AND a numeric Run_ID. Her per-day
+                  overrides point at the NAMES, so the named one is her run and
+                  is labelled as such above. This one only exists to copy a day
+                  pattern onto a new store, so it says so.
+
+                  Whether the numeric run survives at all is a question for the
+                  Delivery Runs dashboard build — it is not one to answer by
+                  picking a label. */}
               <label className="fld">
-                <span>Delivery run</span>
+                <span>Copy days from</span>
                 <select value={run} onChange={(e) => pickRun(e.target.value)}>
                   {runs.length
                     ? runs.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)
@@ -270,7 +284,7 @@ export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: s
                 </select>
               </label>
               <div className="fld f-3">
-                <span>Delivery days{runs.length ? <em className="dhint"> · auto-filled from the {run} run, tweak if this store differs</em> : null}</span>
+                <span>Delivery days{runs.length ? <em className="dhint"> · copied from {run}, tweak if this store differs</em> : null}</span>
                 <div className="days">
                   {DAYS.map((d) => (
                     <button key={d} className={days[d] ? "on" : ""} onClick={() => toggleDay(d)}>{d}</button>

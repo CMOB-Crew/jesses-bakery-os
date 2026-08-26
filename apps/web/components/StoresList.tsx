@@ -146,7 +146,7 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
   // Export exactly what's on screen (current filter + sort) as CSV — Simona
   // works from spreadsheets, so the filtered view goes straight to one.
   function downloadCsv() {
-    const header = ["Store", ...(showRegion ? ["Region"] : []), "Retailer", "Status", "Waste %", "Sold-out days", "Sold (wk)"];
+    const header = ["Store", ...(showRegion ? ["Delivery run"] : []), "Retailer", "Status", "Waste %", "Sold-out days", "Sold (wk)"];
     const body = rows.map((s) =>
       [
         s.name,
@@ -244,7 +244,7 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
         )}
         {showRegion && (
           <select value={region} onChange={(e) => setRegion(e.target.value)} aria-label="Filter by region">
-            <option value="all">All regions</option>
+            <option value="all">All delivery runs</option>
             {regions.map((r) => (
               <option key={r} value={r}>{r}</option>
             ))}
@@ -283,7 +283,7 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
           <table>
             <thead>
               <tr>
-                <th>Store</th>{showRegion && <th>Region</th>}<th>Retailer</th><th>Status</th>
+                <th>Store</th>{showRegion && <th>Delivery run</th>}<th>Retailer</th><th>Status</th>
                 <th className="num">Waste %</th>{anyStockouts && <th className="num">Sold out</th>}<th className="num">Sent (wk)</th><th className="num">Sold (wk)</th>
               </tr>
             </thead>

@@ -117,7 +117,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
       <div className="panel intro">
         <div className="itxt">
           Every store is a dot, grouped by its region and coloured by status — <b>red</b> needs attention today, amber is
-          watch, green is on track, grey has no feed loaded yet. Regions with the most red sit top-left, so trouble jumps
+          watch, green is on track, grey has no feed loaded yet. Runs with the most red sit top-left, so trouble jumps
           out. <b>Hover a dot to see the store; click it to open the full read.</b> It&apos;s a diagram for spotting
           patterns, not a to-scale map.
         </div>

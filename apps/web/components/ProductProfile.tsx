@@ -45,7 +45,7 @@ export default function ProductProfile({ product, stores }: { product: ProductDe
           <table>
             <thead>
               <tr>
-                <th>Store</th><th>Region</th>
+                <th>Store</th><th>Delivery run</th>
                 <th className="num">Delivered</th><th className="num">Sold</th>
                 <th className="num">Sell-through</th><th className="num">Waste %</th><th className="num">Difference</th>
               </tr>

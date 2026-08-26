@@ -138,7 +138,7 @@ export default async function Overview() {
       <AskBar />
 
       <div id="allregions" className="section-h" style={{ marginTop: 30 }}>
-        <span className="tick" />All regions <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400, color: "var(--faint)" }}>· worst first</span>
+        <span className="tick" />All delivery runs <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400, color: "var(--faint)" }}>· worst first</span>
       </div>
       <div className="rgrid">
         {regions.map((r) => {

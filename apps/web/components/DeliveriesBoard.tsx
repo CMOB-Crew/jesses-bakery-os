@@ -29,7 +29,8 @@ const SEED_DOWMULT = [0.85, 0.85, 0.95, 1, 1.3, 1.55, 1.4];
 // opens a per-product breakdown inline. Totals recalc live. Nothing sends to the
 // bakery until she signs it off.
 export default function DeliveriesBoard({ lines, detail = [], shape = null, saved = {}, runs = [] }: { lines: DeliveryLine[]; detail?: DeliveryDetailLine[]; shape?: WeekdayShape | null; saved?: Record<string, boolean>; runs?: RunOption[] }) {
-  // Region -> its run's ordered day labels. Region IS the run in Simona's setup,
+  // Delivery run -> its ordered day labels. Simona uses one word for the grouping
+  // and the run that services it, so we do too (26 Aug). Region IS the run,
   // so the delivery group header can show the run name + the days it goes out.
   const runDays = useMemo(() => {
     const m = new Map<string, string[]>();
@@ -116,7 +117,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
   // Export the run sheet as it stands — current view (whole week or one day),
   // adjustments included, in the region order shown. Real CSV, no dependency.
   function exportRunSheet() {
-    const header = ["Region", "Store", "Sending now", "Final delivery", "Difference", "Approved"];
+    const header = ["Delivery run", "Store", "Sending now", "Final delivery", "Difference", "Approved"];
     const body: string[] = [];
     for (const g of groups) {
       for (const l of g.rows) {
@@ -259,7 +260,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
         </div>
         <div className="statgrid">
           <div className="s"><div className="n">{total}</div><div className="l">Stores on plan</div></div>
-          <div className="s"><div className="n">{groups.length}</div><div className="l">Regions</div></div>
+          <div className="s"><div className="n">{groups.length}</div><div className="l">Delivery runs</div></div>
           <div className="s"><div className="n g">{nf(Math.max(0, trim))}</div><div className="l">Loaves trimmed{isWeek ? " / week" : ` · ${dayShort}`}</div></div>
           <div className="s"><div className="n">{apprCount}<span style={{ fontSize: 15, color: "var(--muted)" }}>/{total}</span></div><div className="l">Orders approved</div></div>
         </div>
