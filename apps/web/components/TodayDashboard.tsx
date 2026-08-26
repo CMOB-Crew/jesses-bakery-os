@@ -5,6 +5,10 @@ import type { StoreWeek, NetworkWeek } from "@/lib/queries";
 import { isCapStale, type ShelfCapOverride } from "@/lib/shelfcap";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
+const RETAILER: Record<string, string> = {
+  woolworths: "Woolworths", coles: "Coles", harris_farm: "Harris Farm",
+  invoice: "invoice customers",
+};
 
 // Median without pulling in the server-only queries helper.
 function median(xs: number[]): number | null {
@@ -114,6 +118,34 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
         { salesWk: 0, wasteWk: 0 },
       )
     : revenue;
+
+  // ---- What the dollar figures are actually ABOUT ----
+  //
+  // The two ratio tiles above already name their population ("the same 95
+  // stores"). The dollar tiles didn't, and that is the worse omission of the
+  // two: a percentage at least announces itself as a proportion, while
+  // "$92,931 — Sold this week" reads as the whole business.
+  //
+  // It isn't. Revenue is priced per store off the Invoice_Cost feed, which only
+  // covers stores whose sales we can see. On 26 Aug that is 45% of what Jesse
+  // delivers. The other 55% — 115 Coles stores whose feed died on 3 Aug, plus
+  // the invoice customers who have no price on file — carries no dollar value
+  // at all. Not a low one. None.
+  //
+  // Computed rather than written down, so the note shrinks on its own as the
+  // feeds come online and disappears when everything is priced.
+  const pricedUnits = rows.reduce((a, r) => a + (revByStore[r.s.store_id] ? r.sent : 0), 0);
+  const totalUnits = rows.reduce((a, r) => a + r.sent, 0);
+  const pricedPct = totalUnits > 0 ? Math.round((1000 * pricedUnits) / totalUnits) / 10 : null;
+  const unpricedUnits = totalUnits - pricedUnits;
+  // Name the biggest unpriced retailer, because "55% is missing" invites the
+  // question and the answer is nearly always one retailer at a time.
+  const darkTop = (() => {
+    const m = new Map<string, number>();
+    for (const r of rows) if (!revByStore[r.s.store_id] && r.sent > 0) m.set(r.s.retailer, (m.get(r.s.retailer) ?? 0) + r.sent);
+    const top = [...m.entries()].sort((a, b) => b[1] - a[1])[0];
+    return top ? { retailer: RETAILER[top[0]] ?? top[0], units: top[1] } : null;
+  })();
 
   // ---- Today's action list (Simona's format: issue -> action) ----
   const highWastage = rows.filter((r) => r.waste != null && r.waste > 30).length;
@@ -242,7 +274,7 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
               Different denominators, and the old labels ("Sales" / "Waste $")
               gave no hint of that. Sold-vs-unsold names the pair for what it is
               and stops the wrong division looking meaningful. */}
-          <div className="t-tile"><div className="tv">${nf(Math.round(rev.salesWk))}</div><div className="tl">Sold this week · revenue</div></div>
+          <div className="t-tile"><div className="tv">${nf(Math.round(rev.salesWk))}</div><div className="tl">Sold this week · the same {nf(measuredStores)} stores</div></div>
           <div className="t-tile"><div className="tv a">${nf(Math.round(rev.wasteWk))}</div><div className="tl">Unsold this week · what it would have sold for</div></div>
           <div className="t-tile"><div className="tv dim">$ —</div><div className="tl">Profit · needs Simona&apos;s production cost</div></div>
         </div>
@@ -253,6 +285,18 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
           <span className="lkm">Unsold this week</span>
           <span className="lkm">Profit</span>
           <span className="lknote">the per-unit figures already sit in the retailer data</span>
+        </div>
+      )}
+
+      {/* The scope of the dollars, stated where the dollars are. Without this the
+          three tiles above read as the whole bakery; they are 45% of it. */}
+      {rev && pricedPct != null && pricedPct < 99 && (
+        <div className="t-scope">
+          <b>These dollars cover {pricedPct}% of what Jesse delivers.</b> We can only
+          price a store whose sales we can see, so <b>{nf(unpricedUnits)} units a week</b>
+          {darkTop ? <> — mostly {darkTop.retailer}, {nf(darkTop.units)} of them</> : null} carry
+          no dollar figure at all. Not a low one: none. The units and percentages above
+          say which stores they are about; these three say it here.
         </div>
       )}
 
@@ -368,6 +412,8 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
          Same violet as the shelf-cap banner on the store page, so the alert she
          spots there and the row she sees here are visibly the same alert. */
       .today .ta-dot.violet{background:#7b5ea7}
+      .today .t-scope{margin-top:10px;background:var(--card);border:1px solid var(--line2);border-left:3px solid var(--line);border-radius:10px;padding:10px 14px;font-size:12.5px;line-height:1.55;color:var(--ink2)}
+      .today .t-scope b{color:var(--ink);font-weight:600}
       .today .ta-n{font-family:var(--serif);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;min-width:30px;text-align:right}
       .today .ta-issue{color:var(--ink);font-weight:600}
       .today .ta-sep{color:var(--faint);font-weight:700}
