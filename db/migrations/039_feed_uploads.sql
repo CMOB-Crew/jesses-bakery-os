@@ -84,25 +84,44 @@ comment on table feed_rejects is
 -- Same canonical form as the parser's normaliseCode(): digits only, leading
 -- zeros stripped, anything else uppercased. Immutable so it can be indexed.
 -- ---------------------------------------------------------------------------
-create or replace function jb_norm_code(v text)
-returns text language sql immutable as $$
+-- ONE function, not two calling each other, and schema-qualified.
+--
+-- The first cut split this into jb_norm_code() plus a jb_norm_code_safe()
+-- wrapper. That applied cleanly on a local Postgres and failed on Supabase:
+-- building an index on the expression makes the planner INLINE the SQL
+-- function, and inlining re-resolves the inner call against whatever
+-- search_path is in force at that moment — which is not necessarily the one
+-- that was in force at CREATE time. "function jb_norm_code(text) does not
+-- exist", on a function that plainly does.
+--
+-- A single self-contained body cannot hit that, so there is nothing to
+-- re-resolve. Cheaper than reasoning about search_path, and it reads better.
+create or replace function public.jb_norm_code_safe(v text)
+returns text
+language sql
+immutable
+parallel safe
+returns null on null input
+as $$
   select case
-           when v is null or btrim(v) = ''      then null
-           when btrim(v) ~ '^[0-9]+$'           then ltrim(btrim(v), '0')
+           -- '0819' -> '819'; but a code that is all zeros must not become '',
+           -- so it collapses to a single '0'.
+           when btrim(v) = ''            then null
+           when btrim(v) ~ '^0+$'        then '0'
+           when btrim(v) ~ '^[0-9]+$'    then ltrim(btrim(v), '0')
            else upper(btrim(v))
          end
 $$;
 
--- '0819' -> '819', but '0' -> '' so guard the all-zeros case back to '0'.
-create or replace function jb_norm_code_safe(v text)
-returns text language sql immutable as $$
-  select coalesce(nullif(jb_norm_code(v), ''), case when btrim(coalesce(v,'')) ~ '^0+$' then '0' end)
-$$;
+comment on function public.jb_norm_code_safe(text) is
+  'Canonical form for a retailer code: digits only, leading zeros stripped, anything else uppercased. Our stores.supplier_code is zero-padded text (0819) and the retailers now send Location as a number (819) — without this, that store silently contributes nothing.';
+
+drop function if exists public.jb_norm_code(text);
 
 create index if not exists stores_norm_supplier_code_idx
-  on stores (retailer, jb_norm_code_safe(supplier_code));
+  on stores (retailer, public.jb_norm_code_safe(supplier_code));
 create index if not exists products_norm_coles_code_idx
-  on products (jb_norm_code_safe(coles_code));
+  on products (public.jb_norm_code_safe(coles_code));
 
 -- ---------------------------------------------------------------------------
 -- The load. Resolve, reject what won't resolve, merge the rest.
@@ -142,7 +161,7 @@ begin
     left join stores st
       on st.retailer = v_retailer
      and st.active
-     and jb_norm_code_safe(st.supplier_code) = g.location
+     and public.jb_norm_code_safe(st.supplier_code) = g.location
     left join lateral (
       -- (array_agg)[1] rather than min(): Postgres has no min(uuid). Only ever
       -- read when n_products = 1, so which element it picks cannot matter — an
@@ -152,7 +171,7 @@ begin
              string_agg(p.name, ' / ' order by p.name) as names
       from products p
       where p.active
-        and jb_norm_code_safe(
+        and public.jb_norm_code_safe(
               case v_retailer
                 when 'coles'       then p.coles_code
                 when 'woolworths'  then p.woolworths_code
