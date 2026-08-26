@@ -727,6 +727,38 @@ export async function getPeakDaySold(): Promise<Record<string, number>> {
   }
 }
 
+// Per-retailer feed freshness (migration 039). The thing whose absence let
+// Coles die on 3 Aug and stay dead for three weeks under a green light.
+export type FeedHealth = {
+  retailer: string; last_sale: string; days_behind: number;
+  status: "ok" | "late" | "stopped"; last_upload: string | null;
+};
+export async function getFeedHealth(): Promise<FeedHealth[]> {
+  try {
+    return await sql<FeedHealth[]>`select * from v_feed_health order by days_behind desc`;
+  } catch {
+    return [];
+  }
+}
+
+// The upload log — what was loaded, when, and how much of it didn't.
+export type FeedUpload = {
+  id: string; retailer: string; filename: string;
+  period_from: string | null; period_to: string | null;
+  rows_read: number; rows_loaded: number; rows_rejected: number;
+  status: string; error: string | null; uploaded_at: string;
+};
+export async function getFeedUploads(limit = 12): Promise<FeedUpload[]> {
+  try {
+    return await sql<FeedUpload[]>`
+      select id, retailer::text as retailer, filename, period_from, period_to,
+             rows_read, rows_loaded, rows_rejected, status, error, uploaded_at
+        from feed_uploads order by uploaded_at desc limit ${limit}`;
+  } catch {
+    return [];
+  }
+}
+
 // Store street address (+ postcode) straight from the stores table, for the
 // profile header. Simona asked to see the address on the store screen (Session 2
 // UAT); it's in the Stores Master she confirmed. Null if not on file.
