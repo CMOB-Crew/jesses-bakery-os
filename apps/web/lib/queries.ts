@@ -697,6 +697,36 @@ export async function getShelfCapOverrides(): Promise<Record<string, { cap: numb
   }
 }
 
+// Units sold on each store's BUSIEST single day of the week, keyed by store id.
+//
+// This is the denominator the shelf-cap check needs. A cap is a snapshot of what
+// the fixture holds; a week of sales is six deliveries' worth of flow. Comparing
+// a cap to the week flagged 84 of 95 stores; comparing it to the busiest day
+// flags one. See lib/shelfcap.ts for the full reasoning.
+//
+// Same seven-day window as v_store_week, off the same v_asof anchor, so the peak
+// day and the weekly total on the same screen are always about the same week.
+export async function getPeakDaySold(): Promise<Record<string, number>> {
+  try {
+    const rows = await sql<{ store_id: string; peak: number }[]>`
+      with a as (select as_of from v_asof)
+      select x.store_id, max(x.dayq)::int as peak
+        from (
+          select sd.store_id, sd.sale_date, sum(sd.units_sold) as dayq
+            from sales_daily sd, a
+           where sd.sale_date >  (select as_of from a)::date - 7
+             and sd.sale_date <= (select as_of from a)::date
+           group by 1, 2
+        ) x
+       group by 1`;
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.store_id] = Number(r.peak) || 0;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 // Store street address (+ postcode) straight from the stores table, for the
 // profile header. Simona asked to see the address on the store screen (Session 2
 // UAT); it's in the Stores Master she confirmed. Null if not on file.

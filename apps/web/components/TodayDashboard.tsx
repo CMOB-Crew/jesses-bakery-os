@@ -40,7 +40,7 @@ function bandOf(size: string | null): Band | null {
 // sends 120 is fine; 20% at a Small store that sends 50 is not. So the two lists
 // can be filtered to Small / Medium / Large, each list shows the wasted UNIT
 // count next to the %, and a per-size strip shows what the typical % is in units.
-export default function TodayDashboard({ stores, net, asOf, revenue = null, thresholds = null, states = {}, revByStore = {}, capOverrides = {} }: { stores: StoreWeek[]; net: NetworkWeek; asOf: string; revenue?: { salesWk: number; wasteWk: number } | null; thresholds?: { small: number; medium: number; large: number } | null; states?: Record<string, string>; revByStore?: Record<string, { rev: number; aur: number | null }>; capOverrides?: Record<string, ShelfCapOverride> }) {
+export default function TodayDashboard({ stores, net, asOf, revenue = null, thresholds = null, states = {}, revByStore = {}, capOverrides = {}, peakDay = {} }: { stores: StoreWeek[]; net: NetworkWeek; asOf: string; revenue?: { salesWk: number; wasteWk: number } | null; thresholds?: { small: number; medium: number; large: number } | null; states?: Record<string, string>; revByStore?: Record<string, { rev: number; aur: number | null }>; capOverrides?: Record<string, ShelfCapOverride>; peakDay?: Record<string, number> }) {
   // Waste thresholds per size, from Settings (Simona sets her own; these floats
   // are the starting point she reviewed on the call until she confirms).
   const th = { small: 16, medium: 20, large: 25, ...(thresholds ?? {}) };
@@ -144,14 +144,18 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
   // a piece of reference data that is wrong, and every plan for that store is
   // being computed against it until someone types the real number in.
   //
+  // Judged against the store's BUSIEST DAY, not its week. Against the week this
+  // row read "84 stores" — 88% of everything we can measure, which is a wall,
+  // not an action. Against the day it reads one. See lib/shelfcap.ts.
+  //
   // Same predicate as the store page and the drill-down, imported rather than
-  // rewritten — see lib/shelfcap.ts.
-  const capStale = rows.filter((r) => isCapStale(r.s, capOverrides[r.s.store_id])).length;
+  // rewritten, so this count and that list can never disagree.
+  const capStale = rows.filter((r) => isCapStale(r.s, capOverrides[r.s.store_id], peakDay[r.s.store_id])).length;
 
   const actions = [
     { key: "waste", tone: "red", n: highWastage, issue: "high wastage", action: "Reduce production", href: "/stores?view=waste30", pending: false },
     { key: "stock", tone: "amber", n: stockOuts, issue: "lines selling out", action: "Increase allocation", href: "/stores?view=stockouts", pending: true },
-    { key: "cap", tone: "violet", n: capStale, issue: "shelf cap looks out of date", action: "Check the real shelf size", href: "/stores?view=capstale", pending: false },
+    { key: "cap", tone: "violet", n: capStale, issue: "shelf cap smaller than a day's sales", action: "Check the real shelf size", href: "/stores?view=capstale", pending: false },
     { key: "decline", tone: "blue", n: salesDecline, issue: "sudden sales decline", action: "Investigate", href: "/stores?view=declines", pending: true },
     { key: "growth", tone: "green", n: strongSellers, issue: "strong sellers", action: "Consider expanding range", href: "/stores?view=expandrange", pending: false },
   ] as const;

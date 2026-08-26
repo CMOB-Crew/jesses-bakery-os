@@ -56,7 +56,7 @@ const growthOf = (s: StoreWeek) => {
   const sold = num(s.total_sold), prev = num(s.total_sold_prev);
   return prev > 0 ? ((sold - prev) / prev) * 100 : null;
 };
-const VIEWS: Record<string, { label: string; test: (s: StoreWeek, ov?: ShelfCapOverride) => boolean }> = {
+const VIEWS: Record<string, { label: string; test: (s: StoreWeek, ov?: ShelfCapOverride, peak?: number) => boolean }> = {
   waste30: { label: "Excessive waste (>30%)", test: (s) => s.waste_pct != null && num(s.waste_pct) > 30 },
   // Same gate as the Overview action list, so the count on the tile and the
   // length of this list are always the same number: a store that sells out on a
@@ -68,8 +68,9 @@ const VIEWS: Record<string, { label: string; test: (s: StoreWeek, ov?: ShelfCapO
   outperform: { label: "Outperforming comparable stores", test: (s) => { const st = sellThroughOf(s); return s.status === "green" && st != null && st >= 92; } },
   declines: { label: "Abnormal sales declines", test: (s) => { const g = growthOf(s); return g != null && g < -10; } },
   // The only view here that isn't about performance. These stores are fine —
-  // the number we hold FOR them is wrong, and it's shaping their plan.
-  capstale: { label: "Shelf cap on file looks out of date", test: (s, ov) => isCapStale(s, ov) },
+  // the number we hold FOR them is wrong, and it's shaping their plan. Judged
+  // against the busiest single day, never the week: see lib/shelfcap.ts.
+  capstale: { label: "Shelf cap smaller than a single day's sales", test: (s, ov, peak) => isCapStale(s, ov, peak) },
 };
 
 // CSV-escape a cell (quote when it contains a comma, quote, or newline).
@@ -78,7 +79,7 @@ const csvCell = (v: string | number | null) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-export default function StoresList({ stores, showRegion = true, initialView, states = {}, capOverrides = {} }: { stores: StoreWeek[]; showRegion?: boolean; initialView?: string; states?: Record<string, string>; capOverrides?: Record<string, ShelfCapOverride> }) {
+export default function StoresList({ stores, showRegion = true, initialView, states = {}, capOverrides = {}, peakDay = {} }: { stores: StoreWeek[]; showRegion?: boolean; initialView?: string; states?: Record<string, string>; capOverrides?: Record<string, ShelfCapOverride>; peakDay?: Record<string, number> }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<"all" | Eff>("all");
@@ -115,7 +116,7 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
     const term = q.trim().toLowerCase();
     const list = stores.filter(
       (s) =>
-        (!activeView || activeView.test(s, capOverrides[s.store_id])) &&
+        (!activeView || activeView.test(s, capOverrides[s.store_id], peakDay[s.store_id])) &&
         (status === "all" || effOf(s) === status) &&
         (region === "all" || s.region === region) &&
         (retailer === "all" || s.retailer === retailer) &&
@@ -138,7 +139,7 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
           return EFF_ORDER[effOf(a)] - EFF_ORDER[effOf(b)] || num(b.total_wasted) - num(a.total_wasted) || num(b.total_sold) - num(a.total_sold);
       }
     });
-  }, [stores, q, status, region, retailer, stateF, states, sort, activeView, capOverrides]);
+  }, [stores, q, status, region, retailer, stateF, states, sort, activeView, capOverrides, peakDay]);
 
   const filtered = q || status !== "all" || region !== "all" || retailer !== "all" || stateF !== "all";
 
@@ -182,24 +183,27 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
       {view === "capstale" && (
         <>
           {/* The list on its own would send her store by store with no idea what
-              she's looking for. Each row gets the two numbers that make the case:
-              the cap we hold, and what the store actually sold in the week. */}
+              she's looking for. Each row carries the two numbers that make the
+              case: the cap we hold, and the most that store sold in ONE day. */}
           <div className="capnote">
-            A shelf cap is how much the fixture holds at once. These stores sold
-            more in a week than their cap allows, so the cap on file can&apos;t be
-            the real one — it&apos;s old data, and the plan is being squeezed
-            against it. <b>Nothing is being blocked by these caps</b>; open a store
-            and type the real shelf size in to clear it.
+            A shelf cap is how many units the fixture holds <b>at once</b>, not
+            over a week — a 90-unit bay refilled six mornings a week sells far
+            more than 90. These stores sold more in a <b>single day</b> than their
+            cap allows, so the shelf held more than the cap says it can and the
+            figure on file is wrong. <b>Nothing is being blocked by these caps</b>;
+            open a store and type the real shelf size in to clear it.
           </div>
           <ul className="caplist">
             {rows.map((s) => {
               const cap = effectiveCap(s, capOverrides[s.store_id]);
+              const peak = num(peakDay[s.store_id]);
               return (
                 <li key={s.store_id}>
                   <Link href={`/store/${s.store_id}`}>{s.name}</Link>
                   <span className="cl-r">
                     <span className="cl-cap">cap on file <b>{nf(cap ?? 0)}</b></span>
-                    <span className="cl-sold">sold <b>{nf(num(s.total_sold))}</b>/wk</span>
+                    <span className="cl-sold">busiest day <b>{nf(peak)}</b></span>
+                    <span className="cl-sold">week <b>{nf(num(s.total_sold))}</b></span>
                   </span>
                 </li>
               );

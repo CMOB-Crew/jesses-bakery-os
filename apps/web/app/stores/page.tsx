@@ -1,4 +1,4 @@
-import { getStoreWeek, getStoreStates, getShelfCapOverrides } from "@/lib/queries";
+import { getStoreWeek, getStoreStates, getShelfCapOverrides, getPeakDaySold } from "@/lib/queries";
 import StoresList from "@/components/StoresList";
 
 // Render per request, like the other data pages — this reads the whole
@@ -8,14 +8,14 @@ import StoresList from "@/components/StoresList";
 export const dynamic = "force-dynamic";
 
 export default async function StoresPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
-  const [{ view }, stores, states, capOverrides] = await Promise.all([searchParams, getStoreWeek(), getStoreStates(), getShelfCapOverrides()]);
+  const [{ view }, stores, states, capOverrides, peakDay] = await Promise.all([searchParams, getStoreWeek(), getStoreStates(), getShelfCapOverrides(), getPeakDaySold()]);
   return (
     <>
       <div className="head">
         <h1>Stores</h1>
         <div className="meta">{stores.length} active · search, filter and sort</div>
       </div>
-      <StoresList stores={stores} initialView={view} states={states} capOverrides={capOverrides} />
+      <StoresList stores={stores} initialView={view} states={states} capOverrides={capOverrides} peakDay={peakDay} />
     </>
   );
 }

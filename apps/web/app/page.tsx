@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek, getAppSettings, getStoreStates, getShelfCapOverrides } from "@/lib/queries";
+import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek, getAppSettings, getStoreStates, getShelfCapOverrides, getPeakDaySold } from "@/lib/queries";
 import type { StoreWeek } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
 import RecCard from "@/components/RecCard";
@@ -25,8 +25,8 @@ export default async function Overview() {
   // and streaming an empty body. Chaining off storesP rather than awaiting it
   // first keeps everything else running in parallel.
   const storesP = getStoreWeek();
-  const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings, states, capOverrides] = await Promise.all([
-    getNetwork(), getRegions(), storesP.then((s) => getRecommendations(3, s)), getAsOf(), getFeedStatus(), getEngineProjection(), storesP, getStoreRevenueWeek(), getAppSettings(), getStoreStates(), getShelfCapOverrides(),
+  const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings, states, capOverrides, peakDay] = await Promise.all([
+    getNetwork(), getRegions(), storesP.then((s) => getRecommendations(3, s)), getAsOf(), getFeedStatus(), getEngineProjection(), storesP, getStoreRevenueWeek(), getAppSettings(), getStoreStates(), getShelfCapOverrides(), getPeakDaySold(),
   ]);
 
   // Per-store revenue as a plain object — a Map doesn't survive the server →
@@ -121,7 +121,7 @@ export default async function Overview() {
 
       <EnginePanel scenarios={engine} />
 
-      <TodayDashboard stores={stores} net={net} asOf={fmtDate(asOf)} revenue={revenue} thresholds={thresholds} states={states} revByStore={revByStore} capOverrides={capOverrides} />
+      <TodayDashboard stores={stores} net={net} asOf={fmtDate(asOf)} revenue={revenue} thresholds={thresholds} states={states} revByStore={revByStore} capOverrides={capOverrides} peakDay={peakDay} />
 
       {recs.length > 0 && (
         <>

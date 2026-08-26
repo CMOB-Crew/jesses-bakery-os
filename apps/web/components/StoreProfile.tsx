@@ -5,10 +5,14 @@ import StoreWeekPanel from "@/components/StoreWeekPanel";
 import { useRouter, useSearchParams } from "next/navigation";
 import RetailerBadge from "@/components/RetailerBadge";
 import type { StoreWeek, StoreReco, StoreOverride, StoreDay, StoreSellout, StoreSchedule } from "@/lib/queries";
-import { isCapStale } from "@/lib/shelfcap";
+import { isCapStale, effectiveCap } from "@/lib/shelfcap";
 import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel, setStoreLastVisit, setStorePhoto, setStoreShelfCap } from "@/app/store/actions";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
+const DAY_FULL: Record<string, string> = {
+  Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday",
+  Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
+};
 
 type Adj = { qty: number; mode: "perm" | "temp"; from?: string; to?: string };
 type Row = { pid: string; name: string; sold: number; now: number; rec: number };
@@ -144,15 +148,23 @@ export default function StoreProfile({
   // otherwise a per-store override wins over the size-band default. capStale
   // flags a cap below weekly sales — impossible to hit, so it's bad data, not a
   // real limit — and can never apply to a no-limit store.
-  const cap = noLimit ? null : (capOver ?? baseMax);
-  // The staleness test itself now lives in lib/shelfcap.ts, because the Overview
-  // action list and the Stores drill-down have to reach the same verdict — she
-  // clicks a count there and has to land on exactly these stores. Same input,
-  // one function, three surfaces.
-  const capStale = isCapStale(
-    { shelf_max: baseMax, total_sold: soldWk },
-    { cap: capOver, noCap: noLimit },
-  );
+  const cap = effectiveCap({ shelf_max: baseMax }, { cap: capOver, noCap: noLimit });
+
+  // The busiest single day in the week on screen. The day grid is already
+  // fetched for the panel above, so this costs nothing.
+  const peakDay = dayGrid.reduce((m, d) => Math.max(m, Number(d.sold) || 0), 0);
+  const peakDow = dayGrid.find((d) => (Number(d.sold) || 0) === peakDay)?.dow ?? null;
+
+  // The test itself lives in lib/shelfcap.ts, because the Overview action list
+  // and the Stores drill-down have to reach the same verdict — she clicks a
+  // count there and has to land on exactly these stores. Same input, one
+  // function, three surfaces.
+  //
+  // And it is judged against the PEAK DAY, not the week. Against the week this
+  // fired on 84 of the 95 stores we can measure: a cap is what the fixture holds
+  // at once, a week is six deliveries' worth of flow through it. Against the day
+  // it fires on one. The long version is in lib/shelfcap.ts.
+  const capStale = isCapStale({ shelf_max: baseMax }, { cap: capOver, noCap: noLimit }, peakDay);
 
   // Persist the shelf-cap override (migration 022). Optimistic + revert on
   // failure, like the service dial and visit date.
@@ -571,7 +583,7 @@ export default function StoreProfile({
           ) : cap == null ? (
             <span className="soft">shelf cap not set for this store</span>
           ) : capStale ? (
-            <span className="stale">shelf cap on file is {nf(cap)}, but this store sells {nf(soldWk)}/wk — likely stale, please verify</span>
+            <span className="stale">shelf cap on file is {nf(cap)}, but this store sold {nf(peakDay)} in one day — please verify</span>
           ) : (
             <span className={overCap ? "over" : "ok"}>
               {overCap ? "⚠ " : ""}{nf(capTotal)} / {nf(cap)} units{overCap ? " — over shelf cap" : ""}
@@ -598,7 +610,7 @@ export default function StoreProfile({
         <div className="stalewarn">
           <span className="sw-tag">Check this</span>
           <div className="sw-b">
-            <b>The shelf cap on file ({nf(cap!)}) looks out of date.</b> This store has sold {nf(soldWk)} units this week, so a cap of {nf(cap!)} can&apos;t be its real shelf limit — it&apos;s almost certainly a stale figure. We&apos;re not enforcing it until it&apos;s confirmed.
+            <b>The shelf cap on file ({nf(cap!)}) looks too small.</b> This store sold <b>{nf(peakDay)} units{peakDow ? ` on ${DAY_FULL[peakDow] ?? peakDow}` : ""}</b> — in a single day. The shelf held at least that much at some point, so {nf(cap!)} can&apos;t be its real size. We&apos;re not enforcing it until it&apos;s confirmed.
             <div className="sw-do">
               Set the real shelf size in <b>Shelf capacity</b> above, or see{" "}
               <a href="/stores?view=capstale">every store with this problem</a> — it&apos;s on your action list on the Overview.
