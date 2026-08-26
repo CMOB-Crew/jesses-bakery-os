@@ -736,6 +736,121 @@ export async function getStoreDaily(id: string): Promise<DailyBar[]> {
   }
 }
 
+// ---------------------------------------------------------------------
+// STORE — the seven-day grid, and where the shelf hit zero.
+//
+// Simona, 26 Aug: "I need to see it by day... the weekend's very busy and the
+// week can be quiet", and on stockouts: "I've never, ever been able to see
+// where we've sold out of stock."
+//
+// Why this exists rather than reusing v_store_daily:
+//
+//   1. v_store_daily is DRIVEN BY sales_daily, so a day only exists if
+//      something sold. A quiet Tuesday, or a delivery day with no scan,
+//      produces no row at all — the panel then shows five days instead of
+//      seven and she cannot tell "sold nothing" from "we have no idea".
+//      Building the calendar first and left-joining onto it fixes that: seven
+//      rows, always, with an honest zero where a zero is real.
+//
+//   2. It bounds with `interval '7 days'`. sale_date is a DATE; subtracting an
+//      interval yields a TIMESTAMP, which stops matching the date index. Same
+//      trap as getWeekdayShape. Integer day arithmetic throughout here.
+// ---------------------------------------------------------------------
+export type StoreDay = {
+  day: string;          // YYYY-MM-DD
+  dow: string;          // Mon..Sun
+  delivered: number;
+  sold: number;
+  sellout_lines: number; // products whose shelf hit zero that day
+};
+export async function getStoreDayGrid(id: string): Promise<StoreDay[]> {
+  try {
+    return await sql<StoreDay[]>`
+      with a as (select as_of from v_asof),
+      cal as (
+        select ((select as_of from a)::date - g.n)::date as d
+        from generate_series(0, 6) g(n)
+      ),
+      sold as (
+        select sd.sale_date as d, sum(sd.units_sold)::int as n
+        from sales_daily sd, a
+        where sd.store_id = ${id}::uuid
+          and sd.sale_date >  (select as_of from a)::date - 7
+          and sd.sale_date <= (select as_of from a)::date
+        group by 1
+      ),
+      sent as (
+        select dl.delivery_date as d, sum(di.qty_sent)::int as n
+        from deliveries dl
+        join delivery_items di on di.delivery_id = dl.id, a
+        where dl.store_id = ${id}::uuid
+          and dl.delivery_date >  (select as_of from a)::date - 7
+          and dl.delivery_date <= (select as_of from a)::date
+        group by 1
+      ),
+      outs as (
+        select o.as_of_date as d, count(*)::int as n
+        from on_hand_ledger o, a
+        where o.store_id = ${id}::uuid
+          and o.closing_on_hand = 0
+          and o.expired = 0
+          and (o.opening_on_hand + o.delivered) > 0
+          and o.as_of_date >  (select as_of from a)::date - 7
+          and o.as_of_date <= (select as_of from a)::date
+        group by 1
+      )
+      select to_char(cal.d, 'YYYY-MM-DD')      as day,
+             trim(to_char(cal.d, 'Dy'))        as dow,
+             coalesce(sent.n, 0)               as delivered,
+             coalesce(sold.n, 0)               as sold,
+             coalesce(outs.n, 0)               as sellout_lines
+      from cal
+      left join sold on sold.d = cal.d
+      left join sent on sent.d = cal.d
+      left join outs on outs.d = cal.d
+      order by cal.d`;
+  } catch {
+    return [];
+  }
+}
+
+// Which product ran out, and on which day. This is the thing she has never been
+// able to see, so it is deliberately per-line rather than a count: a day with
+// "3 lines out" tells her nothing she can act on, "wholemeal sourdough, Friday"
+// tells her to send more wholemeal on Fridays.
+export type StoreSellout = {
+  day: string; dow: string; product_id: string; product_name: string;
+  delivered: number; sold: number;
+};
+export async function getStoreSellouts(id: string): Promise<StoreSellout[]> {
+  try {
+    return await sql<StoreSellout[]>`
+      with a as (select as_of from v_asof)
+      select to_char(o.as_of_date, 'YYYY-MM-DD') as day,
+             trim(to_char(o.as_of_date, 'Dy'))   as dow,
+             p.id::text                          as product_id,
+             p.name                              as product_name,
+             o.delivered::int                    as delivered,
+             o.sold::int                         as sold
+      from on_hand_ledger o
+      join products p on p.id = o.product_id
+      cross join a
+      where o.store_id = ${id}::uuid
+        -- A sellout needs stock to run out of. closing = 0 alone also matches
+        -- every line the store does not stock — nothing in, nothing sold,
+        -- closes empty, every day. 79% of counted stockouts were that. See
+        -- migration 038.
+        and o.closing_on_hand = 0
+        and o.expired = 0
+        and (o.opening_on_hand + o.delivered) > 0
+        and o.as_of_date >  a.as_of::date - 7
+        and o.as_of_date <= a.as_of::date
+      order by o.as_of_date, p.name`;
+  } catch {
+    return [];
+  }
+}
+
 export type ProductRow = {
   name: string; category: string; sold: number; sent: number;
   wasted: number; waste_pct: number | null; suggested: number | null; status: Status;
