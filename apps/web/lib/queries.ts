@@ -945,18 +945,24 @@ export async function getStoreSellouts(id: string): Promise<StoreSellout[]> {
 // Coles Maroubra rides Hills on Monday, East on Wednesday, South on Friday,
 // East on Saturday. Showing the base run alone would be wrong four days a week
 // for that store, so the overrides are carried here rather than left implicit.
+//
+// The ids come back alongside the names because the panel is editable now —
+// she gets ONE Edit button that opens the whole week, and a save has to say
+// which run, not which label.
 export type StoreSchedule = {
+  run_id: string | null;
   run_name: string | null;
   delivery_days: string[];
-  overrides: { day: string; run: string }[];
+  overrides: { day: string; run_id: string; run: string }[];
 };
 export async function getStoreSchedule(id: string): Promise<StoreSchedule | null> {
   try {
-    const rows = await sql<{ run_name: string | null; delivery_days: string[] | null; overrides: { day: string; run: string }[] | null }[]>`
-      select r.name                                  as run_name,
+    const rows = await sql<{ run_id: string | null; run_name: string | null; delivery_days: string[] | null; overrides: { day: string; run_id: string; run: string }[] | null }[]>`
+      select r.id::text                              as run_id,
+             r.name                                  as run_name,
              s.delivery_days::text[]                 as delivery_days,
              coalesce(
-               (select json_agg(json_build_object('day', o.day::text, 'run', ro.name))
+               (select json_agg(json_build_object('day', o.day::text, 'run_id', ro.id::text, 'run', ro.name))
                   from store_run_overrides o
                   join runs ro on ro.id = o.run_id
                  where o.store_id = s.id),
@@ -968,12 +974,29 @@ export async function getStoreSchedule(id: string): Promise<StoreSchedule | null
     const r = rows[0];
     if (!r) return null;
     return {
+      run_id: r.run_id,
       run_name: r.run_name,
       delivery_days: r.delivery_days ?? [],
       overrides: r.overrides ?? [],
     };
   } catch {
     return null;
+  }
+}
+
+// Every run she can put a day on. Same filter getRuns() uses — the legacy
+// "Run 1..8" rows with no days set are not real runs and must not appear in a
+// picker, or she will assign a store to one and nothing will ever collect it.
+export type RunPick = { id: string; name: string };
+export async function getRunPicklist(): Promise<RunPick[]> {
+  try {
+    return await sql<RunPick[]>`
+      select rn.id::text as id, rn.name
+        from runs rn
+       where cardinality(rn.run_days) > 0
+       order by rn.name`;
+  } catch {
+    return [];
   }
 }
 

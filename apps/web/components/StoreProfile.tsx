@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, useTransition, type ChangeEvent } from "reac
 import StoreWeekPanel from "@/components/StoreWeekPanel";
 import { useRouter, useSearchParams } from "next/navigation";
 import RetailerBadge from "@/components/RetailerBadge";
-import type { StoreWeek, StoreReco, StoreOverride, StoreDay, StoreSellout, StoreSchedule } from "@/lib/queries";
+import type { StoreWeek, StoreReco, StoreOverride, StoreDay, StoreSellout, StoreSchedule, RunPick } from "@/lib/queries";
 import { isCapStale, effectiveCap } from "@/lib/shelfcap";
 import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel, setStoreLastVisit, setStorePhoto, setStoreShelfCap } from "@/app/store/actions";
 
@@ -54,6 +54,7 @@ export default function StoreProfile({
   dayGrid = [],
   sellouts = [],
   schedule = null,
+  runs = [],
 }: {
   store: StoreWeek;
   recos: StoreReco[];
@@ -66,6 +67,7 @@ export default function StoreProfile({
   dayGrid?: StoreDay[];
   sellouts?: StoreSellout[];
   schedule?: StoreSchedule | null;
+  runs?: RunPick[];
   photo?: string | null;
   address?: string | null;
   shelfCap?: number | null;
@@ -573,7 +575,7 @@ export default function StoreProfile({
           three blocks higher with the service-level and shelf-cap dials in
           between — the two things she needs to read together were separated by
           the two she doesn't. */}
-      <StoreWeekPanel days={dayGrid} sellouts={sellouts} schedule={schedule} />
+      <StoreWeekPanel days={dayGrid} sellouts={sellouts} schedule={schedule} storeId={store.store_id} runs={runs} />
 
       <div className="ph">
         <div className="ph-t">Products &amp; ranging <span className="cnt">{rangedCount}/{rows.length} ranged</span></div>

@@ -224,6 +224,109 @@ export async function setStoreShelfCap(storeId: string, cap: number | null, noCa
   }
 }
 
+// ---------------------------------------------------------------------------
+// The delivery week — one save for the whole panel.
+//
+// Simona, 26 Aug: "One Edit button that opens the whole panel for editing, not
+// per-day edit buttons." So this takes all seven days at once and makes the
+// database match them, rather than seven little writes that can half-succeed
+// and leave a store delivering on Tuesday to nobody.
+//
+// Two tables carry the answer and they have to agree:
+//   stores.delivery_days   — which days this store receives at all
+//   store_run_overrides    — the days it rides a run other than its own
+//
+// A day that names the store's own run is NOT an override. Storing it as one
+// would mean the day silently stops moving with the store the next time its
+// base run changes, which is exactly the kind of quiet drift that produced
+// fourteen hand-kept override rows in the old spreadsheet.
+// ---------------------------------------------------------------------------
+const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+export type DayPlan = { day: string; on: boolean; runId: string | null };
+
+export async function saveStoreSchedule(storeId: string, plan: DayPlan[]): Promise<OverrideResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
+  try {
+    const sid = (storeId ?? "").trim();
+    if (!sid) return { ok: false, error: "Missing store." };
+
+    // Normalise to exactly seven days in a fixed order. Anything the client
+    // sends that isn't a weekday is dropped rather than trusted.
+    const byDay = new Map((plan ?? []).map((p) => [String(p.day ?? "").toLowerCase(), p]));
+    const days = WEEKDAYS.map((d) => {
+      const p = byDay.get(d);
+      return { day: d, on: !!p?.on, runId: (p?.runId ?? null) || null };
+    });
+
+    const onDays = days.filter((d) => d.on);
+
+    // The store's own run, as the database has it now.
+    const cur = await sql<{ default_run_id: string | null }[]>`
+      select default_run_id::text as default_run_id from stores where id = ${sid}::uuid`;
+    if (!cur.length) return { ok: false, error: "That store no longer exists." };
+    let baseRun = cur[0].default_run_id;
+
+    // Every run id she used must be a real run. A typo'd or stale id would
+    // otherwise become a foreign-key error halfway through the write.
+    const used = [...new Set(onDays.map((d) => d.runId).filter(Boolean) as string[])];
+    if (used.length) {
+      const known = await sql<{ id: string }[]>`
+        select id::text as id from runs where id::text = any(string_to_array(${used.join(",")}, ','))`;
+      if (known.length !== used.length) return { ok: false, error: "One of those runs no longer exists — reload the page and try again." };
+    }
+
+    // A store that had no run at all, and now delivers on one run every day it
+    // delivers, has just been told what its run is. Adopt it as the base rather
+    // than writing the same override seven times. We never CHANGE an existing
+    // base run from here — that would move the store on the Delivery Runs board
+    // as a side effect of editing days, which she is not asking for.
+    if (!baseRun && used.length === 1 && onDays.every((d) => d.runId === used[0])) {
+      await sql`update stores set default_run_id = ${used[0]}::uuid where id = ${sid}::uuid`;
+      baseRun = used[0];
+    }
+
+    // Days that carry a genuine override: delivering, named a run, and that run
+    // is not the store's own.
+    const overrides = onDays.filter((d) => d.runId && d.runId !== baseRun);
+    const keep = overrides.map((d) => d.day).join(",");
+
+    // Delete-what's-gone before insert-what's-new, so the store is never
+    // momentarily missing an override it is meant to have.
+    await sql`
+      delete from store_run_overrides
+       where store_id = ${sid}::uuid
+         and (${keep} = '' or day::text <> all(string_to_array(${keep}, ',')))`;
+
+    for (const o of overrides) {
+      await sql`
+        insert into store_run_overrides (store_id, day, run_id)
+        values (${sid}::uuid, ${o.day}::weekday, ${o.runId}::uuid)
+        on conflict (store_id, day) do update set run_id = excluded.run_id`;
+    }
+
+    // delivery_days last: it is the column the plan reads, so if anything above
+    // failed we have not yet told the engine to deliver somewhere we cannot.
+    // Built through unnest() rather than handed to the driver as an array —
+    // weekday is an enum, and a text[] cast per element is the one form that
+    // works the same locally and on the pooled Supabase connection.
+    const csv = onDays.map((d) => d.day).join(",");
+    await sql`
+      update stores set delivery_days = (
+        select coalesce(array_agg(d::weekday), '{}'::weekday[])
+          from unnest(case when ${csv} = '' then '{}'::text[] else string_to_array(${csv}, ',') end) d
+      )
+      where id = ${sid}::uuid`;
+
+    revalidatePath(`/store/${sid}`);
+    revalidatePath("/stores");
+    revalidatePath("/map");
+    revalidatePath("/deliveries");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not save the delivery days." };
+  }
+}
+
 // Write-back slice 2: persist the per-store service-level dial (migration 015).
 export async function setStoreServiceLevel(storeId: string, level: string): Promise<OverrideResult> {
   if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };

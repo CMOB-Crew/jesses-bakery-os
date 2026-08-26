@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getStoreById, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto, getStoreAddress, getStoreShelfCap, getStoreDayGrid, getStoreSellouts, getStoreSchedule } from "@/lib/queries";
+import { getStoreById, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto, getStoreAddress, getStoreShelfCap, getStoreDayGrid, getStoreSellouts, getStoreSchedule, getRunPicklist } from "@/lib/queries";
 import StoreProfile, { type PeerStat } from "@/components/StoreProfile";
 import type { StoreWeek } from "@/lib/queries";
 
@@ -76,10 +76,10 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
   // All in one Promise.all. Every one of these is a round trip to the Singapore
   // pooler at ~130ms; awaited in sequence the three new ones would add ~400ms to
   // a page Tommy already called slow on the 26 Aug screen share.
-  const [store, recos, all, overrides, ranging, serviceLevel, lastVisit, photo, address, shelf, dayGrid, sellouts, schedule] = await Promise.all([
+  const [store, recos, all, overrides, ranging, serviceLevel, lastVisit, photo, address, shelf, dayGrid, sellouts, schedule, runs] = await Promise.all([
     getStoreById(id), getStoreRecos(id), getStoreWeek(), getStoreOverrides(id),
     getStoreRanging(id), getStoreServiceLevel(id), getStoreLastVisit(id), getStorePhoto(id), getStoreAddress(id), getStoreShelfCap(id),
-    getStoreDayGrid(id), getStoreSellouts(id), getStoreSchedule(id),
+    getStoreDayGrid(id), getStoreSellouts(id), getStoreSchedule(id), getRunPicklist(),
   ]);
   if (!store) notFound();
 
@@ -96,7 +96,7 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
         {store.region && <> › <Link href={`/region/${encodeURIComponent(store.region)}`}>{store.region}</Link></>}
         {" "}› {store.name}
       </div>
-      <StoreProfile store={store} recos={recos} peer={peer} overrides={overrides} ranging={ranging} serviceLevel={serviceLevel} lastVisit={lastVisit} today={today} photo={photo} address={address} shelfCap={shelf.shelfCap} noCap={shelf.noCap} dayGrid={dayGrid} sellouts={sellouts} schedule={schedule} />
+      <StoreProfile store={store} recos={recos} peer={peer} overrides={overrides} ranging={ranging} serviceLevel={serviceLevel} lastVisit={lastVisit} today={today} photo={photo} address={address} shelfCap={shelf.shelfCap} noCap={shelf.noCap} dayGrid={dayGrid} sellouts={sellouts} schedule={schedule} runs={runs} />
     </>
   );
 }

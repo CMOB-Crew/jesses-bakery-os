@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { StoreDay, StoreSellout, StoreSchedule } from "@/lib/queries";
+import type { StoreDay, StoreSellout, StoreSchedule, RunPick } from "@/lib/queries";
+import StoreDeliveryPanel from "@/components/StoreDeliveryPanel";
 
 /* ------------------------------------------------------------------ *
  * The week for one store, day by day — built to Simona's 26 Aug brief.
@@ -19,10 +20,11 @@ import type { StoreDay, StoreSellout, StoreSchedule } from "@/lib/queries";
  *   Fridays. So the sellouts are listed per line, per day, with what was
  *   delivered against what sold.
  *
- *   "What run it's on and what days it goes out."  Right-hand half. Per-day
- *   overrides are shown next to the base run because she named three from
- *   memory (Maroubra, Kings Cross, Eastgardens) and for those stores the base
- *   run is wrong most of the week.
+ *   "What run it's on and what days it goes out."  Right-hand half — now
+ *   StoreDeliveryPanel, which owns that whole ask (all seven days, each naming
+ *   its run on the face, one Edit button, and the multiple-runs flag inside the
+ *   box). She named three override stores from memory (Maroubra, Kings Cross,
+ *   Eastgardens) and for those the base run is wrong most of the week.
  *
  * Deliberately no running totals — she asked for the daily figures precisely
  * because the totals were hiding the shape.
@@ -40,10 +42,14 @@ export default function StoreWeekPanel({
   days,
   sellouts,
   schedule,
+  storeId,
+  runs = [],
 }: {
   days: StoreDay[];
   sellouts: StoreSellout[];
   schedule: StoreSchedule | null;
+  storeId: string;
+  runs?: RunPick[];
 }) {
   const [openDay, setOpenDay] = useState<string | null>(null);
 
@@ -64,17 +70,11 @@ export default function StoreWeekPanel({
   const totalOut = sellouts.length;
   const daysOut = byDay.size;
 
-  if (!days.length) {
-    return (
-      <div className="swp">
-        <div className="swp-empty">
-          No daily figures for this store yet — they appear once its sales feed
-          reports.
-        </div>
-        <style>{`.swp .swp-empty{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px 20px;text-align:center;color:var(--ink2);font-size:14px}`}</style>
-      </div>
-    );
-  }
+  // No daily figures does NOT mean no delivery days. The stores with no sales
+  // feed are the invoice customers — cafes, schools, JESSE'S CAFE — and they
+  // still go out on a van on set days. An early return here would hide the
+  // delivery panel from exactly the stores whose only schedule lives in it.
+  const noFigures = !days.length;
 
   return (
     <div className="swp">
@@ -85,6 +85,14 @@ export default function StoreWeekPanel({
             Daily units this week
             <span>delivered vs sold · no running totals</span>
           </div>
+
+          {noFigures ? (
+            <div className="swp-empty">
+              No daily figures for this store yet — they appear once its sales
+              feed reports.
+            </div>
+          ) : (
+          <>
 
           <div className="swp-days">
             {days.map((d) => {
@@ -145,51 +153,17 @@ export default function StoreWeekPanel({
               </>
             )}
           </div>
-        </div>
-
-        {/* RIGHT — run and delivery days */}
-        <div className="panel swp-right">
-          <div className="swp-h">Run &amp; delivery days</div>
-          {schedule ? (
-            <>
-              <div className="sr-run">{schedule.run_name ?? "No run set"}</div>
-              <div className="sr-days">
-                {(["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const).map((d) => {
-                  const on = schedule.delivery_days.includes(d);
-                  const ov = schedule.overrides.find((o) => o.day === d);
-                  return (
-                    <span key={d} className={`sr-d${on ? " on" : ""}${ov ? " ov" : ""}`} title={ov ? `Runs with ${ov.run} on ${DAY_FULL[titleCase(d)] ?? d}` : undefined}>
-                      {titleCase(d)}
-                    </span>
-                  );
-                })}
-              </div>
-              <div className="sr-n">
-                {schedule.delivery_days.length === 0
-                  ? "No delivery days set for this store."
-                  : `${schedule.delivery_days.length} ${schedule.delivery_days.length === 1 ? "delivery" : "deliveries"} a week.`}
-              </div>
-              {schedule.overrides.length > 0 && (
-                <div className="sr-ov">
-                  <div className="sr-ovh">Runs with a different team on:</div>
-                  {schedule.overrides.map((o) => (
-                    <div className="sr-ovr" key={o.day}>
-                      <span>{DAY_FULL[titleCase(o.day)] ?? titleCase(o.day)}</span>
-                      <b>{o.run}</b>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="sr-n">No schedule on file for this store.</div>
+          </>
           )}
         </div>
+
+        {/* RIGHT — every day of the week, the run it goes out on, one Edit */}
+        <StoreDeliveryPanel storeId={storeId} schedule={schedule} runs={runs} />
       </div>
 
       <style>{`
         .swp{display:block;margin-bottom:22px}
-        .swp .swp-grid{display:grid;grid-template-columns:1fr 300px;gap:14px;align-items:start}
+        .swp .swp-grid{display:grid;grid-template-columns:1fr 340px;gap:14px;align-items:start}
         .swp .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:16px 18px}
         .swp .swp-h{font-size:13px;font-weight:700;letter-spacing:.02em;margin-bottom:14px;display:flex;align-items:baseline;gap:10px}
         .swp .swp-h span{font-weight:400;font-size:11.5px;color:var(--muted);letter-spacing:0}
@@ -223,16 +197,7 @@ export default function StoreWeekPanel({
         .swp .olist .op{font-weight:600}
         .swp .olist .oq{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
 
-        .swp .sr-run{font-family:var(--serif);font-size:20px;font-weight:600;letter-spacing:-.3px}
-        .swp .sr-days{display:flex;gap:4px;margin-top:12px;flex-wrap:wrap}
-        .swp .sr-d{font-size:11px;font-weight:700;padding:4px 7px;border-radius:6px;background:var(--bg2,rgba(0,0,0,.04));color:var(--muted)}
-        .swp .sr-d.on{background:var(--crust,#c98a34);color:#fff}
-        .swp .sr-d.ov{outline:2px solid var(--amber,#c8912a);outline-offset:1px}
-        .swp .sr-n{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5}
-        .swp .sr-ov{margin-top:14px;border-top:1px solid var(--line2);padding-top:12px}
-        .swp .sr-ovh{font-size:11.5px;color:var(--muted);margin-bottom:7px}
-        .swp .sr-ovr{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0}
-        .swp .sr-ovr b{font-weight:700}
+        .swp .swp-empty{padding:26px 4px;text-align:center;color:var(--ink2);font-size:13.5px}
 
         @media (max-width:1080px){ .swp .swp-grid{grid-template-columns:1fr} }
       `}</style>
