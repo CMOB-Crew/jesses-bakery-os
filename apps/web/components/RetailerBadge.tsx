@@ -93,7 +93,7 @@ export default function RetailerBadge({
 
   return (
     <span
-      className={`rbadge logo ${size}${b.lower ? " lower" : ""}`}
+      className={`rbadge rbmark ${size}${b.lower ? " lower" : ""}`}
       style={{ background: b.bg }}
       title={b.label}
       aria-label={b.label}

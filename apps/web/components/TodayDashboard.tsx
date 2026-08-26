@@ -293,10 +293,9 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
       {rev && pricedPct != null && pricedPct < 99 && (
         <div className="t-scope">
           <b>These dollars cover {pricedPct}% of what Jesse delivers.</b> We can only
-          price a store whose sales we can see, so <b>{nf(unpricedUnits)} units a week</b>
-          {darkTop ? <> — mostly {darkTop.retailer}, {nf(darkTop.units)} of them</> : null} carry
-          no dollar figure at all. Not a low one: none. The units and percentages above
-          say which stores they are about; these three say it here.
+          price a store whose sales we can see, so <b>{nf(unpricedUnits)} units a week</b> carry
+          no dollar figure at all — not a low one, none.
+          {darkTop ? <> Most of that is {darkTop.retailer}: <b>{nf(darkTop.units)} units</b>.</> : null}
         </div>
       )}
 
