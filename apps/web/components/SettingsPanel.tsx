@@ -35,7 +35,7 @@ const SIZES0: Size[] = [
 type Factor = { key: string; name: string; note: string; weight: string; on: boolean };
 const FACTORS0: Factor[] = [
   { key: "weekend", name: "Weekend uplift", note: "Sat–Sun run well above weekday; the max pushes to the high end automatically.", weight: "High", on: true },
-  { key: "school", name: "School holidays", note: "≈ −30% on most runs; holiday-destination areas (Central Coast) can rise instead.", weight: "Per-region", on: true },
+  { key: "school", name: "School holidays", note: "≈ −30% on most runs; holiday-destination areas (Central Coast) can rise instead.", weight: "Per-run", on: true },
   { key: "public", name: "Public holidays", note: "Christmas ≈ +40%, Easter relevant. Set per date on the calendar.", weight: "Med", on: true },
   { key: "jewish", name: "Jewish holidays", note: "Rosh Hashanah (~11 Sep): large-challah spike at ~6 Jewish-demographic stores.", weight: "Targeted", on: true },
   { key: "weather", name: "Weather", note: "Cold snaps lift bread (toasties, soup). Needs a weather feed — off until wired.", weight: "Low", on: false },

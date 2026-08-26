@@ -229,7 +229,7 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search store or region…"
+            placeholder="Search store or delivery run…"
             aria-label="Search stores"
           />
           {q && <button className="clr" onClick={() => setQ("")} aria-label="clear">×</button>}

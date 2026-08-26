@@ -44,14 +44,14 @@ export default function StoreBenchmarks({ data }: { data: Benchmarks }) {
       <div className="panel intro">
         <div className="itxt">
           We never grade a store against one number. Each is measured against its <b>own last week</b> and against
-          <b> similar stores on the same feed in its region</b> — retail-scan stores against retail, direct-invoice
+          <b> similar stores on the same feed in its delivery run</b> — retail-scan stores against retail, direct-invoice
           against invoice — so a Woolworths shelf is never held to a cafe&apos;s 100%. This is the fairness layer behind
           every 🟢🟡🔴 flag in the system.
         </div>
       </div>
 
       <div className="strip">
-        <div className="tile"><div className="tn">{data.cohortCount}</div><div className="tl">Peer cohorts · region × channel × size</div></div>
+        <div className="tile"><div className="tn">{data.cohortCount}</div><div className="tl">Peer cohorts · delivery run × channel × size</div></div>
         <div className="tile"><div className="tn red">{data.under.length}</div><div className="tl">Below their peers · real underperformers</div></div>
         <div className="tile"><div className="tn green">{data.over.length}</div><div className="tl">Above their peers · worth learning from</div></div>
         <div className="tile"><div className="tn">{data.networkMedian ?? "—"}<span className="u">%</span></div><div className="tl">Network median sell-through</div></div>

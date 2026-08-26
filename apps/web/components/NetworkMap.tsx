@@ -45,7 +45,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
     return (
       <div className="nmap">
         <div className="panel intro">
-          <div className="itxt">The whole network at a glance, coloured by status. It reads from the live store list — stores appear here grouped by region as the network loads.</div>
+          <div className="itxt">The whole network at a glance, coloured by status. It reads from the live store list — stores appear here grouped by delivery run as the network loads.</div>
         </div>
       </div>
     );
@@ -116,7 +116,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
     <div className="nmap">
       <div className="panel intro">
         <div className="itxt">
-          Every store is a dot, grouped by its region and coloured by status — <b>red</b> needs attention today, amber is
+          Every store is a dot, grouped by its delivery run and coloured by status — <b>red</b> needs attention today, amber is
           watch, green is on track, grey has no feed loaded yet. Runs with the most red sit top-left, so trouble jumps
           out. <b>Hover a dot to see the store; click it to open the full read.</b> It&apos;s a diagram for spotting
           patterns, not a to-scale map.

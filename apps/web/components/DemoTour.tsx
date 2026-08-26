@@ -36,7 +36,7 @@ const TOURS: Record<string, Step[]> = {
     { sel: ".sprof", title: "Your single source of truth", body: "For one store: what each product sold, what's going now, and what the plan recommends — with a score against real peers. Range a product in or out, or tap Adjust to change a delivery." },
   ],
   "/map": [
-    { sel: ".nmap", title: "Your whole network at a glance", body: "Every store is a dot, grouped by region and coloured by status — red needs attention today. Click any dot, or a store in the list on the right, to open its full profile." },
+    { sel: ".nmap", title: "Your whole network at a glance", body: "Every store is a dot, grouped by delivery run and coloured by status — red needs attention today. Click any dot, or a store in the list on the right, to open its full profile." },
   ],
 };
 
