@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition, type ChangeEvent } from "react";
+import StoreWeekPanel from "@/components/StoreWeekPanel";
 import { useRouter, useSearchParams } from "next/navigation";
-import StoreBars from "@/components/StoreBars";
 import RetailerBadge from "@/components/RetailerBadge";
-import type { StoreWeek, StoreReco, DailyBar, StoreOverride } from "@/lib/queries";
+import type { StoreWeek, StoreReco, StoreOverride, StoreDay, StoreSellout, StoreSchedule } from "@/lib/queries";
 import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel, setStoreLastVisit, setStorePhoto, setStoreShelfCap } from "@/app/store/actions";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
@@ -36,7 +36,6 @@ export type PeerStat = {
 export default function StoreProfile({
   store,
   recos,
-  daily,
   peer,
   overrides = [],
   ranging = [],
@@ -47,16 +46,21 @@ export default function StoreProfile({
   address = null,
   shelfCap = null,
   noCap = false,
+  dayGrid = [],
+  sellouts = [],
+  schedule = null,
 }: {
   store: StoreWeek;
   recos: StoreReco[];
-  daily: DailyBar[];
   peer?: PeerStat;
   overrides?: StoreOverride[];
   ranging?: { product_id: string; ranged: boolean }[];
   serviceLevel?: string | null;
   lastVisit?: string | null;
   today?: string;
+  dayGrid?: StoreDay[];
+  sellouts?: StoreSellout[];
+  schedule?: StoreSchedule | null;
   photo?: string | null;
   address?: string | null;
   shelfCap?: number | null;
@@ -466,17 +470,6 @@ export default function StoreProfile({
         <span className="lknote">the per-unit figures already sit in the retailer data</span>
       </div>
 
-      {daily.length > 0 && (
-        <div className="chartcard">
-          <div className="cc-h">Daily units this week <span>sold vs delivered · no running totals</span></div>
-          <StoreBars data={daily} />
-          <div className="cc-leg">
-            <span><i style={{ background: "#2a2019" }} />Sold</span>
-            <span><i style={{ background: "#e7ddca" }} />Delivered</span>
-          </div>
-        </div>
-      )}
-
       <div className="dialrow">
         <div className="dial-l">
           <div className="dl-t">Service level · this store</div>
@@ -553,6 +546,14 @@ export default function StoreProfile({
           )}
         </div>
       </div>
+
+      {/* Simona, 26 Aug: "maybe the daily unit needs to sit above this, above
+          products and ranging, so then I've got my figures right above each
+          other so I can look at the adjustments versus this." It used to sit
+          three blocks higher with the service-level and shelf-cap dials in
+          between — the two things she needs to read together were separated by
+          the two she doesn't. */}
+      <StoreWeekPanel days={dayGrid} sellouts={sellouts} schedule={schedule} />
 
       <div className="ph">
         <div className="ph-t">Products &amp; ranging <span className="cnt">{rangedCount}/{rows.length} ranged</span></div>

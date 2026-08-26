@@ -851,6 +851,47 @@ export async function getStoreSellouts(id: string): Promise<StoreSellout[]> {
   }
 }
 
+// The run this store sits on, the days it receives, and any per-day override.
+// Simona, 26 Aug: "in this screen, the profile screen, I need to see what days
+// the delivery goes out... maybe on the other half we can use that to say what
+// run it's on and what days it goes out."
+//
+// Overrides matter as much as the base run and she named three by memory —
+// Coles Maroubra rides Hills on Monday, East on Wednesday, South on Friday,
+// East on Saturday. Showing the base run alone would be wrong four days a week
+// for that store, so the overrides are carried here rather than left implicit.
+export type StoreSchedule = {
+  run_name: string | null;
+  delivery_days: string[];
+  overrides: { day: string; run: string }[];
+};
+export async function getStoreSchedule(id: string): Promise<StoreSchedule | null> {
+  try {
+    const rows = await sql<{ run_name: string | null; delivery_days: string[] | null; overrides: { day: string; run: string }[] | null }[]>`
+      select r.name                                  as run_name,
+             s.delivery_days::text[]                 as delivery_days,
+             coalesce(
+               (select json_agg(json_build_object('day', o.day::text, 'run', ro.name))
+                  from store_run_overrides o
+                  join runs ro on ro.id = o.run_id
+                 where o.store_id = s.id),
+               '[]'::json
+             )                                        as overrides
+      from stores s
+      left join runs r on r.id = s.default_run_id
+      where s.id = ${id}::uuid`;
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      run_name: r.run_name,
+      delivery_days: r.delivery_days ?? [],
+      overrides: r.overrides ?? [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export type ProductRow = {
   name: string; category: string; sold: number; sent: number;
   wasted: number; waste_pct: number | null; suggested: number | null; status: Status;
