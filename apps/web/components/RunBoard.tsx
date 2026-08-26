@@ -112,6 +112,10 @@ export default function RunBoard({
   const willRemove = removed.length
     ? mem.filter((s) => removed.some((d) => s.days.includes(d))).length
     : 0;
+  // How many stores on this run do not take every day it goes out. Her Edgecliff
+  // and Metro Paddington point, as one number in the heading rather than a chip
+  // on almost every row.
+  const partial = sel ? mem.filter((s) => order(sel.days).some((d) => !s.days.includes(d))).length : 0;
   // Removing a day that a visiting store rides leaves that store's exception
   // pointing at a day this run no longer goes out. Her data, so it is flagged
   // rather than quietly deleted.
@@ -257,7 +261,11 @@ export default function RunBoard({
             {/* STORES ON THIS RUN */}
             <div className="rb-sec">
               <span>On this run</span>
-              <em>{mem.length} {mem.length === 1 ? "store" : "stores"} · listed A–Z, not in driving order — the stop sequence isn&apos;t recorded anywhere yet</em>
+              <em>
+                {mem.length} {mem.length === 1 ? "store" : "stores"}
+                {partial > 0 && <> · {partial} {partial === 1 ? "does" : "do"} not take every day the run goes out</>}
+                {" · listed A\u2013Z, not in driving order \u2014 the stop sequence isn\u2019t recorded anywhere yet"}
+              </em>
             </div>
             {mem.length === 0 ? (
               <div className="rb-empty">No stores on this run yet.</div>
@@ -265,10 +273,19 @@ export default function RunBoard({
               <ul className="rb-stores">
                 {mem.map((s) => {
                   // The run's headline days are not true for every store on it —
-                  // Edgecliff and Metro Paddington were her example. So each
-                  // store shows its OWN days, and differs-from-the-run is called
-                  // out rather than left to be spotted.
-                  const missing = order(sel.days).filter((d) => !s.days.includes(d));
+                  // Edgecliff and Metro Paddington were her example. Each store
+                  // therefore shows its OWN days, in the column on the right.
+                  //
+                  // What is NOT shown per row is "not on Tue, Wed, Thu, Fri,
+                  // Sat, Sun". Opening Eastern Suburbs on the live site made
+                  // that obvious: the run goes out seven days, most of its 32
+                  // stores take three or four, so nearly every row carried a
+                  // long grey chip that was the exact arithmetic complement of
+                  // the days printed beside it. It read as noise and buried the
+                  // two flags that DO matter. The count moves to the heading.
+                  //
+                  // `extra` stays, and it is the opposite of noise: a store
+                  // taking a delivery on a day its own run does not go out.
                   const extra = order(s.days).filter((d) => !sel.days.includes(d));
                   return (
                     <li key={s.store_id}>
@@ -278,10 +295,9 @@ export default function RunBoard({
                           {s.days.length === 0 ? <em className="none">no delivery days set</em> : list(s.days)}
                         </span>
                       </Link>
-                      {(missing.length > 0 || extra.length > 0 || s.away.length > 0) && (
+                      {(extra.length > 0 || s.away.length > 0) && (
                         <div className="rb-flags">
-                          {missing.length > 0 && <span className="f miss">not on {missing.map((d) => SHORT[d]).join(", ")}</span>}
-                          {extra.length > 0 && <span className="f extra">also {extra.map((d) => SHORT[d]).join(", ")}</span>}
+                          {extra.length > 0 && <span className="f extra">delivered {extra.map((d) => SHORT[d]).join(", ")} — this run doesn&apos;t go out then</span>}
                           {s.away.map((a) => (
                             <span className="f away" key={a.day}>{SHORT[a.day]} rides {a.run}</span>
                           ))}
@@ -368,7 +384,7 @@ export default function RunBoard({
         .rb .rb-flags{display:flex;gap:6px;flex-wrap:wrap;padding:0 10px 6px}
         .rb .rb-flags .f{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:5px}
         .rb .rb-flags .miss{background:var(--bg2,rgba(0,0,0,.05));color:var(--muted)}
-        .rb .rb-flags .extra{background:var(--bg2,rgba(0,0,0,.05));color:var(--ink2)}
+        .rb .rb-flags .extra{background:var(--red-b);color:var(--red-t)}
         .rb .rb-flags .away{background:var(--amber-b);color:var(--amber-t)}
 
         @media (max-width:900px){ .rb .rb-grid{grid-template-columns:1fr} }

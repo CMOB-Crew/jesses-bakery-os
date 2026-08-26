@@ -1,7 +1,6 @@
 "use server";
 
 import { q as sql } from "@/lib/db";
-import { revalidatePath } from "next/cache";
 
 // ---------------------------------------------------------------------------
 // Change the days a delivery run goes out. Item 5 of Simona's 26 Aug brief.
@@ -103,17 +102,28 @@ export async function saveRunDays(runId: string, days: string[]): Promise<RunDay
       rows.forEach((r) => touched.add(r.id));
     }
 
-    // "It must talk to production, talk to packing slips, and readjust the
-    // forecast." Everything downstream of delivery_days gets rebuilt.
-    revalidatePath("/map");
-    revalidatePath("/stores");
-    revalidatePath("/deliveries");
-    revalidatePath("/delivery-sheet");
-    revalidatePath("/production");
-    revalidatePath("/packing");
-    revalidatePath("/new-store");
-    revalidatePath("/");
-    for (const s of touched) revalidatePath(`/store/${s}`);
+    // NO revalidatePath. Measured on production, 27 Aug, and it is the opposite
+    // of harmless.
+    //
+    // Every page in this app except the two prototypes is force-dynamic, so
+    // there is no cached server render for revalidatePath to invalidate — each
+    // navigation already renders fresh. What it DOES do is clear the client
+    // router's cache for those paths, and the router then re-prefetches every
+    // visible <Link>. The sidebar has 23 of them.
+    //
+    // One Save with eight revalidatePath calls plus one per touched store
+    // produced FORTY-SIX requests: every route in the app, twice, each one a
+    // real serverless render against the Singapore pooler. Netlify shed the
+    // load and returned 503 on three of them — including the action's own POST
+    // and one store page. The save itself had already committed, so the damage
+    // was a twenty-second spinner and a page full of failed requests rather
+    // than lost data, but that is luck, not design.
+    //
+    // router.refresh() on the client re-renders this page, which is all that is
+    // needed. Everything else is force-dynamic and will be correct the moment
+    // she navigates to it. The promise that this "talks to production, packing
+    // slips and the forecast" is kept by the WRITE above — production reads the
+    // plan, the plan reads delivery_days — not by cache invalidation.
 
     return { ok: true, added, removed, storesChanged: touched.size };
   } catch (e) {

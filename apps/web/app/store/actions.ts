@@ -317,10 +317,12 @@ export async function saveStoreSchedule(storeId: string, plan: DayPlan[]): Promi
       )
       where id = ${sid}::uuid`;
 
-    revalidatePath(`/store/${sid}`);
-    revalidatePath("/stores");
-    revalidatePath("/map");
-    revalidatePath("/deliveries");
+    // NO revalidatePath here — see the long note in app/map/actions.ts. Every
+    // page in this app except the two prototypes is force-dynamic, so there is
+    // no server render to invalidate; all revalidatePath does is clear the
+    // client router cache, which makes it re-prefetch all 23 sidebar links.
+    // Measured on /map on 27 Aug: one Save fired 46 requests and drew three
+    // 503s. The panel calls router.refresh() instead.
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save the delivery days." };

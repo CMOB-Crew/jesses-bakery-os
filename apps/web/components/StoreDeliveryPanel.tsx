@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { StoreSchedule, RunPick } from "@/lib/queries";
 import { saveStoreSchedule, type DayPlan } from "@/app/store/actions";
 
@@ -61,6 +62,7 @@ export default function StoreDeliveryPanel({
   schedule: StoreSchedule | null;
   runs: RunPick[];
 }) {
+  const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState<Row[]>(() => buildRows(schedule));
   const [err, setErr] = useState<string | null>(null);
@@ -96,8 +98,13 @@ export default function StoreDeliveryPanel({
     }
     startSave(async () => {
       const res = await saveStoreSchedule(storeId, plan);
-      if (res.ok) setEditing(false);
-      else setErr(res.error);
+      if (!res.ok) { setErr(res.error); return; }
+      setEditing(false);
+      // The action deliberately does no revalidatePath (see app/map/actions.ts
+      // for the measurement). Without this the panel would drop back to the
+      // server props it was rendered with and show the PRE-save week — the save
+      // would look like it had failed when it had not.
+      router.refresh();
     });
   }
 
