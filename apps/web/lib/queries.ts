@@ -674,6 +674,29 @@ export async function getStoreShelfCap(id: string): Promise<{ shelfCap: number |
   }
 }
 
+// Every per-store shelf-cap override in one round trip, keyed by store id.
+//
+// The single-store version above is what the profile uses. The Overview action
+// list and the Stores drill-down need the whole set, because a cap Simona has
+// already corrected by hand must stop being flagged everywhere at once —
+// otherwise she fixes a store and the tally that sent her there doesn't move.
+//
+// Only stores with a row come back; every other store falls through to the
+// size-band default in stores.shelf_max, which is what isCapStale() expects.
+export async function getShelfCapOverrides(): Promise<Record<string, { cap: number | null; noCap: boolean }>> {
+  try {
+    const rows = await sql<{ store_id: string; shelf_cap: number | null; no_cap: boolean }[]>`
+      select store_id, shelf_cap, no_cap
+        from store_settings
+       where shelf_cap is not null or no_cap`;
+    const out: Record<string, { cap: number | null; noCap: boolean }> = {};
+    for (const r of rows) out[r.store_id] = { cap: r.shelf_cap, noCap: !!r.no_cap };
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 // Store street address (+ postcode) straight from the stores table, for the
 // profile header. Simona asked to see the address on the store screen (Session 2
 // UAT); it's in the Stores Master she confirmed. Null if not on file.

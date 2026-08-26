@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { StoreWeek, NetworkWeek } from "@/lib/queries";
+import { isCapStale, type ShelfCapOverride } from "@/lib/shelfcap";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 
@@ -39,7 +40,7 @@ function bandOf(size: string | null): Band | null {
 // sends 120 is fine; 20% at a Small store that sends 50 is not. So the two lists
 // can be filtered to Small / Medium / Large, each list shows the wasted UNIT
 // count next to the %, and a per-size strip shows what the typical % is in units.
-export default function TodayDashboard({ stores, net, asOf, revenue = null, thresholds = null, states = {}, revByStore = {} }: { stores: StoreWeek[]; net: NetworkWeek; asOf: string; revenue?: { salesWk: number; wasteWk: number } | null; thresholds?: { small: number; medium: number; large: number } | null; states?: Record<string, string>; revByStore?: Record<string, { rev: number; aur: number | null }> }) {
+export default function TodayDashboard({ stores, net, asOf, revenue = null, thresholds = null, states = {}, revByStore = {}, capOverrides = {} }: { stores: StoreWeek[]; net: NetworkWeek; asOf: string; revenue?: { salesWk: number; wasteWk: number } | null; thresholds?: { small: number; medium: number; large: number } | null; states?: Record<string, string>; revByStore?: Record<string, { rev: number; aur: number | null }>; capOverrides?: Record<string, ShelfCapOverride> }) {
   // Waste thresholds per size, from Settings (Simona sets her own; these floats
   // are the starting point she reviewed on the call until she confirms).
   const th = { small: 16, medium: 20, large: 25, ...(thresholds ?? {}) };
@@ -135,9 +136,22 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
   const salesDecline = rows.filter((r) => r.growth != null && r.growth < -10).length;
   const strongSellers = rows.filter((r) => r.sellThrough != null && r.sellThrough >= 95 && (r.waste == null || r.waste < 12)).length;
   const needAttention = rows.filter((r) => r.s.status === "red").length;
+
+  // Shelf caps that can't be true. Simona asked for this one twice on the 26 Aug
+  // call: once as a colour on the store page so she can spot it, and once here —
+  // "will this alert also come somewhere else when I have my action items?" It
+  // belongs in the list because it is the only row that isn't about bread: it's
+  // a piece of reference data that is wrong, and every plan for that store is
+  // being computed against it until someone types the real number in.
+  //
+  // Same predicate as the store page and the drill-down, imported rather than
+  // rewritten — see lib/shelfcap.ts.
+  const capStale = rows.filter((r) => isCapStale(r.s, capOverrides[r.s.store_id])).length;
+
   const actions = [
     { key: "waste", tone: "red", n: highWastage, issue: "high wastage", action: "Reduce production", href: "/stores?view=waste30", pending: false },
     { key: "stock", tone: "amber", n: stockOuts, issue: "lines selling out", action: "Increase allocation", href: "/stores?view=stockouts", pending: true },
+    { key: "cap", tone: "violet", n: capStale, issue: "shelf cap looks out of date", action: "Check the real shelf size", href: "/stores?view=capstale", pending: false },
     { key: "decline", tone: "blue", n: salesDecline, issue: "sudden sales decline", action: "Investigate", href: "/stores?view=declines", pending: true },
     { key: "growth", tone: "green", n: strongSellers, issue: "strong sellers", action: "Consider expanding range", href: "/stores?view=expandrange", pending: false },
   ] as const;
@@ -344,6 +358,12 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
       .today .ta-row:last-child{border-bottom:none}
       .today .ta-dot{width:11px;height:11px;border-radius:50%;flex:none}
       .today .ta-dot.red{background:var(--red)}.today .ta-dot.amber{background:var(--amber)}.today .ta-dot.green{background:var(--green)}.today .ta-dot.blue{background:#4b7fc0}
+      /* Violet is used for exactly one thing across the whole app: reference
+         data we can prove is wrong. It reads as "check this", not "a store is
+         performing badly", which is what every other colour on this list means.
+         Same violet as the shelf-cap banner on the store page, so the alert she
+         spots there and the row she sees here are visibly the same alert. */
+      .today .ta-dot.violet{background:#7b5ea7}
       .today .ta-n{font-family:var(--serif);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;min-width:30px;text-align:right}
       .today .ta-issue{color:var(--ink);font-weight:600}
       .today .ta-sep{color:var(--faint);font-weight:700}

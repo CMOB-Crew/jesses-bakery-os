@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import StatusTag from "@/components/StatusTag";
 import RetailerBadge from "@/components/RetailerBadge";
 import type { StoreWeek, Status } from "@/lib/queries";
+import { isCapStale, effectiveCap, type ShelfCapOverride } from "@/lib/shelfcap";
 
 /* ------------------------------------------------------------------ *
  * Stores directory — the searchable, filterable list of every active
@@ -55,7 +56,7 @@ const growthOf = (s: StoreWeek) => {
   const sold = num(s.total_sold), prev = num(s.total_sold_prev);
   return prev > 0 ? ((sold - prev) / prev) * 100 : null;
 };
-const VIEWS: Record<string, { label: string; test: (s: StoreWeek) => boolean }> = {
+const VIEWS: Record<string, { label: string; test: (s: StoreWeek, ov?: ShelfCapOverride) => boolean }> = {
   waste30: { label: "Excessive waste (>30%)", test: (s) => s.waste_pct != null && num(s.waste_pct) > 30 },
   // Same gate as the Overview action list, so the count on the tile and the
   // length of this list are always the same number: a store that sells out on a
@@ -66,6 +67,9 @@ const VIEWS: Record<string, { label: string; test: (s: StoreWeek) => boolean }> 
   expandrange: { label: "Could expand range", test: (s) => { const st = sellThroughOf(s); const w = s.waste_pct == null ? null : num(s.waste_pct); return st != null && st >= 95 && (w == null || w < 12); } },
   outperform: { label: "Outperforming comparable stores", test: (s) => { const st = sellThroughOf(s); return s.status === "green" && st != null && st >= 92; } },
   declines: { label: "Abnormal sales declines", test: (s) => { const g = growthOf(s); return g != null && g < -10; } },
+  // The only view here that isn't about performance. These stores are fine —
+  // the number we hold FOR them is wrong, and it's shaping their plan.
+  capstale: { label: "Shelf cap on file looks out of date", test: (s, ov) => isCapStale(s, ov) },
 };
 
 // CSV-escape a cell (quote when it contains a comma, quote, or newline).
@@ -74,7 +78,7 @@ const csvCell = (v: string | number | null) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-export default function StoresList({ stores, showRegion = true, initialView, states = {} }: { stores: StoreWeek[]; showRegion?: boolean; initialView?: string; states?: Record<string, string> }) {
+export default function StoresList({ stores, showRegion = true, initialView, states = {}, capOverrides = {} }: { stores: StoreWeek[]; showRegion?: boolean; initialView?: string; states?: Record<string, string>; capOverrides?: Record<string, ShelfCapOverride> }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<"all" | Eff>("all");
@@ -111,7 +115,7 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
     const term = q.trim().toLowerCase();
     const list = stores.filter(
       (s) =>
-        (!activeView || activeView.test(s)) &&
+        (!activeView || activeView.test(s, capOverrides[s.store_id])) &&
         (status === "all" || effOf(s) === status) &&
         (region === "all" || s.region === region) &&
         (retailer === "all" || s.retailer === retailer) &&
@@ -134,7 +138,7 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
           return EFF_ORDER[effOf(a)] - EFF_ORDER[effOf(b)] || num(b.total_wasted) - num(a.total_wasted) || num(b.total_sold) - num(a.total_sold);
       }
     });
-  }, [stores, q, status, region, retailer, stateF, states, sort, activeView]);
+  }, [stores, q, status, region, retailer, stateF, states, sort, activeView, capOverrides]);
 
   const filtered = q || status !== "all" || region !== "all" || retailer !== "all" || stateF !== "all";
 
@@ -168,12 +172,40 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
   return (
     <div className="slist">
       {activeView && (
-        <div className="viewbanner">
+        <div className={`viewbanner${view === "capstale" ? " cap" : ""}`}>
           <span className="vb-l">Showing</span>
           <b>{activeView.label}</b>
           <span className="vb-c">{rows.length} store{rows.length === 1 ? "" : "s"}</span>
           <button className="vb-x" onClick={() => setView("")}>Show all stores ×</button>
         </div>
+      )}
+      {view === "capstale" && (
+        <>
+          {/* The list on its own would send her store by store with no idea what
+              she's looking for. Each row gets the two numbers that make the case:
+              the cap we hold, and what the store actually sold in the week. */}
+          <div className="capnote">
+            A shelf cap is how much the fixture holds at once. These stores sold
+            more in a week than their cap allows, so the cap on file can&apos;t be
+            the real one — it&apos;s old data, and the plan is being squeezed
+            against it. <b>Nothing is being blocked by these caps</b>; open a store
+            and type the real shelf size in to clear it.
+          </div>
+          <ul className="caplist">
+            {rows.map((s) => {
+              const cap = effectiveCap(s, capOverrides[s.store_id]);
+              return (
+                <li key={s.store_id}>
+                  <Link href={`/store/${s.store_id}`}>{s.name}</Link>
+                  <span className="cl-r">
+                    <span className="cl-cap">cap on file <b>{nf(cap ?? 0)}</b></span>
+                    <span className="cl-sold">sold <b>{nf(num(s.total_sold))}</b>/wk</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
       <div className="chips">
         {(["all", "red", "amber", "green", "nodata"] as const).map((k) => (
@@ -283,6 +315,19 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
         .slist .viewbanner b{color:var(--ink);font-weight:600}
         .slist .viewbanner .vb-c{color:var(--ink2);font-variant-numeric:tabular-nums}
         .slist .viewbanner .vb-x{margin-left:auto;border:none;background:none;color:var(--crust-deep);font-weight:600;font-size:12.5px;cursor:pointer;font-family:inherit;text-decoration:underline}
+
+        /* Violet across the app means one thing: reference data we can prove is
+           wrong. Same colour on the store-page banner, the Overview action row
+           and here, so the three read as one alert rather than three notices. */
+        .slist .viewbanner.cap{border-color:#b6a3d4;border-left-color:#7b5ea7;background:#f6f3fb}
+        .slist .capnote{background:#f6f3fb;border:1px solid #ded2ee;border-radius:10px;padding:11px 15px;font-size:13px;line-height:1.55;color:#4a3a63;margin-bottom:12px}
+        .slist .capnote b{color:#3b2d50}
+        .slist .caplist{list-style:none;margin:0 0 18px;padding:0;display:flex;flex-direction:column;gap:5px}
+        .slist .caplist li{display:flex;align-items:baseline;gap:12px;padding:7px 12px;border:1px solid var(--line2);border-left:3px solid #7b5ea7;border-radius:8px;background:var(--card);font-size:13px}
+        .slist .caplist li a{font-weight:600;color:var(--ink);text-decoration:none}
+        .slist .caplist li a:hover{text-decoration:underline}
+        .slist .caplist .cl-r{margin-left:auto;display:flex;gap:16px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+        .slist .caplist .cl-r b{color:var(--ink2);font-weight:700}
         .slist .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
         .slist .chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;color:var(--ink2);cursor:pointer;font-family:inherit}
         .slist .chip b{color:var(--ink);font-variant-numeric:tabular-nums}

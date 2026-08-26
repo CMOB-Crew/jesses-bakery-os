@@ -5,6 +5,7 @@ import StoreWeekPanel from "@/components/StoreWeekPanel";
 import { useRouter, useSearchParams } from "next/navigation";
 import RetailerBadge from "@/components/RetailerBadge";
 import type { StoreWeek, StoreReco, StoreOverride, StoreDay, StoreSellout, StoreSchedule } from "@/lib/queries";
+import { isCapStale } from "@/lib/shelfcap";
 import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel, setStoreLastVisit, setStorePhoto, setStoreShelfCap } from "@/app/store/actions";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
@@ -144,7 +145,14 @@ export default function StoreProfile({
   // flags a cap below weekly sales — impossible to hit, so it's bad data, not a
   // real limit — and can never apply to a no-limit store.
   const cap = noLimit ? null : (capOver ?? baseMax);
-  const capStale = !noLimit && cap != null && soldWk > 0 && cap < soldWk;
+  // The staleness test itself now lives in lib/shelfcap.ts, because the Overview
+  // action list and the Stores drill-down have to reach the same verdict — she
+  // clicks a count there and has to land on exactly these stores. Same input,
+  // one function, three surfaces.
+  const capStale = isCapStale(
+    { shelf_max: baseMax, total_sold: soldWk },
+    { cap: capOver, noCap: noLimit },
+  );
 
   // Persist the shelf-cap override (migration 022). Optimistic + revert on
   // failure, like the service dial and visit date.
@@ -369,7 +377,7 @@ export default function StoreProfile({
             {store.size_category ? <span className="chip">{store.size_category}</span> : null}
             {noLimit ? <span className="chip">no shelf limit</span>
               : cap == null ? <span className="chip soft">cap not set</span>
-              : capStale ? <span className="chip warn">shelf cap {nf(cap)} · check</span>
+              : capStale ? <span className="chip capstale">shelf cap {nf(cap)} · check</span>
               : <span className="chip">shelf cap {nf(cap)}{capOver != null ? " · set" : ""}</span>}
             {store.region ? <span className="reg">{store.region}</span> : null}
             <RetailerBadge retailer={store.retailer} size="sm" />
@@ -572,9 +580,30 @@ export default function StoreProfile({
         </div>
       </div>
 
+      {/* Simona, 26 Aug: "can this be like in a different colour so that I can
+          spot it and see this, like alert? And will this alert also come
+          somewhere else when I have my action items?" Both, then.
+
+          The colour: it used to be amber, which on every other screen means "a
+          store is performing badly". This isn't that — the store is fine, the
+          number WE hold for it is wrong. Violet is now reserved across the app
+          for exactly that, and it appears nowhere else, so it can't be read as
+          one more waste warning.
+
+          The action items: the same alert is a row on the Overview action list
+          ("shelf cap looks out of date -> Check the real shelf size"), which
+          links to /stores?view=capstale. The line below tells her that, so
+          finding it once teaches her where the rest of them are. */}
       {capStale && (
         <div className="stalewarn">
-          <b>The shelf cap on file ({nf(cap!)}) looks out of date.</b> This store has sold {nf(soldWk)} units this week, so a cap of {nf(cap!)} can&apos;t be its real shelf limit — it&apos;s almost certainly a stale figure. We&apos;re not enforcing it until it&apos;s confirmed; update it in the store record when you can.
+          <span className="sw-tag">Check this</span>
+          <div className="sw-b">
+            <b>The shelf cap on file ({nf(cap!)}) looks out of date.</b> This store has sold {nf(soldWk)} units this week, so a cap of {nf(cap!)} can&apos;t be its real shelf limit — it&apos;s almost certainly a stale figure. We&apos;re not enforcing it until it&apos;s confirmed.
+            <div className="sw-do">
+              Set the real shelf size in <b>Shelf capacity</b> above, or see{" "}
+              <a href="/stores?view=capstale">every store with this problem</a> — it&apos;s on your action list on the Overview.
+            </div>
+          </div>
         </div>
       )}
 
@@ -746,11 +775,18 @@ export default function StoreProfile({
       .sprof .ph-t .cnt{background:#efe6d3;color:var(--ink2);border-radius:999px;font-size:11px;letter-spacing:0;padding:2px 9px;font-weight:700}
       .sprof .ph-cap{font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums}
       .sprof .ph-cap .ok{color:var(--green-t)}.sprof .ph-cap .over{color:var(--red-t)}.sprof .ph-cap .soft{color:var(--faint);font-weight:500}
-      .sprof .ph-cap .stale{color:var(--amber-t);font-weight:600}
+      .sprof .ph-cap .stale{color:#6a4f96;font-weight:600}
+      .sprof .chip.capstale{background:#f0eaf9;border-color:#ded2ee;color:#5b447f;font-weight:600}
       .sprof .capwarn{background:var(--red-b);border:1px solid #eab9a8;color:var(--red-t);border-radius:11px;padding:11px 15px;font-size:13px;line-height:1.5;margin-bottom:14px}
       .sprof .capwarn b{color:var(--red-t)}
-      .sprof .stalewarn{background:var(--amber-b);border:1px solid #e6d3a8;color:var(--amber-t);border-radius:11px;padding:11px 15px;font-size:13px;line-height:1.5;margin-bottom:14px}
-      .sprof .stalewarn b{color:var(--amber-t)}
+      /* Violet — reference data we can prove is wrong. Deliberately not amber:
+         amber on this app means a store is underperforming, and this store is
+         not. Matches the Overview action row and the Stores drill-down. */
+      .sprof .stalewarn{display:flex;gap:12px;align-items:flex-start;background:#f6f3fb;border:1px solid #ded2ee;border-left:3px solid #7b5ea7;color:#4a3a63;border-radius:11px;padding:12px 15px;font-size:13px;line-height:1.55;margin-bottom:14px}
+      .sprof .stalewarn b{color:#3b2d50}
+      .sprof .stalewarn .sw-tag{flex:none;margin-top:1px;background:#7b5ea7;color:#fff;font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:3px 8px;border-radius:999px;white-space:nowrap}
+      .sprof .stalewarn .sw-do{margin-top:7px;font-size:12.5px;color:#5b487a}
+      .sprof .stalewarn .sw-do a{color:#5b447f;font-weight:600}
       .sprof .sheet{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
       .sprof .grid{display:grid;grid-template-columns:78px minmax(160px,1fr) 74px 74px 120px 92px;align-items:center}
       .sprof .colhead{background:var(--surface);border-bottom:1px solid var(--line)}
