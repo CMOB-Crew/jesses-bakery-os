@@ -114,7 +114,7 @@ export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
           <div className={`ac${a.warm ? " warm" : ""}`} key={a.store_id}>
             <div className="ac-main">
               <div className="ac-top">
-                <Link className="ac-name" href={`/store/${a.store_id}`}>{a.name}</Link>
+                <Link prefetch={false} className="ac-name" href={`/store/${a.store_id}`}>{a.name}</Link>
                 <span className={`ac-tag ${a.warm ? "warm" : "cold"}`}>{a.warm ? "● Warm" : "● Cold"}</span>
               </div>
               <div className="ac-meta"><RetailerBadge retailer={a.retailer} size="sm" /> · {a.region ?? "—"} · {sizeLabel(a.size)} · last active {ago(a.days_since)}</div>

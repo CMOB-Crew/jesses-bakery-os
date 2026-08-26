@@ -199,7 +199,7 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
               const peak = num(peakDay[s.store_id]);
               return (
                 <li key={s.store_id}>
-                  <Link href={`/store/${s.store_id}`}>{s.name}</Link>
+                  <Link prefetch={false} href={`/store/${s.store_id}`}>{s.name}</Link>
                   <span className="cl-r">
                     <span className="cl-cap">cap on file <b>{nf(cap ?? 0)}</b></span>
                     <span className="cl-sold">busiest day <b>{nf(peak)}</b></span>
@@ -290,7 +290,7 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
             <tbody>
               {rows.map((s) => (
                 <tr key={s.store_id} className="clk" onClick={() => router.push(`/store/${s.store_id}`)}>
-                  <td className="strong"><Link href={`/store/${s.store_id}`} onClick={(e) => e.stopPropagation()}>{s.name}</Link></td>
+                  <td className="strong"><Link prefetch={false} href={`/store/${s.store_id}`} onClick={(e) => e.stopPropagation()}>{s.name}</Link></td>
                   {showRegion && <td style={{ color: "var(--ink2)" }}>{s.region ?? "—"}</td>}
                   <td><RetailerBadge retailer={s.retailer} size="sm" /></td>
                   <td><StatusTag status={effOf(s)} /></td>

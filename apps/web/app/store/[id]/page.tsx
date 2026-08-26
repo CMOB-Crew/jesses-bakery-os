@@ -92,8 +92,8 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
   return (
     <>
       <div className="crumbs">
-        <Link href="/">Overview</Link>
-        {store.region && <> › <Link href={`/region/${encodeURIComponent(store.region)}`}>{store.region}</Link></>}
+        <Link prefetch={false} href="/">Overview</Link>
+        {store.region && <> › <Link prefetch={false} href={`/region/${encodeURIComponent(store.region)}`}>{store.region}</Link></>}
         {" "}› {store.name}
       </div>
       <StoreProfile store={store} recos={recos} peer={peer} overrides={overrides} ranging={ranging} serviceLevel={serviceLevel} lastVisit={lastVisit} today={today} photo={photo} address={address} shelfCap={shelf.shelfCap} noCap={shelf.noCap} dayGrid={dayGrid} sellouts={sellouts} schedule={schedule} runs={runs} />

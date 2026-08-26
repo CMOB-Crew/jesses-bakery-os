@@ -187,7 +187,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
 
           {sel && (
             <div className="panel detail">
-              <div className="d-top"><span className="d-dot" style={{ background: COLOR[effOf(sel)] }} /><Link href={`/store/${sel.store_id}`} className="d-name">{sel.name}</Link></div>
+              <div className="d-top"><span className="d-dot" style={{ background: COLOR[effOf(sel)] }} /><Link prefetch={false} href={`/store/${sel.store_id}`} className="d-name">{sel.name}</Link></div>
               <div className="d-meta">{sel.retailer} · {sel.region ?? "—"}</div>
               <div className="d-stats">
                 <div className="ds"><div className="dn">{sel.waste_pct ?? "—"}%</div><div className="dl">waste</div></div>
@@ -196,7 +196,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
               </div>
               <div className="d-foot">
                 <span className={`d-status ${effOf(sel)}`}>{STLABEL[effOf(sel)]}</span>
-                <Link href={`/store/${sel.store_id}`} className="d-open">Open store →</Link>
+                <Link prefetch={false} href={`/store/${sel.store_id}`} className="d-open">Open store →</Link>
               </div>
             </div>
           )}

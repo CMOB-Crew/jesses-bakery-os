@@ -289,7 +289,7 @@ export default function RunBoard({
                   const extra = order(s.days).filter((d) => !sel.days.includes(d));
                   return (
                     <li key={s.store_id}>
-                      <Link href={`/store/${s.store_id}`} className="rb-store">
+                      <Link prefetch={false} href={`/store/${s.store_id}`} className="rb-store">
                         <span className="rb-sn">{s.name}<i>{RETAILER[s.retailer] ?? s.retailer}</i></span>
                         <span className="rb-sd">
                           {s.days.length === 0 ? <em className="none">no delivery days set</em> : list(s.days)}
@@ -319,7 +319,7 @@ export default function RunBoard({
                 <ul className="rb-stores">
                   {vis.map((v) => (
                     <li key={v.store_id}>
-                      <Link href={`/store/${v.store_id}`} className="rb-store">
+                      <Link prefetch={false} href={`/store/${v.store_id}`} className="rb-store">
                         <span className="rb-sn">{v.name}<i>home run {v.home_run}</i></span>
                         <span className="rb-sd">{list(v.days)}</span>
                       </Link>

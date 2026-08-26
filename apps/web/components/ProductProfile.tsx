@@ -53,7 +53,7 @@ export default function ProductProfile({ product, stores }: { product: ProductDe
             <tbody>
               {ranked.map((s) => (
                 <tr key={s.store_id}>
-                  <td className="strong"><Link href={`/store/${s.store_id}`}>{s.name}</Link></td>
+                  <td className="strong"><Link prefetch={false} href={`/store/${s.store_id}`}>{s.name}</Link></td>
                   <td style={{ color: "var(--ink2)" }}>{s.region ?? "—"}</td>
                   <td className="num">{nf(s.sent)}</td>
                   <td className="num">{s.has_sales_feed ? nf(s.sold) : <span className="nofeed" title="This store doesn't send us its sales, so there is no sold figure — the zero would be an absence of data, not an absence of sales.">no feed</span>}</td>

@@ -39,11 +39,11 @@ export default async function ResetPage({
               Reset links work once and last an hour. Ask for a fresh one and it&apos;ll
               take a few seconds.
             </p>
-            <Link href="/login/forgot" className="loginbtn primary linkbtn">
+            <Link prefetch={false} href="/login/forgot" className="loginbtn primary linkbtn">
               Send a new link
             </Link>
             <div className="loginor"><span></span></div>
-            <Link href="/login" className="loginback">← Back to sign in</Link>
+            <Link prefetch={false} href="/login" className="loginback">← Back to sign in</Link>
           </>
         ) : (
           <>

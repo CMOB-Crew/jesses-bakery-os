@@ -114,7 +114,7 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
                 const tot = rowTotal(s.store_id);
                 return (
                   <tr key={s.store_id}>
-                    <td className="store"><Link href={`/store/${s.store_id}`} className="snm">{s.name}</Link><small>{s.region ?? "—"}</small></td>
+                    <td className="store"><Link prefetch={false} href={`/store/${s.store_id}`} className="snm">{s.name}</Link><small>{s.region ?? "—"}</small></td>
                     {products.map((p) => {
                       const k = `${s.store_id}::${p}`;
                       return (

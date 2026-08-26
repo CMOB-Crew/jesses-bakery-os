@@ -54,7 +54,7 @@ export default async function LoginPage({
             />
           </label>
           <div className="loginforgot">
-            <Link href="/login/forgot">Forgot your password?</Link>
+            <Link prefetch={false} href="/login/forgot">Forgot your password?</Link>
           </div>
           <SubmitButton className="loginbtn primary" pendingText="Signing in…">
             Sign in

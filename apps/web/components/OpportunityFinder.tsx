@@ -128,7 +128,7 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
                 <div className="o-top">
                   <span className="o-chip" style={{ background: m.b, color: m.c }}>{m.label}</span>
                   {o.store_id
-                    ? <Link className="o-store" href={`/store/${o.store_id}`}>{o.store}</Link>
+                    ? <Link prefetch={false} className="o-store" href={`/store/${o.store_id}`}>{o.store}</Link>
                     : <span className="o-store">{o.store}</span>}
                   <span className="o-dot">·</span>
                   <span className="o-prod">{o.product}</span>
@@ -141,7 +141,7 @@ export default function OpportunityFinder({ data }: { data: Opportunities }) {
               <div className="oact">
                 <span className={`conf ${o.conf}`}>{o.conf === "high" ? "High confidence" : "Worth a look"}</span>
                 {o.store_id && o.product_id && o.suggested != null && (
-                  <Link className="qbtn" href={`/store/${o.store_id}?stage=${o.product_id}&to=${o.suggested}`} style={{ textDecoration: "none" }}>Apply →</Link>
+                  <Link prefetch={false} className="qbtn" href={`/store/${o.store_id}?stage=${o.product_id}&to=${o.suggested}`} style={{ textDecoration: "none" }}>Apply →</Link>
                 )}
                 <button className={`qbtn${q ? " on" : ""}`} onClick={() => toggle(o.id)}>
                   {q ? "✓ Queued" : "Queue move"}

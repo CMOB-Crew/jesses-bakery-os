@@ -339,7 +339,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
                             <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" /></svg>
                           </button>
                         )}
-                        <Link href={`/store/${l.store_id}`}><span className="chev">→</span>{l.name}</Link>
+                        <Link prefetch={false} href={`/store/${l.store_id}`}><span className="chev">→</span>{l.name}</Link>
                       </div>
                       <div className="sendnow hide">{nf(dv(l.sent))}</div>
                       {isWeek ? (

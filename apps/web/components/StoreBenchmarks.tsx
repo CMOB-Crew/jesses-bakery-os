@@ -76,7 +76,7 @@ export default function StoreBenchmarks({ data }: { data: Benchmarks }) {
             const d = Math.round((s.sell - cohort.median) * 10) / 10;
             return (
               <div className="barrow" key={s.store_id}>
-                <div className="bl"><Link href={`/store/${s.store_id}`}>{s.name}</Link></div>
+                <div className="bl"><Link prefetch={false} href={`/store/${s.store_id}`}>{s.name}</Link></div>
                 <div className="btrack">
                   <div className={`bfill ${status(d)}`} style={{ width: w(s.sell) }} />
                   <div className="bmed" style={{ left: w(cohort.median) }} title="cohort median" />
@@ -106,7 +106,7 @@ export default function StoreBenchmarks({ data }: { data: Benchmarks }) {
             <tbody>
               {[...data.under, ...data.over].map((s) => (
                 <tr key={s.store_id}>
-                  <td className="strong"><Link href={`/store/${s.store_id}`}>{s.name}</Link></td>
+                  <td className="strong"><Link prefetch={false} href={`/store/${s.store_id}`}>{s.name}</Link></td>
                   <td className="dim">{s.region} · {s.channel} · {s.size}</td>
                   <td className="num">{s.sell}%</td>
                   <td className="num"><span className={`pill ${status(s.vs_cohort ?? 0)}`}>{(s.vs_cohort ?? 0) > 0 ? "+" : ""}{s.vs_cohort}</span></td>

@@ -196,7 +196,7 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
                 const chg = num(p.change);
                 return (
                   <tr key={p.product_id}>
-                    <td className="strong"><Link href={`/product/${p.product_id}`}>{p.name}</Link></td>
+                    <td className="strong"><Link prefetch={false} href={`/product/${p.product_id}`}>{p.name}</Link></td>
                     <td style={{ color: "var(--ink2)" }}>{titleCase(p.category)}</td>
                     <td className="num">{nf(num(p.stores))}</td>
                     <td className="num">{nf(num(p.sent))}</td>

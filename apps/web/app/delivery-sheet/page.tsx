@@ -13,7 +13,7 @@ export default async function DeliverySheetPage() {
       <div className="head">
         <h1>Delivery sheet</h1>
         <div className="meta">
-          <Link href="/deliveries" style={{ color: "var(--crust-deep)", fontWeight: 600 }}>← Calm view</Link>
+          <Link prefetch={false} href="/deliveries" style={{ color: "var(--crust-deep)", fontWeight: 600 }}>← Calm view</Link>
           <span style={{ marginLeft: 12 }}>store × product grid · edits save as store adjustments and flow to the plan</span>
         </div>
       </div>

@@ -315,7 +315,7 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
             </>
           );
           return a.n > 0 ? (
-            <Link key={a.key} href={a.href} className="ta-row lk">{inner}<span className="ta-go">›</span></Link>
+            <Link prefetch={false} key={a.key} href={a.href} className="ta-row lk">{inner}<span className="ta-go">›</span></Link>
           ) : (
             <div key={a.key} className="ta-row off">{inner}<span className="ta-note">{a.pending ? "fills as the sales history loads" : "none flagged"}</span></div>
           );
@@ -351,7 +351,7 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
         <div className="t-list">
           <div className="t-lh"><span>🔥 Best performers</span><span className="sub">sell-through · waste ·  units</span></div>
           {best.map((r, i) => (
-            <Link key={r.s.store_id} href={`/store/${r.s.store_id}`} className="t-row">
+            <Link prefetch={false} key={r.s.store_id} href={`/store/${r.s.store_id}`} className="t-row">
               <span className="rk">{i + 1}</span>
               <span className="nm">{r.s.name}<small>{r.s.region ?? "—"}{r.band ? ` · ${r.band[0].toUpperCase()}${r.band.slice(1)}` : ""}</small></span>
               <span className="mv g">{r.sellThrough == null ? "—" : `${Math.round(r.sellThrough)}%`}</span>
@@ -363,7 +363,7 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
         <div className="t-list">
           <div className="t-lh"><span>🚨 Biggest losses</span><span className="sub">wasted units · waste %</span></div>
           {losses.map((r, i) => (
-            <Link key={r.s.store_id} href={`/store/${r.s.store_id}`} className="t-row">
+            <Link prefetch={false} key={r.s.store_id} href={`/store/${r.s.store_id}`} className="t-row">
               <span className="rk">{i + 1}</span>
               <span className="nm">{r.s.name}<small>{r.s.region ?? "—"}{r.band ? ` · ${r.band[0].toUpperCase()}${r.band.slice(1)}` : ""}</small></span>
               <span className="mv r">{nf(r.wasted)}<small>units</small></span>

@@ -12,7 +12,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   return (
     <>
       <div className="crumbs">
-        <Link href="/products">Products</Link> › {product.name}
+        <Link prefetch={false} href="/products">Products</Link> › {product.name}
       </div>
       <ProductProfile product={product} stores={stores} />
     </>

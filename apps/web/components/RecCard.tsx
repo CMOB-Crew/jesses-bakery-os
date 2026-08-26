@@ -10,7 +10,7 @@ export default function RecCard({ rec }: { rec: Recommendation }) {
   return (
     <div className={`rec ${s.status === "red" ? "" : "amber"}`} style={state === "dismissed" ? { opacity: 0.45 } : undefined}>
       <div className="r-top">
-        <Link className="r-title" href={`/store/${s.store_id}`} style={{ color: "inherit", textDecoration: "none" }}>{s.name}</Link>
+        <Link prefetch={false} className="r-title" href={`/store/${s.store_id}`} style={{ color: "inherit", textDecoration: "none" }}>{s.name}</Link>
         <StatusTag status={s.status} />
         <span className="r-risk">~{rec.atStake.toLocaleString("en-AU")} units/wk at stake</span>
       </div>
@@ -20,7 +20,7 @@ export default function RecCard({ rec }: { rec: Recommendation }) {
       {state === "open" && (
         <div className="btns">
           <button className="btn approve" onClick={() => setState("approved")}>Approve</button>
-          <Link className="btn" href={`/store/${s.store_id}`}>Adjust</Link>
+          <Link prefetch={false} className="btn" href={`/store/${s.store_id}`}>Adjust</Link>
           <button className="btn" onClick={() => setState("dismissed")}>Dismiss</button>
         </div>
       )}

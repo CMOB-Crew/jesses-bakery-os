@@ -135,7 +135,7 @@ export default function LostSales({ data }: { data: LostSales }) {
           <div className={`lc${l.conf === "medium" ? " amber" : ""}`} key={l.id}>
             <div className="lc-top">
               {l.store_id
-                ? <Link className="lc-title" href={`/store/${l.store_id}`}>{l.store}</Link>
+                ? <Link prefetch={false} className="lc-title" href={`/store/${l.store_id}`}>{l.store}</Link>
                 : <span className="lc-title">{l.store}</span>}
               <span className="lc-conf" style={{ background: CONF[l.conf].b, color: CONF[l.conf].c }}>{CONF[l.conf].label}</span>
               <span className="lc-risk">~{l.lostWk} units/wk lost{l.lostRevenueWk != null ? ` · ~$${l.lostRevenueWk.toLocaleString("en-AU")}` : ""}</span>
@@ -152,7 +152,7 @@ export default function LostSales({ data }: { data: LostSales }) {
             </div>
             <div className="lc-btns">
               {l.store_id && l.product_id && l.suggested != null ? (
-                <Link className="btn approve" href={`/store/${l.store_id}?stage=${l.product_id}&to=${l.suggested}`}>Apply fix</Link>
+                <Link prefetch={false} className="btn approve" href={`/store/${l.store_id}?stage=${l.product_id}&to=${l.suggested}`}>Apply fix</Link>
               ) : (
                 <button className="btn approve" onClick={() => apply(l.id)}>Apply fix</button>
               )}

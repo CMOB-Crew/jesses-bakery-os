@@ -187,7 +187,7 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
           <tbody>
             {shown.map((s) => (
               <tr key={s.store_id}>
-                <td><Link href={`/store/${s.store_id}`} className="stn">{s.store}</Link><div className="str">{s.region ?? "—"}</div></td>
+                <td><Link prefetch={false} href={`/store/${s.store_id}`} className="stn">{s.store}</Link><div className="str">{s.region ?? "—"}</div></td>
                 <td className="num"><span className={`accpill ${accClass(s.acc)}`}>{s.acc}%</span></td>
                 <td>
                   <span className={`bias ${s.bias > 0 ? "over" : "under"}`}>

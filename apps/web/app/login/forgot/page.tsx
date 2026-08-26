@@ -34,7 +34,7 @@ export default async function ForgotPage({
               up your account.
             </p>
             <div className="loginor"><span></span></div>
-            <Link href="/login" className="loginback">← Back to sign in</Link>
+            <Link prefetch={false} href="/login" className="loginback">← Back to sign in</Link>
           </>
         ) : (
           <>
@@ -59,7 +59,7 @@ export default async function ForgotPage({
               </SubmitButton>
             </form>
             <div className="loginor"><span>or</span></div>
-            <Link href="/login" className="loginback">← Back to sign in</Link>
+            <Link prefetch={false} href="/login" className="loginback">← Back to sign in</Link>
           </>
         )}
       </div>

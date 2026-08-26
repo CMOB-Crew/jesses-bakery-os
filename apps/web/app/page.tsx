@@ -146,7 +146,7 @@ export default async function Overview() {
           const green = Math.max(0, r.green - nd);
           const kind = r.red ? "red" : r.amber ? "amber" : green > 0 ? "green" : "nodata";
           return (
-            <Link key={r.region_id} href={`/region/${encodeURIComponent(r.region)}`} className="rtile">
+            <Link prefetch={false} key={r.region_id} href={`/region/${encodeURIComponent(r.region)}`} className="rtile">
               <div className="rn">{r.region} <StatusTag status={kind} /></div>
               <div className="cbar">
                 {r.red ? <span style={{ flex: r.red, background: "var(--red)" }} /> : null}

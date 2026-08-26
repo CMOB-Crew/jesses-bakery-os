@@ -87,10 +87,10 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
         </div>
       )}
 
-      <div className="section-h" style={{ marginTop: 26 }}><span className="tick" />Coming up<Link href="/new-store" className="add-launch">+ New store launch</Link></div>
+      <div className="section-h" style={{ marginTop: 26 }}><span className="tick" />Coming up<Link prefetch={false} href="/new-store" className="add-launch">+ New store launch</Link></div>
       {cohorts.length === 0 ? (
         <div className="panel empty">
-          Nothing in the pipeline right now. When you add a new store on <Link href="/new-store">New store</Link> and set a
+          Nothing in the pipeline right now. When you add a new store on <Link prefetch={false} href="/new-store">New store</Link> and set a
           planned go-live date, its rollout shows up here — and stays out of the Archive so it&apos;s never mistaken for a
           dormant store.
         </div>
@@ -112,10 +112,10 @@ export default function LaunchesView({ launches, productLaunches = [] }: { launc
         </div>
       )}
 
-      <div className="section-h" style={{ marginTop: 26 }}><span className="tick" />New products — first 6 weeks<Link href="/products" className="add-launch">+ New product launch</Link></div>
+      <div className="section-h" style={{ marginTop: 26 }}><span className="tick" />New products — first 6 weeks<Link prefetch={false} href="/products" className="add-launch">+ New product launch</Link></div>
       {productLaunches.length === 0 ? (
         <div className="panel empty slim">
-          No product launches tracked yet. Tag a line&apos;s launch date on <Link href="/products">Products</Link> and it
+          No product launches tracked yet. Tag a line&apos;s launch date on <Link prefetch={false} href="/products">Products</Link> and it
           tracks here for 6 weeks — stores ranging it, units sold, sell-through and waste — with an <b>Expand / Continue /
           Modify / Remove</b> call once it&apos;s had time to prove out. (Harris Farm Choc Babka once its code lands.)
         </div>
@@ -331,7 +331,7 @@ function ProductRow({ p }: { p: ProductLaunch }) {
       </div>
       <div className="lr-act">
         {noData ? <StatusTag status="nodata" /> : <span className="pr-sold">{num(p.sold)} sold/wk</span>}
-        <Link href="/products" className="lr-open">Open products →</Link>
+        <Link prefetch={false} href="/products" className="lr-open">Open products →</Link>
       </div>
       <div className="pr-reason"><b>{v.label}</b> — {p.verdictReason}</div>
     </div>
@@ -354,7 +354,7 @@ function LiveRow({ l }: { l: LiveLaunch }) {
       </div>
       <div className="lr-act">
         {l.total_sent > 0 || l.total_sold > 0 ? <StatusTag status={l.status} /> : <StatusTag status="nodata" />}
-        <Link href={`/store/${l.store_id}`} className="lr-open">Open store →</Link>
+        <Link prefetch={false} href={`/store/${l.store_id}`} className="lr-open">Open store →</Link>
       </div>
     </div>
   );
