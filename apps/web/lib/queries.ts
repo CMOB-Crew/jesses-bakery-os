@@ -467,7 +467,18 @@ export async function getProductLaunches(): Promise<ProductLaunch[]> {
   }
 }
 
-export type FeedStatus = { source: string; status: string; as_of: Date; detail: string | null };
+// THREE states, not two. This used to collapse everything past two days into
+// "stale", so a retailer one day late and a retailer dark for three weeks wore
+// the same amber badge on the Overview.
+//
+// Fred's framing is the whole point: "Coles died 4 Aug and reported Success for
+// three weeks. That's the difference between our system and theirs." A quiet
+// badge reading "stale" is that same failure in better clothing — it reports a
+// fact and hides the consequence, which is that every other number on the page
+// silently excludes 115 stores.
+//
+// Thresholds match v_feed_health so the Overview and /feeds can never disagree.
+export type FeedStatus = { source: string; status: "ok" | "late" | "stopped"; as_of: Date; days_behind: number; detail: string | null };
 export async function getFeedStatus(): Promise<FeedStatus[]> {
   try {
     // Measured from sales_daily, not read from feed_status_log.
@@ -511,8 +522,11 @@ export async function getFeedStatus(): Promise<FeedStatus[]> {
         group by 1
       )
       select l.source,
-             case when (select as_of from a) - l.as_of <= 2 then 'ok' else 'stale' end as status,
+             case when (select as_of from a)::date - l.as_of <= 2 then 'ok'
+                  when (select as_of from a)::date - l.as_of <= 5 then 'late'
+                  else 'stopped' end as status,
              l.as_of,
+             ((select as_of from a)::date - l.as_of)::int as days_behind,
              null::text as detail
       from last_seen l
       order by l.as_of asc`;

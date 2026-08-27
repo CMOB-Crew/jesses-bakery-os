@@ -65,6 +65,12 @@ a{color:inherit;text-decoration:none}
 .head h1{font-family:var(--serif);font-size:26px;font-weight:600;letter-spacing:-.4px}
 .head .meta{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:12.5px;color:var(--muted)}
 .stalepill{background:var(--amber-b);color:var(--amber-t);padding:5px 11px;border-radius:999px;font-weight:600;font-size:11.5px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.feeddead{background:var(--red-b);border:1px solid #eab9a8;border-left:3px solid var(--red);border-radius:12px;padding:14px 17px;margin-bottom:16px}
+.feeddead .fd-h{font-size:15px;color:var(--red-t);line-height:1.5}
+.feeddead .fd-h b{font-weight:700}
+.feeddead .fd-b{font-size:13.5px;color:var(--red-t);line-height:1.65;margin-top:6px;max-width:74ch;opacity:.92}
+.feeddead .fd-b b{font-weight:700;opacity:1}
+.feeddead .fd-a{display:inline-block;margin-top:10px;font-size:13px;font-weight:600;color:var(--red-t);text-decoration:underline}
 .crumbs{font-size:12.5px;color:var(--muted);margin-bottom:14px}
 .crumbs a:hover{color:var(--ink)}
 

@@ -42,7 +42,32 @@ export default async function Overview() {
   const wt = settings.waste_thresholds as { small: number; medium: number; large: number } | undefined;
   const thresholds = wt ?? null;
 
-  const stale = feeds.find((f) => f.status === "stale");
+  // A feed that is LATE gets a badge. A feed that has STOPPED gets a banner,
+  // because it is not a fact about that feed — it is a caveat on every number
+  // on this page. Fred, 26 Aug: "Coles died 4 Aug and reported Success for
+  // three weeks. That's the difference between our system and theirs."
+  const late = feeds.find((f) => f.status === "late");
+  const stopped = feeds.filter((f) => f.status === "stopped");
+
+  // The blast radius, computed from rows this page already has rather than
+  // another round trip: how many stores each dead feed covers, and what share
+  // of the week's delivered units they are. Delivered, not sold — sold is
+  // exactly the number we have stopped receiving, so measuring the hole with
+  // the missing data would report it as zero.
+  const sentAll = stores.reduce((a, st) => a + Number(st.total_sent || 0), 0);
+  const darkInfo = stopped.map((f) => {
+    const mine = stores.filter((st) => st.retailer === f.source);
+    const sent = mine.reduce((a, st) => a + Number(st.total_sent || 0), 0);
+    return {
+      source: f.source,
+      days: f.days_behind,
+      stores: mine.length,
+      sent,
+      share: sentAll > 0 ? Math.round((1000 * sent) / sentAll) / 10 : null,
+    };
+  });
+  const darkStores = darkInfo.reduce((a, d) => a + d.stores, 0);
+  const darkShare = darkInfo.reduce((a, d) => a + (d.share ?? 0), 0);
 
   // Network dollar layer (Invoice_Cost). Null until the extract is loaded, so the
   // Overview keeps its "unlocks with the cost feed" placeholders until then.
@@ -92,11 +117,33 @@ export default async function Overview() {
         <h1>Overview</h1>
         <div className="meta">
           <span>As of {fmtDate(asOf)}</span>
-          {stale && (
-            <span className="stalepill">⚠ {label(stale.source)} feed · {daysAgo(stale.as_of)} stale</span>
+          {late && (
+            <span className="stalepill">⚠ {label(late.source)} feed · {daysAgo(late.as_of)} late</span>
           )}
         </div>
       </div>
+
+      {/* A stopped feed is not a badge. Every figure below this line silently
+          excludes those stores, and they look exactly like healthy zeroes. */}
+      {darkInfo.length > 0 && (
+        <div className="feeddead">
+          <div className="fd-h">
+            {darkInfo.map((d) => (
+              <span key={d.source}>
+                <b>{label(d.source)} has sent nothing for {d.days} days.</b>{" "}
+              </span>
+            ))}
+          </div>
+          <div className="fd-b">
+            That is <b>{darkStores} stores</b>
+            {darkShare > 0 && <> and about <b>{darkShare}%</b> of everything leaving the bakery</>}.
+            Every number on this page excludes them — they are not selling badly,
+            we cannot see them at all. Their waste, sell-through and lost sales are
+            frozen at the last day we received.
+          </div>
+          <Link prefetch={false} href="/feeds" className="fd-a">Load the latest report →</Link>
+        </div>
+      )}
 
       <div className="hero">
         <div className="line">
