@@ -137,11 +137,17 @@ export async function getEngineProjection(): Promise<EngineScenario[]> {
 // Delivery order sheet — per-store current-send vs engine-recommended, from the
 // engine's plan (store_reco). Grouped by region in the Deliveries page. This is
 // the run sheet Simona would actually work from.
-export type DeliveryLine = { store_id: string; name: string; region: string | null; sent: number; recommended: number };
+// `days` is this STORE's own delivery days, not the run's. Simona, 26 Aug
+// [37:26]: when she expands a run, the run's set days are not true for every
+// store on it — "Edgecliff and Metro Paddington do not get a delivery every
+// day". Approving an order sheet without knowing that is how a store gets sent
+// stock on a day nobody drives to it.
+export type DeliveryLine = { store_id: string; name: string; region: string | null; sent: number; recommended: number; days: string[] };
 export async function getDeliveryPlan(): Promise<DeliveryLine[]> {
   try {
-    return await sql<DeliveryLine[]>`
+    const rows = await sql<(Omit<DeliveryLine, "days"> & { days: string[] | null })[]>`
       select s.id as store_id, s.name, reg.name as region,
+             s.delivery_days::text[] as days,
              sum(r.sent)::int as sent,
              sum(coalesce(o.qty, r.recommended))::int as recommended
       from store_reco r
@@ -150,8 +156,9 @@ export async function getDeliveryPlan(): Promise<DeliveryLine[]> {
       left join store_product_overrides o
         on o.store_id = r.store_id and o.product_id = r.product_id
         and (o.mode = 'perm' or o.ends_on is null or o.ends_on >= current_date)
-      group by s.id, s.name, reg.name
+      group by s.id, s.name, reg.name, s.delivery_days
       order by sum(r.sent - coalesce(o.qty, r.recommended)) desc`;
+    return rows.map((r) => ({ ...r, days: r.days ?? [] }));
   } catch {
     return [];
   }

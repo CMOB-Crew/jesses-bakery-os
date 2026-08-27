@@ -78,7 +78,13 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
   const [, startSave] = useTransition();
   // Persist the approval set so ticks survive a reload (migration 017).
   const persistApproved = (next: Record<string, boolean>) => startSave(async () => { await setRunState("deliveries", next); });
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Simona, 26 Aug [36:09]: "groups must be COLLAPSED by default." They were
+  // not on the call, so she opened the page onto 265 rows and had to scroll to
+  // find the run she wanted. Seeded from `lines` rather than `groups` because
+  // this runs before groups is computed.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries([...new Set(lines.map((l) => l.region ?? "Unassigned"))].map((r) => [r, true])),
+  );
   const [term, setTerm] = useState("");
   const [unappOnly, setUnappOnly] = useState(false);
   const [helpOpen, setHelpOpen] = useState(true);
@@ -196,6 +202,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
 
   const t = term.trim().toLowerCase();
   const rowVisible = (l: DeliveryLine) => (!t || l.name.toLowerCase().includes(t)) && (!unappOnly || !approved[l.store_id]);
+  const filtering = !!t || unappOnly;
   const regChg = (f: number) => (f > 0 ? `−${nf(f)}` : f < 0 ? `+${nf(-f)}` : "—");
   function chgPill(l: DeliveryLine) {
     const d = dv(l.sent) - dv(v(l.store_id));
@@ -297,7 +304,10 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
         {groups.map((g) => {
           const anyVisible = g.rows.some(rowVisible);
           if (!anyVisible) return null;
-          const isC = !!collapsed[g.region];
+          // Collapsed by default is right on open and wrong while filtering:
+          // with every group shut, a search would return headers and no rows.
+          // Any active filter forces the groups open.
+          const isC = !!collapsed[g.region] && !filtering;
           const send = g.rows.reduce((a, l) => a + dv(l.sent), 0);
           const engs = g.rows.reduce((a, l) => a + dv(v(l.store_id)), 0);
           const fewer = send - engs;
@@ -340,6 +350,29 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
                           </button>
                         )}
                         <Link prefetch={false} href={`/store/${l.store_id}`}><span className="chev">→</span>{l.name}</Link>
+                        {/* Per-store frequency, [37:26]. The run's headline days
+                            sit on the group header; this is what THIS store
+                            actually takes.
+
+                            NO colour for "fewer days than the run". I built that
+                            first and looked at it: Eastern Suburbs goes out seven
+                            days, so seven of its first eleven stores lit up amber
+                            and the highlight stopped meaning anything. Same
+                            mistake as the "not on Tue, Wed…" chip on the run
+                            board this morning. She asked for the number — "seven
+                            days, six days, four days, and so on" — and the number
+                            says it without help.
+
+                            Red stays for no days at all, because that is not a
+                            frequency, it is a store nobody is scheduled to visit
+                            sitting on an order sheet waiting to be approved. */}
+                        {l.days.length === 0 ? (
+                          <span className="freq none">no delivery days set</span>
+                        ) : (
+                          <span className="freq">
+                            {l.days.length} {l.days.length === 1 ? "day" : "days"} a week
+                          </span>
+                        )}
                       </div>
                       <div className="sendnow hide">{nf(dv(l.sent))}</div>
                       {isWeek ? (
@@ -493,6 +526,8 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
       .dcalm .reg-chev{display:flex;justify-content:center;padding-right:20px !important}
       .dcalm .reghead .chev{width:15px;height:15px;stroke:var(--muted);stroke-width:2.2;fill:none;transition:transform .2s;flex:none}
       .dcalm .reghead.collapsed .chev{transform:rotate(-90deg)}
+      .dcalm .freq{margin-left:10px;font-size:11px;font-weight:600;color:var(--muted);background:var(--bg2,rgba(0,0,0,.04));padding:2px 7px;border-radius:5px;white-space:nowrap}
+      .dcalm .freq.none{background:var(--red-b);color:var(--red-t)}
       .dcalm .reghead .appall{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink2);font-family:inherit;opacity:0;transition:.14s;margin-left:4px}
       .dcalm .reghead:hover .appall{opacity:1}
       .dcalm .row{border-top:1px solid var(--line2);transition:background .12s}
