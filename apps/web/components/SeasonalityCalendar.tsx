@@ -97,9 +97,19 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
     [liveEvents],
   );
   // Default to Sept 2026 — the High-Holiday planning window Simona flagged.
-  const [year, setYear] = useState(2026);
-  const [month, setMonth] = useState(8); // 0-indexed → September
-  const [sel, setSel] = useState<string | null>("2026-09-11");
+  // Opens on the month you are actually in, in SYDNEY. Was hardcoded to
+  // September 2026, which looked right for exactly one month and would have
+  // opened on September every time from October onward. Sydney rather than the
+  // browser's zone so the calendar agrees with the rest of the system, which is
+  // anchored to the bakery's day, not the viewer's.
+  const nowSyd = new Date(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date()) + "T00:00:00",
+  );
+  const [year, setYear] = useState(nowSyd.getFullYear());
+  const [month, setMonth] = useState(nowSyd.getMonth());
+  const [sel, setSel] = useState<string | null>(null);
   const [today, setToday] = useState<string>(""); // set after mount (SSR-safe)
   const [uplifts, setUplifts] = useState<Record<string, number>>(
     () => Object.fromEntries(base.map((e) => [e.id, e.uplift]))

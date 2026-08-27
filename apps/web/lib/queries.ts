@@ -1298,8 +1298,20 @@ export async function getOpportunities(): Promise<Opportunities> {
       move: top
         ? `Trim ${titleCase(top.product_name)} ${top.sent} → ${top.recommended} to match real sell-through.`
         : `Right-size the drops to recent same-weekday demand.`,
-      gain: Number(s.total_wasted),
-      gainRevenue: unitRev(s.store_id) != null ? Math.round(Number(s.total_wasted) * unitRev(s.store_id)!) : null,
+      // Size the gain to the MOVE, not to the store. This used to be the
+      // store's entire weekly waste sitting next to a card that says "trim
+      // White Sourdough 65 -> 28" — 37 units of change priced at 204. Seen
+      // live on Mascot DC. If we have named a specific line, the honest number
+      // is what trimming that line saves; only when we cannot name one does the
+      // store-level figure make sense, and then the card says so too.
+      gain: top ? Math.max(0, Number(top.sent) - Number(top.recommended)) : Number(s.total_wasted),
+      gainRevenue:
+        unitRev(s.store_id) == null
+          ? null
+          : Math.round(
+              (top ? Math.max(0, Number(top.sent) - Number(top.recommended)) : Number(s.total_wasted)) *
+                unitRev(s.store_id)!,
+            ),
       conf: s.status === "red" ? "high" : "medium",
       store_id: s.store_id, product_id: top ? top.product_id : null, suggested: top ? top.recommended : null,
     });

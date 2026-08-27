@@ -125,6 +125,17 @@ export async function runAsUser<T>(
 // single call site in queries.ts. A page opts in by wrapping its data fetch in
 // withUser(); anything that does not is byte-for-byte the old behaviour.
 // ---------------------------------------------------------------------------
+// Query timing, OFF by default. Set SLOW_QUERY_MS (e.g. 300) in the Netlify
+// environment to log any statement slower than that, with enough of its text to
+// identify it. This is how the 27 Aug timeout was found: a one-row query
+// reporting 10.8 seconds proved the queries were queued, not slow, which no
+// amount of reading the code would have shown.
+//
+// Left in rather than deleted, because the next time a page is slow this is the
+// first thing anyone should reach for. Costs a Date.now() per query when off.
+const TIMING = process.env.SLOW_QUERY_MS != null && process.env.SLOW_QUERY_MS !== "";
+const SLOW_MS = Number(process.env.SLOW_QUERY_MS ?? 0);
+
 const txStore = new AsyncLocalStorage<typeof sql>();
 
 export async function withUser<T>(work: () => Promise<T>): Promise<T> {
@@ -135,35 +146,23 @@ export async function withUser<T>(work: () => Promise<T>): Promise<T> {
   // on its own, exactly as before: empty rows, never an unscoped read.
   if (!claims) return work();
   const json = JSON.stringify(claims);
-  // TIMED. auth-verify came back at 678ms, so the ten second stall is NOT the
-  // auth call. The twelve queries all start together, all finish within ~2s of
-  // each other at 10-12.6s each, and the ONE query that starts late (after
-  // storesP resolves) takes 1.9s. So the database is fast once you reach it;
-  // something shared is being waited on. This splits that wait in two:
-  //   [tx-open]  = getting a connection + BEGIN + set_config
-  //   [tx-total] = the whole request's work inside the transaction
-  // If tx-open is ~10s it is connection establishment to the Supabase pooler on
-  // a cold function. If tx-open is fast and tx-total is slow, it is the work.
-  const t0 = Date.now();
+  // Timing is OFF unless SLOW_QUERY_MS is set. It found the thing nothing else
+  // could on 27 Aug — [tx-open] vs [tx-total] split a ten second wait into
+  // "getting a connection" and "doing the work" and named the culprit in one
+  // deploy, after four wrong theories. Worth keeping and worth not shipping on.
+  // Set SLOW_QUERY_MS in Netlify to turn it back on for an afternoon.
+  const t0 = TIMING ? Date.now() : 0;
   return sql.begin(async (tx) => {
     await tx`select set_config('request.jwt.claims', ${json}, true)`;
-    console.log(`[tx-open] ${Date.now() - t0}ms`);
-    const t1 = Date.now();
+    if (TIMING) console.log(`[tx-open] ${Date.now() - t0}ms`);
+    const t1 = TIMING ? Date.now() : 0;
     try {
       return await txStore.run(tx as unknown as typeof sql, work);
     } finally {
-      console.log(`[tx-total] ${Date.now() - t1}ms inside the transaction`);
+      if (TIMING) console.log(`[tx-total] ${Date.now() - t1}ms inside the transaction`);
     }
   }) as Promise<T>;
 }
-
-// Temporary, deliberate instrumentation. The Overview still overran after the
-// per-request transaction landed (13,572ms) while Stores came in at 5,141ms,
-// and I am not going to guess which of its twelve queries is eating the time —
-// I have guessed wrong three times today already. This logs any statement over
-// SLOW_MS into the Netlify function log with enough of its text to identify it.
-// Remove it once the slow one is found and fixed.
-const SLOW_MS = Number(process.env.SLOW_QUERY_MS ?? 300);
 
 function label(strings: TemplateStringsArray): string {
   return strings.join("?").replace(/\s+/g, " ").trim().slice(0, 90);
@@ -173,6 +172,18 @@ export function q<T = unknown>(
   strings: TemplateStringsArray,
   ...values: unknown[]
 ): Promise<T> {
+  if (!TIMING) {
+    const plain = (client: typeof sql) =>
+      (client as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<T>)(strings, ...values);
+    if (!AUTH_ENFORCED) return plain(sql);
+    const amb = txStore.getStore();
+    if (amb) return plain(amb);
+    return (async () => {
+      const claims = await getSessionClaims();
+      if (!claims) return [] as unknown as T;
+      return runAsUser(claims, (tx) => plain(tx));
+    })();
+  }
   const started = Date.now();
   const timed = (r: Promise<T>): Promise<T> =>
     r.then(
