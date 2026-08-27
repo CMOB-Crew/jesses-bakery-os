@@ -513,20 +513,19 @@ export async function getFeedStatus(): Promise<FeedStatus[]> {
     // today is Coles at 17 days, and a four-month silence is a different
     // conversation from a stale badge, so that's an acceptable edge for now.
     return await sql<FeedStatus[]>`
-      with a as (select as_of from v_asof),
-      last_seen as (
+      with last_seen as (
         select sd.source::text as source, max(sd.sale_date) as as_of
         from sales_daily sd
-        where sd.sale_date >  (select as_of from a)::date - 120
-          and sd.sale_date <= (select as_of from a)::date
+        where sd.sale_date >  jb_asof() - 120
+          and sd.sale_date <= jb_asof()
         group by 1
       )
       select l.source,
-             case when (select as_of from a)::date - l.as_of <= 2 then 'ok'
-                  when (select as_of from a)::date - l.as_of <= 5 then 'late'
+             case when jb_asof() - l.as_of <= 2 then 'ok'
+                  when jb_asof() - l.as_of <= 5 then 'late'
                   else 'stopped' end as status,
              l.as_of,
-             ((select as_of from a)::date - l.as_of)::int as days_behind,
+             (jb_asof() - l.as_of)::int as days_behind,
              null::text as detail
       from last_seen l
       order by l.as_of asc`;
@@ -732,13 +731,12 @@ export async function getShelfCapOverrides(): Promise<Record<string, { cap: numb
 export async function getPeakDaySold(): Promise<Record<string, number>> {
   try {
     const rows = await sql<{ store_id: string; peak: number }[]>`
-      with a as (select as_of from v_asof)
-      select x.store_id, max(x.dayq)::int as peak
+            select x.store_id, max(x.dayq)::int as peak
         from (
           select sd.store_id, sd.sale_date, sum(sd.units_sold) as dayq
-            from sales_daily sd, a
-           where sd.sale_date >  (select as_of from a)::date - 7
-             and sd.sale_date <= (select as_of from a)::date
+            from sales_daily sd
+           where sd.sale_date >  jb_asof() - 7
+             and sd.sale_date <= jb_asof()
            group by 1, 2
         ) x
        group by 1`;
@@ -874,37 +872,36 @@ export type StoreDay = {
 export async function getStoreDayGrid(id: string): Promise<StoreDay[]> {
   try {
     return await sql<StoreDay[]>`
-      with a as (select as_of from v_asof),
-      cal as (
-        select ((select as_of from a)::date - g.n)::date as d
+      with cal as (
+        select (jb_asof() - g.n)::date as d
         from generate_series(0, 6) g(n)
       ),
       sold as (
         select sd.sale_date as d, sum(sd.units_sold)::int as n
-        from sales_daily sd, a
+        from sales_daily sd
         where sd.store_id = ${id}::uuid
-          and sd.sale_date >  (select as_of from a)::date - 7
-          and sd.sale_date <= (select as_of from a)::date
+          and sd.sale_date >  jb_asof() - 7
+          and sd.sale_date <= jb_asof()
         group by 1
       ),
       sent as (
         select dl.delivery_date as d, sum(di.qty_sent)::int as n
         from deliveries dl
-        join delivery_items di on di.delivery_id = dl.id, a
+        join delivery_items di on di.delivery_id = dl.id
         where dl.store_id = ${id}::uuid
-          and dl.delivery_date >  (select as_of from a)::date - 7
-          and dl.delivery_date <= (select as_of from a)::date
+          and dl.delivery_date >  jb_asof() - 7
+          and dl.delivery_date <= jb_asof()
         group by 1
       ),
       outs as (
         select o.as_of_date as d, count(*)::int as n
-        from on_hand_ledger o, a
+        from on_hand_ledger o
         where o.store_id = ${id}::uuid
           and o.closing_on_hand = 0
           and o.expired = 0
           and (o.opening_on_hand + o.delivered) > 0
-          and o.as_of_date >  (select as_of from a)::date - 7
-          and o.as_of_date <= (select as_of from a)::date
+          and o.as_of_date >  jb_asof() - 7
+          and o.as_of_date <= jb_asof()
         group by 1
       )
       select to_char(cal.d, 'YYYY-MM-DD')      as day,
@@ -933,8 +930,7 @@ export type StoreSellout = {
 export async function getStoreSellouts(id: string): Promise<StoreSellout[]> {
   try {
     return await sql<StoreSellout[]>`
-      with a as (select as_of from v_asof)
-      select to_char(o.as_of_date, 'YYYY-MM-DD') as day,
+            select to_char(o.as_of_date, 'YYYY-MM-DD') as day,
              trim(to_char(o.as_of_date, 'Dy'))   as dow,
              p.id::text                          as product_id,
              p.name                              as product_name,
@@ -942,7 +938,6 @@ export async function getStoreSellouts(id: string): Promise<StoreSellout[]> {
              o.sold::int                         as sold
       from on_hand_ledger o
       join products p on p.id = o.product_id
-      cross join a
       where o.store_id = ${id}::uuid
         -- A sellout needs stock to run out of. closing = 0 alone also matches
         -- every line the store does not stock — nothing in, nothing sold,
@@ -951,8 +946,8 @@ export async function getStoreSellouts(id: string): Promise<StoreSellout[]> {
         and o.closing_on_hand = 0
         and o.expired = 0
         and (o.opening_on_hand + o.delivered) > 0
-        and o.as_of_date >  a.as_of::date - 7
-        and o.as_of_date <= a.as_of::date
+        and o.as_of_date >  jb_asof() - 7
+        and o.as_of_date <= jb_asof()
       order by o.as_of_date, p.name`;
   } catch {
     return [];
@@ -1032,19 +1027,18 @@ export type ProductRow = {
 export async function getStoreProducts(id: string): Promise<ProductRow[]> {
   try {
     return await sql<ProductRow[]>`
-    with a as (select as_of from v_asof),
-    sold as (
-      select product_id, sum(units_sold)::int s from sales_daily, a
-      where store_id = ${id} and sale_date > a.as_of - interval '7 days' and sale_date <= a.as_of
+    with sold as (
+      select product_id, sum(units_sold)::int s from sales_daily
+      where store_id = ${id} and sale_date > jb_asof() - 7 and sale_date <= jb_asof()
       group by product_id),
     sent as (
       select di.product_id, sum(di.qty_sent)::int s
-      from deliveries d join delivery_items di on di.delivery_id = d.id, a
-      where d.store_id = ${id} and d.delivery_date > a.as_of - interval '7 days' and d.delivery_date <= a.as_of
+      from deliveries d join delivery_items di on di.delivery_id = d.id
+      where d.store_id = ${id} and d.delivery_date > jb_asof() - 7 and d.delivery_date <= jb_asof()
       group by di.product_id),
     waste as (
-      select product_id, sum(qty)::int w from wastage, a
-      where store_id = ${id} and waste_date > a.as_of - interval '7 days' and waste_date <= a.as_of
+      select product_id, sum(qty)::int w from wastage
+      where store_id = ${id} and waste_date > jb_asof() - 7 and waste_date <= jb_asof()
       group by product_id),
     plan as (
       select distinct on (product_id) product_id, recommended_qty
