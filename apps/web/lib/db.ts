@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import postgres from "postgres";
 import { AUTH_ENFORCED, type UserClaims } from "./auth";
 import { getSessionClaims } from "./supabase/server";
@@ -10,7 +11,6 @@ const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set");
 
 declare global {
-  // eslint-disable-next-line no-var
   var __sql: ReturnType<typeof postgres> | undefined;
 }
 
@@ -82,6 +82,65 @@ export async function runAsUser<T>(
 // Safe because there is no postgres.js fragment composition anywhere in the
 // query layer -- every call site is a flat, awaited tagged template.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// ONE transaction per REQUEST, not per query. This is the difference between
+// the app loading and the app not loading.
+//
+// MEASURED, from the Netlify function log on 27 Aug:
+//
+//   01:45:56  Duration: 11649.55 ms      (Overview)
+//   01:49:13  Duration: 11033.68 ms      (Stores)
+//
+// Netlify kills a function at 10,000 ms. Every signed-in page was being
+// killed. No error, no stack — just a page that never finished, which the
+// browser shows as an empty shell or "This page couldn't load".
+//
+// WHY IT GOT SLOW. q() below is correct and Fred's reasoning behind it is
+// correct: claims must be transaction-LOCAL, because a pooled connection
+// otherwise leaks one user's identity into the next request. But it meant
+// every single query paid for its own transaction:
+//
+//   BEGIN -> set_config(claims) -> the query -> COMMIT      = 4 round trips
+//
+// The Overview issues twelve queries. Netlify runs in us-east-1, Supabase is
+// in ap-southeast-1, and each round trip is about 130ms. Twelve queries at four
+// round trips is forty-eight Pacific crossings for one page — roughly six
+// seconds of nothing but network, before a single row is read. Add the auth
+// verify and a cold start and you are past ten seconds.
+//
+// Before AUTH_ENFORCED went on it was twelve round trips. Nobody load-tested
+// the app after the flag was flipped, because nobody knew it had been flipped.
+//
+// WHAT THIS DOES. Open the transaction once, set the claims once, and let every
+// query inside the request run on that same transaction:
+//
+//   BEGIN -> set_config -> 12 queries -> COMMIT             = 15 round trips
+//
+// The queries serialise on one pinned connection instead of running eight-wide,
+// which is a real cost — but 15 sequential crossings beats 48 across 8
+// connections by a wide margin, and it is the same identity guarantee: still
+// transaction-local, still one verified user, still fails closed.
+//
+// AsyncLocalStorage carries the transaction down to q() without touching a
+// single call site in queries.ts. A page opts in by wrapping its data fetch in
+// withUser(); anything that does not is byte-for-byte the old behaviour.
+// ---------------------------------------------------------------------------
+const txStore = new AsyncLocalStorage<typeof sql>();
+
+export async function withUser<T>(work: () => Promise<T>): Promise<T> {
+  if (!AUTH_ENFORCED) return work();
+  if (txStore.getStore()) return work(); // already inside one; never nest
+  const claims = await getSessionClaims();
+  // No user -> do NOT open a transaction. Fall through so each q() fails closed
+  // on its own, exactly as before: empty rows, never an unscoped read.
+  if (!claims) return work();
+  const json = JSON.stringify(claims);
+  return sql.begin(async (tx) => {
+    await tx`select set_config('request.jwt.claims', ${json}, true)`;
+    return txStore.run(tx as unknown as typeof sql, work);
+  }) as Promise<T>;
+}
+
 export function q<T = unknown>(
   strings: TemplateStringsArray,
   ...values: unknown[]
@@ -92,6 +151,10 @@ export function q<T = unknown>(
       ...values,
     );
   if (!AUTH_ENFORCED) return run(sql);
+  // Inside a withUser() request the transaction is already open and the claims
+  // are already set — reuse it and skip three round trips per query.
+  const ambient = txStore.getStore();
+  if (ambient) return run(ambient);
   return (async () => {
     const claims = await getSessionClaims();
     if (!claims) return [] as unknown as T; // fail closed: no user -> no rows

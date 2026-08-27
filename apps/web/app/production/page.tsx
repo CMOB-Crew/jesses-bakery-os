@@ -1,3 +1,4 @@
+import { withUser } from "@/lib/db";
 import { getProductionPlan, getWeekdayShape, getRunState, getTraySizes } from "@/lib/queries";
 import ProductionBoard from "@/components/ProductionBoard";
 
@@ -5,7 +6,9 @@ export const metadata = { title: "Production · Jesse's Bakery OS" };
 export const dynamic = "force-dynamic"; // render per request; keep off the flaky build-time prerender path
 
 export default async function ProductionPage() {
-  const [lines, shape, saved, traySizes] = await Promise.all([getProductionPlan(), getWeekdayShape(), getRunState("production"), getTraySizes()]);
+  const [lines, shape, saved, traySizes] = await withUser(() =>
+    Promise.all([getProductionPlan(), getWeekdayShape(), getRunState("production"), getTraySizes()])
+  );
 
   return (
     <>

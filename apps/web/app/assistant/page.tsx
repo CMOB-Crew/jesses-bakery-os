@@ -1,3 +1,4 @@
+import { withUser } from "@/lib/db";
 import AssistantBoard, { type AssistantFacts } from "@/components/AssistantBoard";
 import { getNetwork, getEngineProjection } from "@/lib/queries";
 
@@ -6,7 +7,9 @@ export const dynamic = "force-dynamic"; // read live, like the other data pages
 
 async function loadFacts(): Promise<AssistantFacts> {
   try {
-    const [net, scenarios] = await Promise.all([getNetwork(), getEngineProjection()]);
+    const [net, scenarios] = await withUser(() =>
+      Promise.all([getNetwork(), getEngineProjection()])
+    );
     const balanced = scenarios.find((s) => s.scenario === "balanced");
     return {
       wastePct: net.waste_pct == null ? null : Number(net.waste_pct),

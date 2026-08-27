@@ -1,3 +1,4 @@
+import { withUser } from "@/lib/db";
 import { getEngineProjection, getAppSettings, getFeedStatus } from "@/lib/queries";
 import SettingsPanel from "@/components/SettingsPanel";
 
@@ -7,9 +8,11 @@ export const dynamic = "force-dynamic"; // render per request; keep off the flak
 export default async function SettingsPage() {
   // Three round trips to Singapore is 3 x ~130ms of a 10s Netlify budget if
   // they queue up. Nothing here depends on anything else here.
-  const [scenarios, settings, feeds] = await Promise.all([
+  const [scenarios, settings, feeds] = await withUser(() =>
+    Promise.all([
     getEngineProjection(), getAppSettings(), getFeedStatus(),
-  ]);
+  ])
+  );
   return (
     <>
       <div className="head">

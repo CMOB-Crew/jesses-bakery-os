@@ -1,3 +1,4 @@
+import { withUser } from "@/lib/db";
 import { getMapStores, getRunBoard, getRunRoster } from "@/lib/queries";
 import NetworkMap from "@/components/NetworkMap";
 import RunBoard from "@/components/RunBoard";
@@ -13,11 +14,13 @@ export default async function MapPage() {
   // of half a second to a page Tommy already called slow on the 26 Aug screen
   // share, and this page has a 10-second Netlify budget most of which a cold
   // start has already spent.
-  const [runs, roster, stores] = await Promise.all([
+  const [runs, roster, stores] = await withUser(() =>
+    Promise.all([
     getRunBoard(),
     getRunRoster(),
     getMapStores(),
-  ]);
+  ])
+  );
 
   return (
     <>

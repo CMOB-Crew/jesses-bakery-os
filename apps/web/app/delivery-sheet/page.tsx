@@ -1,3 +1,4 @@
+import { withUser } from "@/lib/db";
 import Link from "next/link";
 import { getDeliveryPlan, getDeliveryDetail } from "@/lib/queries";
 import DeliverySheet from "@/components/DeliverySheet";
@@ -6,7 +7,9 @@ export const metadata = { title: "Delivery sheet · Jesse's Bakery OS" };
 export const dynamic = "force-dynamic";
 
 export default async function DeliverySheetPage() {
-  const [plan, detail] = await Promise.all([getDeliveryPlan(), getDeliveryDetail()]);
+  const [plan, detail] = await withUser(() =>
+    Promise.all([getDeliveryPlan(), getDeliveryDetail()])
+  );
 
   return (
     <>

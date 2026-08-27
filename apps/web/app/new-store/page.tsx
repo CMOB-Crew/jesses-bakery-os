@@ -1,3 +1,4 @@
+import { withUser } from "@/lib/db";
 import NewStoreSetup from "@/components/NewStoreSetup";
 import { getRegionNames, getRuns } from "@/lib/queries";
 
@@ -7,7 +8,9 @@ export const metadata = { title: "New store · Jesse's Bakery OS" };
 export const dynamic = "force-dynamic";
 
 export default async function NewStorePage() {
-  const [regions, runs] = await Promise.all([getRegionNames(), getRuns()]);
+  const [regions, runs] = await withUser(() =>
+    Promise.all([getRegionNames(), getRuns()])
+  );
   return (
     <>
       <div className="head">

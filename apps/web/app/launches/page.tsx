@@ -1,3 +1,4 @@
+import { withUser } from "@/lib/db";
 import { getLaunches, getProductLaunches } from "@/lib/queries";
 import LaunchesView from "@/components/Launches";
 
@@ -9,7 +10,9 @@ export const metadata = { title: "Launches · Jesse's Bakery OS" };
 export const dynamic = "force-dynamic";
 
 export default async function LaunchesPage() {
-  const [launches, productLaunches] = await Promise.all([getLaunches(), getProductLaunches()]);
+  const [launches, productLaunches] = await withUser(() =>
+    Promise.all([getLaunches(), getProductLaunches()])
+  );
   return (
     <>
       <div className="head">

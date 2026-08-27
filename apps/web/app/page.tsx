@@ -1,3 +1,4 @@
+import { withUser } from "@/lib/db";
 import Link from "next/link";
 import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek, getAppSettings, getStoreStates, getShelfCapOverrides, getPeakDaySold } from "@/lib/queries";
 import type { StoreWeek } from "@/lib/queries";
@@ -25,9 +26,11 @@ export default async function Overview() {
   // and streaming an empty body. Chaining off storesP rather than awaiting it
   // first keeps everything else running in parallel.
   const storesP = getStoreWeek();
-  const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings, states, capOverrides, peakDay] = await Promise.all([
+  const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings, states, capOverrides, peakDay] = await withUser(() =>
+    Promise.all([
     getNetwork(), getRegions(), storesP.then((s) => getRecommendations(3, s)), getAsOf(), getFeedStatus(), getEngineProjection(), storesP, getStoreRevenueWeek(), getAppSettings(), getStoreStates(), getShelfCapOverrides(), getPeakDaySold(),
-  ]);
+  ])
+  );
 
   // Per-store revenue as a plain object — a Map doesn't survive the server →
   // client boundary, and the dashboard needs per-store figures to recompute the

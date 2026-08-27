@@ -1,3 +1,4 @@
+import { withUser } from "@/lib/db";
 import { getStoreWeek, getStoreStates, getShelfCapOverrides, getPeakDaySold } from "@/lib/queries";
 import StoresList from "@/components/StoresList";
 
@@ -8,7 +9,9 @@ import StoresList from "@/components/StoresList";
 export const dynamic = "force-dynamic";
 
 export default async function StoresPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
-  const [{ view }, stores, states, capOverrides, peakDay] = await Promise.all([searchParams, getStoreWeek(), getStoreStates(), getShelfCapOverrides(), getPeakDaySold()]);
+  const [{ view }, stores, states, capOverrides, peakDay] = await withUser(() =>
+    Promise.all([searchParams, getStoreWeek(), getStoreStates(), getShelfCapOverrides(), getPeakDaySold()])
+  );
   return (
     <>
       <div className="head">

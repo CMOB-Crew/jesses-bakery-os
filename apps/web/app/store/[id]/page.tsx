@@ -1,3 +1,4 @@
+import { withUser } from "@/lib/db";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getStoreById, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto, getStoreAddress, getStoreShelfCap, getStoreDayGrid, getStoreSellouts, getStoreSchedule, getRunPicklist, getStoreRevenueWeek } from "@/lib/queries";
@@ -79,7 +80,8 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
   // All in one Promise.all. Every one of these is a round trip to the Singapore
   // pooler at ~130ms; awaited in sequence the three new ones would add ~400ms to
   // a page Tommy already called slow on the 26 Aug screen share.
-  const [store, recos, all, overrides, ranging, serviceLevel, lastVisit, photo, address, shelf, dayGrid, sellouts, schedule, runs, revMap] = await Promise.all([
+  const [store, recos, all, overrides, ranging, serviceLevel, lastVisit, photo, address, shelf, dayGrid, sellouts, schedule, runs, revMap] = await withUser(() =>
+    Promise.all([
     getStoreById(id), getStoreRecos(id), getStoreWeek(), getStoreOverrides(id),
     getStoreRanging(id), getStoreServiceLevel(id), getStoreLastVisit(id), getStorePhoto(id), getStoreAddress(id), getStoreShelfCap(id),
     getStoreDayGrid(id), getStoreSellouts(id), getStoreSchedule(id), getRunPicklist(),
@@ -89,7 +91,8 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
     // empty map — so a store with no priced sales degrades to the units-only
     // panel instead of breaking the page.
     getStoreRevenueWeek(),
-  ]);
+  ])
+  );
   if (!store) notFound();
 
   const peer = computePeer(store, all);

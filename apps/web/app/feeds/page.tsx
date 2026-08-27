@@ -1,3 +1,4 @@
+import { withUser } from "@/lib/db";
 import { getFeedHealth, getFeedUploads } from "@/lib/queries";
 import FeedUpload from "@/components/FeedUpload";
 
@@ -15,7 +16,9 @@ const fmtWhen = (d: string | null) =>
   d ? new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(d)) : "—";
 
 export default async function FeedsPage() {
-  const [health, uploads] = await Promise.all([getFeedHealth(), getFeedUploads()]);
+  const [health, uploads] = await withUser(() =>
+    Promise.all([getFeedHealth(), getFeedUploads()])
+  );
   const stopped = health.filter((h) => h.status === "stopped");
 
   return (
