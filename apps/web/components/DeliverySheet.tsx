@@ -17,6 +17,8 @@ function shortName(name: string) {
     .trim();
 }
 const isSourdough = (name: string) => /sourdough/i.test(name);
+const WD_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const WD_LABEL: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
 
 // The delivery sheet — the store × product cross-tab Simona knows, but live.
 // Edit any cell and the row total, the column production totals and the
@@ -114,7 +116,22 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
                 const tot = rowTotal(s.store_id);
                 return (
                   <tr key={s.store_id}>
-                    <td className="store"><Link prefetch={false} href={`/store/${s.store_id}`} className="snm">{s.name}</Link><small>{s.region ?? "—"}</small></td>
+                    {/* The region line carries the evening days too. This is the
+                        sheet the bakery packs from, so "goes out at night on
+                        Sun and Fri" belongs next to the store, not two screens
+                        away on the run board. Empty for every morning run, which
+                        is most of them. */}
+                    <td className="store">
+                      <Link prefetch={false} href={`/store/${s.store_id}`} className="snm">{s.name}</Link>
+                      <small>
+                        {s.region ?? "—"}
+                        {s.pm.length > 0 && (
+                          <em className="pm" title="Evening drop — packed a shift earlier than the morning run">
+                            {WD_ORDER.filter((d) => s.pm.includes(d)).map((d) => WD_LABEL[d]).join(", ")} pm
+                          </em>
+                        )}
+                      </small>
+                    </td>
                     {products.map((p) => {
                       const k = `${s.store_id}::${p}`;
                       return (
@@ -192,6 +209,7 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
       .dsheet td.store .snm{display:block;overflow:hidden;text-overflow:ellipsis;color:inherit;text-decoration:none;cursor:pointer}
       .dsheet td.store .snm:hover{text-decoration:underline}
       .dsheet td.store small{display:block;color:var(--muted);font-weight:400;font-size:11.5px;overflow:hidden;text-overflow:ellipsis}
+      .dsheet td.store small .pm{font-style:normal;font-weight:700;font-size:10px;color:#e8e3f2;background:#3f3a56;border-radius:4px;padding:1px 5px;margin-left:6px;letter-spacing:.02em}
       .dsheet tr:last-child td{border-bottom:none}
       /* Zebra rows + dimmed zeros keep a wide, dense grid readable. Cells read as
          plain numbers on the row and only light up as editable on hover/focus. */

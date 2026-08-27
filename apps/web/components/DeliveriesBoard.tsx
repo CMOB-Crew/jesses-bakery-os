@@ -40,6 +40,20 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
     }
     return m;
   }, [runs]);
+  // Which of those days are EVENING drops (runs.run_pm). Five runs carry at
+  // least one: Central Coast, City, North West, Inner West and Western Sydney.
+  // Simona described the Central Coast one on the 26 Aug call — the driver goes
+  // Friday night and Sunday night. Stored since migration 052 and shown nowhere
+  // until now, so a header reading "Central Coast — Sun, Wed, Fri" told a packer
+  // nothing about which of those are night loads. Same labels as runDays so the
+  // two line up.
+  const runPm = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const r of runs) {
+      m.set(r.region.toUpperCase(), new Set(WD_ORDER.filter((d) => r.pm.includes(d)).map((d) => WD_LABEL[d])));
+    }
+    return m;
+  }, [runs]);
   // Day-split curve (Mon..Sun). Measured from real sell-through when we have it,
   // reindexed from the Sun..Sat shape; else the seed curve. This is the same
   // weekend uplift the Seasonality calendar shows — one shape across the app.
@@ -133,6 +147,15 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
   const total = lines.length;
   const totalSent = lines.reduce((a, l) => a + dv(l.sent, l), 0);
   const totalEng = lines.reduce((a, l) => a + dv(v(l.store_id), l), 0);
+  // How much of the selected day leaves the bakery at night rather than on the
+  // morning run. Only meaningful on a day tab — across a whole week it is just
+  // the sum of the night runs and says nothing about a shift.
+  const pmEng = isWeek
+    ? 0
+    : lines.reduce((a, l) => (l.pm.includes(WD_ORDER[day as number]) ? a + dv(v(l.store_id), l) : a), 0);
+  const pmStores = isWeek
+    ? 0
+    : lines.filter((l) => l.pm.includes(WD_ORDER[day as number])).length;
   const trim = totalSent - totalEng;
   const apprCount = lines.filter((l) => approved[l.store_id]).length;
   const dirty = lines.some((l) => v(l.store_id) !== orig[l.store_id]);
@@ -281,6 +304,13 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
             ) : (
               <>.</>
             )}
+            {pmEng > 0 && (
+              <span className="carried">
+                {" "}Of that, <b>{nf(pmEng)}</b> across <b>{nf(pmStores)}</b>{" "}
+                {pmStores === 1 ? "store" : "stores"} goes out on the <b>evening</b> run, so it has to be
+                baked and packed a shift earlier than the rest of {dayName}.
+              </span>
+            )}
             {untouched > 0 && (
               <span className="carried">
                 {" "}All of that comes from the <b>{nf(sized)}</b> stores whose sales we can see. The other{" "}
@@ -353,8 +383,11 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
                     <span className="rn">{titleCaseRegion(g.region)}<em className="runtag">run</em></span>
                     <span className="cnt">{g.rows.length}</span>
                     {(runDays.get(g.region) ?? []).length > 0 && (
-                      <span className="rundays" title="This run's delivery days">
-                        {(runDays.get(g.region) ?? []).map((d) => <i key={d}>{d}</i>)}
+                      <span className="rundays" title="This run's delivery days. A day marked pm is an evening drop — the van goes out at night.">
+                        {(runDays.get(g.region) ?? []).map((d) => {
+                          const evening = runPm.get(g.region)?.has(d);
+                          return <i key={d} className={evening ? "pm" : ""}>{d}{evening ? <b>pm</b> : null}</i>;
+                        })}
                       </span>
                     )}
                     <button type="button" className="appall" onClick={(e) => { e.stopPropagation(); approveRegion(g.region); }}>Approve region</button>
@@ -404,6 +437,17 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
                         ) : (
                           <span className="freq">
                             {l.days.length} {l.days.length === 1 ? "day" : "days"} a week
+                          </span>
+                        )}
+                        {/* Evening drops. In week view it names which of this
+                            store's days are night loads; on a day tab it only
+                            appears when THAT day is one, so the row says what
+                            the shift is without the reader working it out. */}
+                        {(isWeek ? l.pm.length > 0 : l.pm.includes(WD_ORDER[day as number])) && (
+                          <span className="pmchip" title="Evening drop — this one goes out at night, not on the morning run">
+                            {isWeek
+                              ? `evening ${WD_ORDER.filter((d) => l.pm.includes(d)).map((d) => WD_LABEL[d]).join(", ")}`
+                              : "evening drop"}
                           </span>
                         )}
                       </div>
@@ -553,6 +597,11 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
       .dcalm .reghead .cnt{background:#efe6d3;color:var(--ink2);border-radius:999px;font-size:11px;font-weight:700;padding:2px 9px}
       .dcalm .reghead .rundays{display:inline-flex;gap:4px}
       .dcalm .reghead .rundays i{font-style:normal;font-size:10.5px;font-weight:700;color:var(--crust-deep);background:#f2e7d2;border-radius:5px;padding:2px 6px;letter-spacing:.02em}
+      /* Evening drop. Deliberately a night colour rather than a warning one —
+         a night run is normal, it is just a different shift, and amber here
+         would read as "something is wrong with this day". */
+      .dcalm .reghead .rundays i.pm{color:#e8e3f2;background:#3f3a56}
+      .dcalm .reghead .rundays i.pm b{font-weight:800;font-size:8.5px;margin-left:3px;opacity:.75;text-transform:uppercase;letter-spacing:.06em}
       .dcalm .reg-send{text-align:right;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
       .dcalm .reg-eng{text-align:center;color:var(--ink);font-weight:700;font-size:14px;font-variant-numeric:tabular-nums}
       .dcalm .reg-chg{text-align:right;color:var(--crust-deep);font-weight:700;font-size:13px;font-variant-numeric:tabular-nums}
@@ -561,6 +610,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
       .dcalm .reghead.collapsed .chev{transform:rotate(-90deg)}
       .dcalm .freq{margin-left:10px;font-size:11px;font-weight:600;color:var(--muted);background:var(--bg2,rgba(0,0,0,.04));padding:2px 7px;border-radius:5px;white-space:nowrap}
       .dcalm .freq.none{background:var(--red-b);color:var(--red-t)}
+      .dcalm .pmchip{margin-left:6px;font-size:11px;font-weight:700;color:#e8e3f2;background:#3f3a56;padding:2px 7px;border-radius:5px;white-space:nowrap}
       .dcalm .reghead .appall{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink2);font-family:inherit;opacity:0;transition:.14s;margin-left:4px}
       .dcalm .reghead:hover .appall{opacity:1}
       .dcalm .row{border-top:1px solid var(--line2);transition:background .12s}

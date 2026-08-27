@@ -142,23 +142,44 @@ export async function getEngineProjection(): Promise<EngineScenario[]> {
 // store on it — "Edgecliff and Metro Paddington do not get a delivery every
 // day". Approving an order sheet without knowing that is how a store gets sent
 // stock on a day nobody drives to it.
-export type DeliveryLine = { store_id: string; name: string; region: string | null; sent: number; recommended: number; days: string[] };
+//
+// `pm` is the subset of `days` this store takes as an EVENING drop. Worked out
+// per day, not per store, because a store is not always on the same run every
+// day: store_run_overrides records which run serves it on a given day (Coles
+// Maroubra sits on four). So for each of the store's own days we ask which run
+// covers THAT day — the override if there is one, otherwise its default run —
+// and check whether that run lists the day in run_pm.
+//
+// Assuming the default run for every day is what caught migration 052 out, and
+// it would be wrong here in the same way.
+export type DeliveryLine = { store_id: string; name: string; region: string | null; sent: number; recommended: number; days: string[]; pm: string[] };
 export async function getDeliveryPlan(): Promise<DeliveryLine[]> {
   try {
-    const rows = await sql<(Omit<DeliveryLine, "days"> & { days: string[] | null })[]>`
+    const rows = await sql<(Omit<DeliveryLine, "days" | "pm"> & { days: string[] | null; pm: string[] | null })[]>`
       select s.id as store_id, s.name, reg.name as region,
              s.delivery_days::text[] as days,
+             (select coalesce(array_agg(d::text), '{}'::text[])
+                from unnest(s.delivery_days) d
+               where d = any(coalesce(
+                       (select ro.run_pm
+                          from store_run_overrides ovr
+                          join runs ro on ro.id = ovr.run_id
+                         where ovr.store_id = s.id and ovr.day = d),
+                       rn.run_pm,
+                       '{}'::weekday[]))
+             ) as pm,
              sum(r.sent)::int as sent,
              sum(coalesce(o.qty, r.recommended))::int as recommended
       from store_reco r
       join stores s on s.id = r.store_id
       left join regions reg on reg.id = s.region_id
+      left join runs rn on rn.id = s.default_run_id
       left join store_product_overrides o
         on o.store_id = r.store_id and o.product_id = r.product_id
         and (o.mode = 'perm' or o.ends_on is null or o.ends_on >= current_date)
-      group by s.id, s.name, reg.name, s.delivery_days
+      group by s.id, s.name, reg.name, s.delivery_days, rn.run_pm
       order by sum(r.sent - coalesce(o.qty, r.recommended)) desc`;
-    return rows.map((r) => ({ ...r, days: r.days ?? [] }));
+    return rows.map((r) => ({ ...r, days: r.days ?? [], pm: r.pm ?? [] }));
   } catch {
     return [];
   }
@@ -669,15 +690,24 @@ export async function getStoreStates(): Promise<Record<string, string>> {
 // Powers the New Store wizard's "pick a run -> days auto-fill".
 // `id` is here because the New store form now writes default_run_id directly
 // rather than fuzzy-matching a label back to a region (see app/new-store/actions.ts).
-export type RunOption = { id: string; name: string; region: string; days: string[] };
+// `pm` is the subset of `days` that go out in the EVENING (runs.run_pm,
+// migration 052, from Sahil's run timings on 27 Aug). Empty for most runs;
+// five carry at least one evening day — Central Coast, City, North West, Inner
+// West and Western Sydney. Simona described the Central Coast one on the
+// 26 Aug call: the driver goes Friday night and Sunday night. Until now it was
+// stored and nothing on screen said it, so a run board reading "Central Coast
+// — Sun, Wed, Fri" told a packer nothing about which of those are night loads.
+export type RunOption = { id: string; name: string; region: string; days: string[]; pm: string[] };
 export async function getRuns(): Promise<RunOption[]> {
   try {
-    const rows = await sql<{ id: string; name: string; region: string; days: string[] }[]>`
-      select rn.id::text as id, rn.name, r.name as region, rn.run_days::text[] as days
+    const rows = await sql<{ id: string; name: string; region: string; days: string[]; pm: string[] }[]>`
+      select rn.id::text as id, rn.name, r.name as region,
+             rn.run_days::text[] as days,
+             rn.run_pm::text[]   as pm
       from runs rn join regions r on r.id = rn.region_id
       where cardinality(rn.run_days) > 0
       order by rn.name`;
-    return rows.map((r) => ({ id: r.id, name: r.name, region: r.region, days: r.days ?? [] }));
+    return rows.map((r) => ({ id: r.id, name: r.name, region: r.region, days: r.days ?? [], pm: r.pm ?? [] }));
   } catch {
     return [];
   }
