@@ -135,9 +135,25 @@ export async function withUser<T>(work: () => Promise<T>): Promise<T> {
   // on its own, exactly as before: empty rows, never an unscoped read.
   if (!claims) return work();
   const json = JSON.stringify(claims);
+  // TIMED. auth-verify came back at 678ms, so the ten second stall is NOT the
+  // auth call. The twelve queries all start together, all finish within ~2s of
+  // each other at 10-12.6s each, and the ONE query that starts late (after
+  // storesP resolves) takes 1.9s. So the database is fast once you reach it;
+  // something shared is being waited on. This splits that wait in two:
+  //   [tx-open]  = getting a connection + BEGIN + set_config
+  //   [tx-total] = the whole request's work inside the transaction
+  // If tx-open is ~10s it is connection establishment to the Supabase pooler on
+  // a cold function. If tx-open is fast and tx-total is slow, it is the work.
+  const t0 = Date.now();
   return sql.begin(async (tx) => {
     await tx`select set_config('request.jwt.claims', ${json}, true)`;
-    return txStore.run(tx as unknown as typeof sql, work);
+    console.log(`[tx-open] ${Date.now() - t0}ms`);
+    const t1 = Date.now();
+    try {
+      return await txStore.run(tx as unknown as typeof sql, work);
+    } finally {
+      console.log(`[tx-total] ${Date.now() - t1}ms inside the transaction`);
+    }
   }) as Promise<T>;
 }
 

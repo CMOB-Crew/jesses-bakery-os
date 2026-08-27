@@ -25,12 +25,17 @@ export default async function Overview() {
   // and on a cold Netlify function that was the difference between rendering
   // and streaming an empty body. Chaining off storesP rather than awaiting it
   // first keeps everything else running in parallel.
-  const storesP = getStoreWeek();
-  const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings, states, capOverrides, peakDay] = await withUser(() =>
-    Promise.all([
-    getNetwork(), getRegions(), storesP.then((s) => getRecommendations(3, s)), getAsOf(), getFeedStatus(), getEngineProjection(), storesP, getStoreRevenueWeek(), getAppSettings(), getStoreStates(), getShelfCapOverrides(), getPeakDaySold(),
-  ])
-  );
+  // storesP has to be created INSIDE withUser. Outside it, it opens its own
+  // transaction on its own connection and resolves the user separately —
+  // which is why v_store_week reported 14,030ms in the trace while every other
+  // query on the page reported 10-12.6s. Same request, two connections,
+  // competing.
+  const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings, states, capOverrides, peakDay] = await withUser(() => {
+    const storesP = getStoreWeek();
+    return Promise.all([
+      getNetwork(), getRegions(), storesP.then((s) => getRecommendations(3, s)), getAsOf(), getFeedStatus(), getEngineProjection(), storesP, getStoreRevenueWeek(), getAppSettings(), getStoreStates(), getShelfCapOverrides(), getPeakDaySold(),
+    ]);
+  });
 
   // Per-store revenue as a plain object — a Map doesn't survive the server →
   // client boundary, and the dashboard needs per-store figures to recompute the
