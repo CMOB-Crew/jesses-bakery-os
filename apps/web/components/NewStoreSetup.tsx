@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { createStore } from "@/app/new-store/actions";
+import { createStore, createRun } from "@/app/new-store/actions";
 
 /* ------------------------------------------------------------------ *
  * New-store setup — Simona's SOP: "enter once, set the ceiling, let it
@@ -65,7 +65,7 @@ const daysRecordFrom = (arr: string[]): Record<string, boolean> => {
   const set = new Set(arr.map((x) => WD[x]).filter(Boolean));
   return Object.fromEntries(DAYS.map((d) => [d, set.has(d)]));
 };
-export type RunOption = { name: string; region: string; days: string[] };
+export type RunOption = { id: string; name: string; region: string; days: string[] };
 
 // Ranging exclusions (Simona, 14 Aug). A store doesn't stock every line — a
 // product it doesn't range shouldn't be seeded into its bundle. Keyed off
@@ -136,18 +136,50 @@ export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: s
   const [name, setName] = useState("");
   const [retailer, setRetailer] = useState("woolworths");
   const [storeNo, setStoreNo] = useState("");
-  const [region, setRegion] = useState(regionOpts[0]);
-  // Runs are named (= the delivery run), and picking one auto-fills its confirmed
-  // delivery days — the fix for the old "Run 1..8" numbers Simona found confusing.
-  const [run, setRun] = useState(runs[0]?.name ?? "1");
+  // ONE delivery-run field, not two.
+  //
+  // This form used to ask twice: a "Delivery run" select of regions, and a
+  // "Copy days from" select of runs. My own comment here during the rename said
+  // that was a question for the Delivery Runs dashboard build and not one to
+  // answer by picking a label. That build is done and migration 043 answered
+  // it: the numeric Run_ID was legacy noise, the named region IS the run. So
+  // the two fields collapse into one.
+  const [runId, setRunId] = useState<string>(runs[0]?.id ?? "");
+  const [runList, setRunList] = useState(runs);
+  const picked = runList.find((r) => r.id === runId) ?? null;
+  // Ranging rules key off the region name (the Canberra Woolworths rule, the
+  // Mascot DC rule), and the run carries it, so nothing else needs a region field.
+  const region = picked?.region ?? regionOpts[0] ?? "";
   const [days, setDays] = useState<Record<string, boolean>>(() =>
     runs[0] ? daysRecordFrom(runs[0].days) : { Mon: true, Tue: false, Wed: true, Thu: false, Fri: true, Sat: false, Sun: false },
   );
-  // Pick a run -> set it AND pull its days in (still editable per store after).
-  function pickRun(nextName: string) {
-    setRun(nextName);
-    const r = runs.find((x) => x.name === nextName);
+  // Pick a run -> set it AND pull its days in (still editable per store after,
+  // because the run's days are the norm and a store can take fewer).
+  function pickRun(nextId: string) {
+    setRunId(nextId);
+    const r = runList.find((x) => x.id === nextId);
     if (r) setDays(daysRecordFrom(r.days));
+  }
+  // Create-a-run, inline. [§10] "Delivery Run has to be created before the
+  // store if the store belongs to a new run."
+  const [newRunOpen, setNewRunOpen] = useState(false);
+  const [newRunName, setNewRunName] = useState("");
+  const [newRunDays, setNewRunDays] = useState<Record<string, boolean>>({ Mon: true, Tue: false, Wed: true, Thu: false, Fri: true, Sat: false, Sun: false });
+  const [runBusy, setRunBusy] = useState(false);
+  const [runErr, setRunErr] = useState<string | null>(null);
+  async function submitNewRun() {
+    setRunErr(null);
+    setRunBusy(true);
+    const chosen = DAYS.filter((d) => newRunDays[d]).map((d) => d.toLowerCase());
+    const res = await createRun(newRunName, chosen);
+    setRunBusy(false);
+    if (!res.ok) { setRunErr(res.error); return; }
+    const added = { id: res.id, name: res.name, region: newRunName.trim().toUpperCase(), days: chosen };
+    setRunList((l) => [...l, added].sort((a, b) => a.name.localeCompare(b.name)));
+    setRunId(res.id);
+    setDays(daysRecordFrom(chosen));
+    setNewRunOpen(false);
+    setNewRunName("");
   }
   const [size, setSize] = useState<Size>("small");
   const [type, setType] = useState<SType>("standard");
@@ -163,7 +195,8 @@ export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: s
     setSaving(true);
     setSaved(null);
     const res = await createStore({
-      name, retailer, region, storeNo, size, cap, timing,
+      name, retailer, runId, days: DAYS.filter((d) => days[d]).map((d) => d.toLowerCase()),
+      storeNo, size, cap, timing,
       goLiveDate: goLiveDate || undefined,
       service,
     });
@@ -257,34 +290,48 @@ export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: s
               </div>
               <label className="fld">
                 <span>Delivery run</span>
-                <select value={region} onChange={(e) => setRegion(e.target.value)}>
-                  {regionOpts.map((r) => <option key={r} value={r}>{titleCaseRegion(r)}</option>)}
+                <select
+                  value={runId}
+                  onChange={(e) => { if (e.target.value === "__new") { setNewRunOpen(true); setRunErr(null); } else pickRun(e.target.value); }}
+                >
+                  {runList.length === 0 && <option value="">No runs loaded</option>}
+                  {runList.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  <option value="__new">＋ Create a new run…</option>
                 </select>
               </label>
-              {/* NOT a second "Delivery run" field. Renaming Region -> Delivery run
-                  briefly gave this form two fields with the same label, which is
-                  the exact confusion Simona asked us to remove.
-                  
-                  They are genuinely two different things in the legacy data:
-                  Stores_Master carries a named Region (EASTERN SUBURBS, HILLS —
-                  what she calls "the run") AND a numeric Run_ID. Her per-day
-                  overrides point at the NAMES, so the named one is her run and
-                  is labelled as such above. This one only exists to copy a day
-                  pattern onto a new store, so it says so.
-
-                  Whether the numeric run survives at all is a question for the
-                  Delivery Runs dashboard build — it is not one to answer by
-                  picking a label. */}
-              <label className="fld">
-                <span>Copy days from</span>
-                <select value={run} onChange={(e) => pickRun(e.target.value)}>
-                  {runs.length
-                    ? runs.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)
-                    : ["1", "2", "3", "4", "5", "6", "7", "8"].map((r) => <option key={r} value={r}>Run {r}</option>)}
-                </select>
-              </label>
+              {newRunOpen && (
+                <div className="fld f-3 newrun">
+                  <span>New delivery run</span>
+                  <div className="nr">
+                    <input
+                      className="nr-name"
+                      value={newRunName}
+                      onChange={(e) => setNewRunName(e.target.value)}
+                      placeholder="Run name, e.g. City 2"
+                      disabled={runBusy}
+                    />
+                    <div className="days nr-days">
+                      {DAYS.map((d) => (
+                        <button key={d} type="button" className={newRunDays[d] ? "on" : ""} disabled={runBusy}
+                          onClick={() => setNewRunDays((x) => ({ ...x, [d]: !x[d] }))}>{d}</button>
+                      ))}
+                    </div>
+                    <div className="nr-acts">
+                      <button type="button" className="nr-cancel" disabled={runBusy}
+                        onClick={() => { setNewRunOpen(false); setRunErr(null); setRunId(runList[0]?.id ?? ""); }}>Cancel</button>
+                      <button type="button" className="nr-save" disabled={runBusy} onClick={submitNewRun}>
+                        {runBusy ? "Creating…" : "Create run"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="nr-note">
+                    The days you set here are the run&apos;s norm. A store on it can still take fewer.
+                  </div>
+                  {runErr && <div className="nr-err">{runErr}</div>}
+                </div>
+              )}
               <div className="fld f-3">
-                <span>Delivery days{runs.length ? <em className="dhint"> · copied from {run}, tweak if this store differs</em> : null}</span>
+                <span>Delivery days{picked ? <em className="dhint"> · copied from {picked.name}, tweak if this store differs</em> : null}</span>
                 <div className="days">
                   {DAYS.map((d) => (
                     <button key={d} className={days[d] ? "on" : ""} onClick={() => toggleDay(d)}>{d}</button>
@@ -384,7 +431,7 @@ export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: s
               <span className="newtag">● New — learning</span>
             </div>
             <div className="ch-meta">
-              {RETAILERS.find((r) => r.id === retailer)?.label} · {region} · {runs.length ? `${run} run` : `Run ${run}`}
+              {RETAILERS.find((r) => r.id === retailer)?.label} · {picked ? `${picked.name} run` : "no run picked"}
             </div>
             <div className="ch-meta2">
               {SIZE_META[size].label} · {type === "standard" ? "Standard" : type === "sourdough" ? "Sourdough-led" : "Bagel-led"}
@@ -483,6 +530,16 @@ export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: s
         .nstore .fld>span{font-size:12px;font-weight:600;color:var(--ink2)}
         .nstore .f-2{grid-column:span 2}.nstore .f-3{grid-column:span 3}
         .nstore .dhint{font-style:normal;color:var(--faint);font-weight:400;font-size:11px}
+        .nstore .newrun{background:var(--bg2,rgba(0,0,0,.025));border:1px solid var(--line2);border-radius:10px;padding:12px 14px}
+        .nstore .nr{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+        .nstore .nr-name{font:inherit;font-size:13.5px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);min-width:210px}
+        .nstore .nr-acts{display:flex;gap:7px;margin-left:auto}
+        .nstore .nr-cancel,.nsw .nr-save{font:inherit;font-size:12px;font-weight:600;border-radius:7px;padding:6px 13px;cursor:pointer;border:1px solid var(--line)}
+        .nstore .nr-cancel{background:transparent;color:var(--ink2)}
+        .nstore .nr-save{background:var(--crust,#c98a34);border-color:var(--crust,#c98a34);color:#fff}
+        .nstore .nr-save:disabled,.nsw .nr-cancel:disabled{opacity:.55;cursor:default}
+        .nstore .nr-note{font-size:11.5px;color:var(--muted);margin-top:9px}
+        .nstore .nr-err{margin-top:9px;background:var(--red-b);border:1px solid #eab9a8;border-radius:8px;padding:7px 11px;font-size:12.5px;color:var(--red-t)}
         .nstore input,.nstore select{border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:14px;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;width:100%}
         .nstore input:focus,.nstore select:focus{border-color:var(--crust);box-shadow:0 0 0 3px rgba(176,116,28,.13)}
         .nstore .seg{display:flex;gap:0;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex-wrap:wrap}

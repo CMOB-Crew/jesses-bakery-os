@@ -654,15 +654,17 @@ export async function getStoreStates(): Promise<Record<string, string>> {
 // schedule). One run per region; region name = run name. Only runs that actually
 // have days set are returned, so the legacy empty "Run 1..8" rows drop out.
 // Powers the New Store wizard's "pick a run -> days auto-fill".
-export type RunOption = { name: string; region: string; days: string[] };
+// `id` is here because the New store form now writes default_run_id directly
+// rather than fuzzy-matching a label back to a region (see app/new-store/actions.ts).
+export type RunOption = { id: string; name: string; region: string; days: string[] };
 export async function getRuns(): Promise<RunOption[]> {
   try {
-    const rows = await sql<{ name: string; region: string; days: string[] }[]>`
-      select rn.name, r.name as region, rn.run_days::text[] as days
+    const rows = await sql<{ id: string; name: string; region: string; days: string[] }[]>`
+      select rn.id::text as id, rn.name, r.name as region, rn.run_days::text[] as days
       from runs rn join regions r on r.id = rn.region_id
       where cardinality(rn.run_days) > 0
       order by rn.name`;
-    return rows.map((r) => ({ name: r.name, region: r.region, days: r.days ?? [] }));
+    return rows.map((r) => ({ id: r.id, name: r.name, region: r.region, days: r.days ?? [] }));
   } catch {
     return [];
   }

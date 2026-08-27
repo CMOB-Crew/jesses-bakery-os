@@ -19,7 +19,8 @@ const SIZES = new Set(["small", "medium", "large", "xlarge"]);
 export type CreateStoreInput = {
   name: string;
   retailer: string;      // form id (woolworths | coles | harris_farm | direct)
-  region: string;        // display label from the form
+  runId: string;         // the delivery run this store goes out on
+  days: string[];        // mon..sun — THIS store's delivery days
   storeNo?: string;      // supplier / location code
   size: string;          // small | medium | large | xlarge
   cap?: number;          // shelf_max
@@ -27,6 +28,7 @@ export type CreateStoreInput = {
   goLiveDate?: string;   // YYYY-MM-DD (planned go-live when upcoming; actual when live)
   service?: string;      // lean | balanced | generous (form) -> store_settings.service_level
 };
+const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 export type CreateStoreResult = { ok: true; id: string } | { ok: false; error: string };
 
 // Create a store from the New store form. "upcoming" seeds it inactive with a
@@ -50,21 +52,43 @@ export async function createStore(input: CreateStoreInput): Promise<CreateStoreR
 
     if (!live && !date) return { ok: false, error: "Set a planned go-live date, or choose 'Go live now'." };
 
-    // Match the form's region label to a real region: exact name first, else a
-    // loose match on the leading word ("Canberra / ACT" -> CANBERRA). Unmatched
-    // (e.g. a QLD region not yet in the DB) leaves region_id null.
-    const token = (input.region ?? "").split("/")[0].trim().split(/\s+/)[0] || "";
+    // THE BUG THIS FIXES, and it is not a small one.
+    //
+    // This form has always collected a run and a set of delivery days, shown
+    // them back in the summary, and then written NEITHER. The insert set
+    // region_id by fuzzy-matching a label and stopped. So every store created
+    // here landed with no default_run_id and no delivery_days — which means it
+    // appears on no delivery run, and the forecast engine skips it entirely,
+    // because the engine scopes on stores.delivery_days (migration 026).
+    //
+    // A store created through the wizard was invisible to the plan. Migration
+    // 043 backfilled a run onto every store that already existed, so this only
+    // bites on the NEXT store created — and Simona has around thirty landing.
+    //
+    // She also spotted this herself on the 26 Aug call at [21:38], a store with
+    // "no runs set", and nobody chased where it came from. This is where.
+    const runId = (input.runId ?? "").trim();
+    if (!runId) return { ok: false, error: "Pick a delivery run — a store with no run goes out on no van." };
+
+    const run = await sql<{ id: string; region_id: string }[]>`
+      select id::text as id, region_id::text as region_id from runs where id = ${runId}::uuid`;
+    if (!run.length) return { ok: false, error: "That delivery run no longer exists — reload and try again." };
+
+    const days = WEEKDAYS.filter((d) => (input.days ?? []).map((x) => String(x).toLowerCase()).includes(d));
+    if (!days.length) return { ok: false, error: "Pick at least one delivery day." };
+    const daysCsv = days.join(",");
 
     const rows = await sql<{ id: string }[]>`
       insert into stores
-        (name, retailer, region_id, supplier_code, size_category, shelf_max, active, go_live_at, onboarded_at)
+        (name, retailer, region_id, default_run_id, delivery_days, supplier_code,
+         size_category, shelf_max, active, go_live_at, onboarded_at)
       values (
         ${name},
         ${retailer}::retailer_type,
-        (select id from regions
-           where upper(name) = upper(${input.region ?? ""})
-              or (${token} <> '' and name ilike ${"%" + token + "%"})
-           order by name limit 1),
+        ${run[0].region_id}::uuid,
+        ${run[0].id}::uuid,
+        (select coalesce(array_agg(d::weekday), '{}'::weekday[])
+           from unnest(string_to_array(${daysCsv}, ',')) d),
         ${storeNo},
         ${size}::store_size,
         ${cap},
@@ -92,5 +116,60 @@ export async function createStore(input: CreateStoreInput): Promise<CreateStoreR
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not create the store.";
     return { ok: false, error: msg };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Create a delivery run. Item 6 of the 26 Aug brief.
+//
+// [§10] "Delivery Run has to be created before the store if the store belongs
+// to a new run. So Setup needs a create-new-run option."
+//
+// [06:10] is the live case: Simona has ~30 new stores landing and is creating a
+// brand new run called City 2, moving stores off the over-full South East run
+// and pulling East Village off Hills. She cannot do any of that without this.
+//
+// WHY THIS WRITES TWO TABLES. Simona uses ONE word, Delivery Run. The schema
+// has two: `regions` (the grouping) and `runs` (the van and its days), with
+// runs.region_id NOT NULL. Migration 043 established the invariant that every
+// region has exactly one named run with days, and everything — the runs board,
+// the store panel, the overrides — depends on it. So creating a run creates
+// both halves, and the UI keeps showing one thing.
+// ---------------------------------------------------------------------------
+export type CreateRunResult = { ok: true; id: string; name: string } | { ok: false; error: string };
+
+export async function createRun(name: string, days: string[]): Promise<CreateRunResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, id: "demo", name: (name ?? "").trim() };
+  try {
+    const nm = (name ?? "").trim();
+    if (!nm) return { ok: false, error: "Give the run a name." };
+    if (nm.length > 60) return { ok: false, error: "That name is too long." };
+
+    const picked = WEEKDAYS.filter((d) => (days ?? []).map((x) => String(x).toLowerCase()).includes(d));
+    if (!picked.length) return { ok: false, error: "Pick at least one day this run goes out." };
+
+    // Case-insensitive, because "City 2" and "CITY 2" being two different runs
+    // is how you end up with the mess migration 043 had to clean up.
+    const clash = await sql<{ name: string }[]>`
+      select name from regions where upper(name) = upper(${nm}) limit 1`;
+    if (clash.length) return { ok: false, error: `There is already a run called ${clash[0].name}.` };
+
+    const reg = await sql<{ id: string }[]>`
+      insert into regions (name) values (${nm.toUpperCase()}) returning id::text as id`;
+
+    const csv = picked.join(",");
+    const run = await sql<{ id: string; name: string }[]>`
+      insert into runs (region_id, name, run_days)
+      values (
+        ${reg[0].id}::uuid,
+        ${nm},
+        (select coalesce(array_agg(d::weekday), '{}'::weekday[])
+           from unnest(string_to_array(${csv}, ',')) d)
+      )
+      returning id::text as id, name`;
+
+    return { ok: true, id: run[0].id, name: run[0].name };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not create the run." };
   }
 }
