@@ -141,14 +141,41 @@ export async function withUser<T>(work: () => Promise<T>): Promise<T> {
   }) as Promise<T>;
 }
 
+// Temporary, deliberate instrumentation. The Overview still overran after the
+// per-request transaction landed (13,572ms) while Stores came in at 5,141ms,
+// and I am not going to guess which of its twelve queries is eating the time —
+// I have guessed wrong three times today already. This logs any statement over
+// SLOW_MS into the Netlify function log with enough of its text to identify it.
+// Remove it once the slow one is found and fixed.
+const SLOW_MS = Number(process.env.SLOW_QUERY_MS ?? 300);
+
+function label(strings: TemplateStringsArray): string {
+  return strings.join("?").replace(/\s+/g, " ").trim().slice(0, 90);
+}
+
 export function q<T = unknown>(
   strings: TemplateStringsArray,
   ...values: unknown[]
 ): Promise<T> {
+  const started = Date.now();
+  const timed = (r: Promise<T>): Promise<T> =>
+    r.then(
+      (v) => {
+        const ms = Date.now() - started;
+        if (ms >= SLOW_MS) console.log(`[slow-query] ${ms}ms  ${label(strings)}`);
+        return v;
+      },
+      (e) => {
+        console.log(`[query-error] ${Date.now() - started}ms  ${label(strings)}  ${e}`);
+        throw e;
+      },
+    );
   const run = (client: typeof sql) =>
-    (client as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<T>)(
-      strings,
-      ...values,
+    timed(
+      (client as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<T>)(
+        strings,
+        ...values,
+      ),
     );
   if (!AUTH_ENFORCED) return run(sql);
   // Inside a withUser() request the transaction is already open and the claims
