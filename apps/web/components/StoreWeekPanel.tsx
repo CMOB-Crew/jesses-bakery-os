@@ -112,8 +112,14 @@ export default function StoreWeekPanel({
                     <i className="bar del" style={{ height: `${(d.delivered / peak) * 100}%` }} />
                     <i className="bar sold" style={{ height: `${(d.sold / peak) * 100}%` }} />
                   </span>
+                  {/* Simona, 26 Aug [26:03], recorded straight to camera: "run the
+                      numbers left to right with a breaker in the middle, so
+                      delivered versus sold is easy to read at a glance." They
+                      were stacked, which made you read down a column to compare
+                      two figures that belong side by side. */}
                   <span className="nums">
                     <b>{nf(d.delivered)}</b>
+                    <i className="brk" aria-hidden="true" />
                     <em>{nf(d.sold)}</em>
                   </span>
                   {outs.length > 0 && <span className="outdot">{outs.length}</span>}
@@ -177,10 +183,11 @@ export default function StoreWeekPanel({
         .swp .swp-day .bar{display:block;width:9px;border-radius:2px 2px 0 0;min-height:2px}
         .swp .swp-day .bar.del{background:#e7ddca}
         .swp .swp-day .bar.sold{background:#2a2019}
-        .swp .swp-day .nums{display:flex;flex-direction:column;align-items:center;line-height:1.25;font-variant-numeric:tabular-nums}
+        .swp .swp-day .nums{display:flex;flex-direction:row;align-items:baseline;justify-content:center;gap:5px;line-height:1.2;font-variant-numeric:tabular-nums}
+        .swp .swp-day .nums .brk{display:block;width:1px;height:12px;background:var(--line);flex:none;align-self:center}
         .swp .swp-day .nums b{font-size:12.5px;font-weight:600;color:var(--ink2)}
         .swp .swp-day .nums em{font-size:12.5px;font-style:normal;font-weight:700}
-        .swp .swp-day .outdot{position:absolute;top:-7px;right:-7px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--red,#b4432e);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+        .swp .swp-day .outdot{position:absolute;top:-9px;right:-9px;min-width:24px;height:24px;padding:0 6px;border-radius:999px;background:var(--red,#b4432e);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2.5px var(--card),0 1px 3px rgba(0,0,0,.18)}
 
         .swp .swp-leg{display:flex;gap:16px;margin-top:12px;font-size:11.5px;color:var(--muted)}
         .swp .swp-leg .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
