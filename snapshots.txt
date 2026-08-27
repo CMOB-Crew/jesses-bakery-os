@@ -1,1 +1,0 @@
-psql: error: 38_load_snapshots_and_validate.sql: No such file or directory

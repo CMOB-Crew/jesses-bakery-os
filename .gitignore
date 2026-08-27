@@ -4,3 +4,9 @@ node_modules/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Orphan lockfile: there is no root package.json, and a lockfile here makes
+# Turbopack infer the wrong workspace root. The real one is apps/web/.
+/package-lock.json
+# psql output redirects from the legacy-load runs — never repo material.
+/*.txt

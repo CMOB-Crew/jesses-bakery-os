@@ -1,1 +1,0 @@
-psql: error: 30_service_level_table.sql: No such file or directory
