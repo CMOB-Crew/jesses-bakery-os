@@ -25,7 +25,7 @@ export async function markStoreLive(storeId: string, dateStr?: string): Promise<
     const rows = await sql<{ id: string }[]>`
       update stores
          set active = true,
-             onboarded_at = coalesce(${date}::date, current_date),
+             onboarded_at = coalesce(${date}::date, (now() at time zone 'Australia/Sydney')::date),
              go_live_at = null
        where id = ${storeId}::uuid
          and active = false

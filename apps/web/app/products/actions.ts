@@ -40,7 +40,7 @@ export async function createProductLaunch(input: CreateProductLaunchInput): Prom
 
     const rows = await sql<{ id: string }[]>`
       insert into products (name, category, active, launched_at)
-      values (${name}, ${category}::product_category, true, coalesce(${date}::date, current_date))
+      values (${name}, ${category}::product_category, true, coalesce(${date}::date, (now() at time zone 'Australia/Sydney')::date))
       returning id::text as id`;
     return { ok: true, id: rows[0].id };
   } catch (e) {
@@ -56,7 +56,7 @@ export async function setProductLaunch(productId: string, dateStr?: string): Pro
     const date = (dateStr ?? "").trim() || null;
     const rows = await sql<{ id: string }[]>`
       update products
-         set launched_at = coalesce(${date}::date, current_date)
+         set launched_at = coalesce(${date}::date, (now() at time zone 'Australia/Sydney')::date)
        where id = ${productId}::uuid
       returning id::text as id`;
     if (!rows.length) return { ok: false, error: "Product not found." };

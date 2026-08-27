@@ -94,7 +94,7 @@ export async function createStore(input: CreateStoreInput): Promise<CreateStoreR
         ${cap},
         ${live},
         (case when ${live} then null else ${date}::date end),
-        (case when ${live} then coalesce(${date}::date, current_date) else null end)
+        (case when ${live} then coalesce(${date}::date, (now() at time zone 'Australia/Sydney')::date) else null end)
       )
       returning id::text as id`;
 

@@ -851,10 +851,16 @@ export async function getAppSettings(): Promise<AppSettings> {
 
 // Today's saved approval set for a run board (migration 017). itemId -> bool.
 // Empty fallback so the board just starts unapproved if the table isn't there.
+//
+// The day is the SYDNEY day. current_date is UTC on Supabase and the UTC date
+// does not roll over until 10am Sydney, so this read and the write in
+// run-state-actions.ts disagreed with each other for the first ten hours of
+// every day — ticks made at 7am disappeared at 10am. Both sides now use the
+// same expression; if one moves, move the other.
 export async function getRunState(surface: string): Promise<Record<string, boolean>> {
   try {
     const rows = await sql<{ approved: Record<string, boolean> }[]>`
-      select approved from daily_run_state where surface = ${surface} and day = current_date`;
+      select approved from daily_run_state where surface = ${surface} and day = (now() at time zone 'Australia/Sydney')::date`;
     return rows[0]?.approved ?? {};
   } catch {
     return {};
