@@ -8,7 +8,12 @@ const nf = (n: number) => n.toLocaleString("en-AU");
 // waste-vs-selling-out dial lives in Settings now, not here — the Overview just
 // shows what the plan saves. $ unlocks with the per-unit cost data already in
 // the retailer feeds.
-export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[] }) {
+// feedStores comes from the live network read (net.feed_stores), the same
+// source every other tile uses. It used to be the literal "95" typed into the
+// caption. The moment Coles loads — 115 stores, 54.8% of the volume — every
+// other figure on this page jumps to roughly 210 and this caption would have
+// gone on saying 95, directly above a tile that disagreed with it.
+export default function EnginePanel({ scenarios, feedStores = null }: { scenarios: EngineScenario[]; feedStores?: number | null }) {
   const current = scenarios.find((s) => s.scenario === "current");
   const engines = scenarios.filter((s) => s.scenario !== "current").sort((a, b) => a.ord - b.ord);
 
@@ -32,12 +37,12 @@ export default function EnginePanel({ scenarios }: { scenarios: EngineScenario[]
           {/* The tiles below the fold read 34.5% from the live view; this panel
               reads 34.3% from the last engine run, because the engine measured
               the 1,189 store-product lines it actually planned (19,408 units)
-              while the view measures everything those same 95 stores received
+              while the view measures everything those same reporting stores received
               (19,491). Same stores, same week, 83 units apart. Saying which is
               which beats two unexplained numbers on one screen — and the
               scenarios below are all computed on the engine's basis, so this
               number has to stay on it too. */}
-          <span className="src">95 stores that report sales · this week · at the last engine run</span>
+          <span className="src">{feedStores == null ? "Stores that report sales" : `${nf(feedStores)} stores that report sales`} · this week · at the last engine run</span>
         </div>
 
         <div className="eng-grid">

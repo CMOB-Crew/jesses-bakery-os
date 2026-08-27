@@ -29,7 +29,17 @@ const EMBLEM = (
   </svg>
 );
 
-export default function Sidebar() {
+// The footer chip used to be the literal string "Simona / Operations",
+// hardcoded. With auth on it renders for every user — Tommy, Fred, a packer —
+// and, because the nav sits outside the auth boundary, it renders on the
+// sign-in page too, before anyone has logged in at all.
+//
+// It now shows whoever is actually signed in, and shows NOTHING when nobody is.
+// The Sign out link is new: /auth/signout existed but nothing in the entire UI
+// linked to it, so once auth went on there was no way for a user to sign out.
+export type SidebarUser = { email?: string; role?: string };
+
+export default function Sidebar({ user = null }: { user?: SidebarUser | null }) {
   const path = usePathname();
   const isOn = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
   return (
@@ -78,13 +88,26 @@ export default function Sidebar() {
           <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 4v16" /></svg>Packing app <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "var(--amber-t)", background: "var(--amber-b)", padding: "1px 5px", borderRadius: 999 }}>PROTO</span>
         </Link>
       </nav>
-      <div className="side-foot">
-        <div className="avatar">S</div>
-        <div className="who">Simona<small>Operations</small></div>
-      </div>
+      {user && (
+        <div className="side-foot">
+          <div className="avatar">{(user.email ?? "?").trim().charAt(0).toUpperCase()}</div>
+          <div className="who">
+            {(user.email ?? "Signed in").split("@")[0]}
+            <small>{user.role ?? "no role set"}</small>
+          </div>
+          <a className="signout" href="/auth/signout" title="Sign out">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-4" /><path d="M10 17l-5-5 5-5M5 12h12" /></svg>
+            <span className="sr">Sign out</span>
+          </a>
+        </div>
+      )}
       <style>{`
         .side .logo .emblem{width:27px;height:27px;flex:none;filter:drop-shadow(0 2px 4px rgba(120,80,20,.22))}
         .side .logo .logotext{font-family:var(--serif)}
+        .side .side-foot .signout{margin-left:auto;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;color:var(--muted);flex:none}
+        .side .side-foot .signout:hover{background:var(--line);color:var(--espresso)}
+        .side .side-foot .signout svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+        .side .side-foot .signout .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
       `}</style>
     </aside>
   );

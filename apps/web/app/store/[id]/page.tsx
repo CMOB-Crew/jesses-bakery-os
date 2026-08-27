@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getStoreById, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto, getStoreAddress, getStoreShelfCap, getStoreDayGrid, getStoreSellouts, getStoreSchedule, getRunPicklist } from "@/lib/queries";
+import { getStoreById, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto, getStoreAddress, getStoreShelfCap, getStoreDayGrid, getStoreSellouts, getStoreSchedule, getRunPicklist, getStoreRevenueWeek } from "@/lib/queries";
 import StoreProfile, { type PeerStat } from "@/components/StoreProfile";
 import type { StoreWeek } from "@/lib/queries";
 
@@ -45,7 +45,10 @@ function computePeer(store: StoreWeek, all: StoreWeek[]): PeerStat {
   if (group.length < 4) { group = active.filter((s) => s.region === store.region); basis = `${store.region ?? "network"} ${chanLabel} stores`; }
   if (group.length < 4) { group = active; basis = `${chanLabel} stores`; }
   const peers = group.filter((s) => s.store_id !== store.store_id);
-  const thisWaste = Number(store.waste_pct);
+  // Number(null) is 0, and 0 beats every peer — so a store whose waste is
+  // UNKNOWABLE (feed dark) used to score as a flawless performer. NaN is not
+  // finite, so the Number.isFinite guard below now correctly leaves it out.
+  const thisWaste = store.waste_pct == null ? NaN : Number(store.waste_pct);
   // Number(null) is 0, and 0 is finite — so a null waste used to enter the
   // median as a perfect score rather than being left out of it.
   const peerWastes = peers
@@ -76,18 +79,28 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
   // All in one Promise.all. Every one of these is a round trip to the Singapore
   // pooler at ~130ms; awaited in sequence the three new ones would add ~400ms to
   // a page Tommy already called slow on the 26 Aug screen share.
-  const [store, recos, all, overrides, ranging, serviceLevel, lastVisit, photo, address, shelf, dayGrid, sellouts, schedule, runs] = await Promise.all([
+  const [store, recos, all, overrides, ranging, serviceLevel, lastVisit, photo, address, shelf, dayGrid, sellouts, schedule, runs, revMap] = await Promise.all([
     getStoreById(id), getStoreRecos(id), getStoreWeek(), getStoreOverrides(id),
     getStoreRanging(id), getStoreServiceLevel(id), getStoreLastVisit(id), getStorePhoto(id), getStoreAddress(id), getStoreShelfCap(id),
     getStoreDayGrid(id), getStoreSellouts(id), getStoreSchedule(id), getRunPicklist(),
+    // The dollar layer. Added to the SAME Promise.all rather than awaited after
+    // it: the pooler round trip is ~130ms and these run concurrently, so this
+    // costs the page nothing. getStoreRevenueWeek never throws — it returns an
+    // empty map — so a store with no priced sales degrades to the units-only
+    // panel instead of breaking the page.
+    getStoreRevenueWeek(),
   ]);
   if (!store) notFound();
 
   const peer = computePeer(store, all);
+  const revenue = revMap.get(id) ?? null;
   // This request's date (force-dynamic, so it's fresh per load), passed down so
   // the client profile can flag an overdue visit without reading the clock during
   // render — that's impure and the React-compiler lint rejects it.
-  const today = new Date().toISOString().slice(0, 10);
+  // Sydney, not UTC. toISOString() is UTC, so between midnight and 10am AEST
+  // this page believed it was yesterday — the entire bakery working morning —
+  // and the visit-date picker would not accept a visit made an hour ago.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(new Date());
 
   return (
     <>
@@ -96,7 +109,7 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
         {store.region && <> › <Link prefetch={false} href={`/region/${encodeURIComponent(store.region)}`}>{store.region}</Link></>}
         {" "}› {store.name}
       </div>
-      <StoreProfile store={store} recos={recos} peer={peer} overrides={overrides} ranging={ranging} serviceLevel={serviceLevel} lastVisit={lastVisit} today={today} photo={photo} address={address} shelfCap={shelf.shelfCap} noCap={shelf.noCap} dayGrid={dayGrid} sellouts={sellouts} schedule={schedule} runs={runs} />
+      <StoreProfile store={store} recos={recos} revenue={revenue} peer={peer} overrides={overrides} ranging={ranging} serviceLevel={serviceLevel} lastVisit={lastVisit} today={today} photo={photo} address={address} shelfCap={shelf.shelfCap} noCap={shelf.noCap} dayGrid={dayGrid} sellouts={sellouts} schedule={schedule} runs={runs} />
     </>
   );
 }

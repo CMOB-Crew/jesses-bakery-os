@@ -166,7 +166,7 @@ export default async function Overview() {
         </div>
       </div>
 
-      <EnginePanel scenarios={engine} />
+      <EnginePanel scenarios={engine} feedStores={net.feed_stores} />
 
       <TodayDashboard stores={stores} net={net} asOf={fmtDate(asOf)} revenue={revenue} thresholds={thresholds} states={states} revByStore={revByStore} capOverrides={capOverrides} peakDay={peakDay} />
 

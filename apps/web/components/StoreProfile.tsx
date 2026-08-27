@@ -38,10 +38,13 @@ export type PeerStat = {
   verdict: "high" | "opportunity" | "under" | null; // relative to the peer group, not an absolute target
 };
 
+export type StoreRevenueProp = { revenue_wk: number; waste_revenue_wk: number; avg_unit_revenue: number | null };
+
 export default function StoreProfile({
   store,
   recos,
   peer,
+  revenue = null,
   overrides = [],
   ranging = [],
   serviceLevel = null,
@@ -59,6 +62,7 @@ export default function StoreProfile({
   store: StoreWeek;
   recos: StoreReco[];
   peer?: PeerStat;
+  revenue?: StoreRevenueProp | null;
   overrides?: StoreOverride[];
   ranging?: { product_id: string; ranged: boolean }[];
   serviceLevel?: string | null;
@@ -86,7 +90,14 @@ export default function StoreProfile({
   const growth = soldPrev > 0 ? Math.round((1000 * (soldWk - soldPrev)) / soldPrev) / 10 : null;
   // No loaded feed yet (nothing delivered or sold) — this store is NOT a "high
   // performer", it simply has no data. Same neutral rule as the dashboards.
-  const hasData = sentWk > 0 || soldWk > 0;
+  //
+  // The has_sales_feed clause was MISSING here while StoresList, the Overview and
+  // getBenchmarks all carried it. With the Coles feed dark since 3 Aug, waste_pct
+  // is null for 115 stores, v_store_week forces their status to 'green', and this
+  // page scored every one of them "High performer — waste beats 100% of medium
+  // retail stores" next to 0% sell-through. The stores list called the same shop
+  // "No data" on the previous screen.
+  const hasData = store.has_sales_feed !== false && (sentWk > 0 || soldWk > 0);
   const score = hasData ? SCORE[store.status] : SCORE.nodata;
 
   const rows: Row[] = useMemo(
@@ -484,13 +495,46 @@ export default function StoreProfile({
         </div>
       )}
 
-      <div className="mlocked">
-        <span className="lk">🔒 Unlocks with the cost feed</span>
-        <span className="lkm">Weekly sales</span>
-        <span className="lkm">Estimated waste $</span>
-        <span className="lkm">Forecast accuracy</span>
-        <span className="lknote">the per-unit figures already sit in the retailer data</span>
-      </div>
+      {/* This block was a HARDCODED padlock reading "Unlocks with the cost
+          feed". The cost feed is not missing and never was: invoice_cost is
+          populated on 99.8-100% of all 1.15M sales rows back to March 2024, and
+          v_store_revenue_week returns 95 stores and $92,931 for the last seven
+          days. The Overview has been rendering those dollars all along while
+          this page told Simona they were locked. Two screens, same app,
+          disagreeing about whether we have money data.
+
+          Invoice_Cost is what the retailer PAYS Jesse, so these are REVENUE.
+          Margin still needs Jesse's production cost per unit, which is the one
+          thing genuinely still outstanding — so nothing here says "profit". */}
+      {revenue ? (
+        <div className="mrev">
+          <div className="mr-t">
+            <div className="mr-v">${nf(Math.round(revenue.revenue_wk))}</div>
+            <div className="mr-l">Sold this week</div>
+          </div>
+          <div className="mr-t">
+            <div className="mr-v a">
+              {revenue.avg_unit_revenue == null
+                ? "$ —"
+                : `$${nf(Math.round(Math.max(sentWk - soldWk, 0) * revenue.avg_unit_revenue))}`}
+            </div>
+            <div className="mr-l">Unsold this week · what it would have sold for</div>
+          </div>
+          <div className="mr-t">
+            <div className="mr-v dim">$ —</div>
+            <div className="mr-l">Profit · needs Jesse&apos;s production cost</div>
+          </div>
+        </div>
+      ) : (
+        <div className="mlocked">
+          <span className="lk">No priced sales for this store this week</span>
+          <span className="lknote">
+            {store.retailer === "coles"
+              ? "Coles has sent nothing since 8 August, so there is nothing to value."
+              : "Dollars appear here as soon as this store reports a sale."}
+          </span>
+        </div>
+      )}
 
       <div className="dialrow">
         <div className="dial-l">
@@ -736,6 +780,12 @@ export default function StoreProfile({
       .sprof .mlocked .lk{font-size:11.5px;font-weight:700;color:var(--muted);letter-spacing:.2px}
       .sprof .mlocked .lkm{font-size:11.5px;color:var(--faint);border:1px dashed var(--line2);border-radius:6px;padding:2px 8px}
       .sprof .mlocked .lknote{font-size:11px;color:var(--faint);font-style:italic}
+      .sprof .mrev{display:flex;flex-wrap:wrap;gap:10px;margin:12px 2px 18px}
+      .sprof .mrev .mr-t{flex:1 1 150px;border:1px solid var(--line2);border-radius:9px;padding:9px 12px}
+      .sprof .mrev .mr-v{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
+      .sprof .mrev .mr-v.a{color:var(--amber-t)}
+      .sprof .mrev .mr-v.dim{color:var(--faint)}
+      .sprof .mrev .mr-l{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.35}
       .sprof .chip.warn{background:var(--amber-b);color:var(--amber-t)}
       .sprof .m{background:var(--card);padding:13px 15px}
       .sprof .mv{font-family:var(--serif);font-size:22px;font-weight:600;letter-spacing:-.4px;font-variant-numeric:tabular-nums;line-height:1}

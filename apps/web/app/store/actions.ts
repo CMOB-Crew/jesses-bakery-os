@@ -147,7 +147,7 @@ export async function setStoreLastVisit(storeId: string, dateStr: string): Promi
     if (!sid) return { ok: false, error: "Missing store." };
     const d = (dateStr ?? "").trim() || null;
     if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, error: "Use a YYYY-MM-DD date." };
-    if (d && d > new Date().toISOString().slice(0, 10)) return { ok: false, error: "Visit date can't be in the future." };
+    if (d && d > new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(new Date())) return { ok: false, error: "Visit date can't be in the future." };
     await sql`
       insert into store_settings (store_id, last_visit_on, updated_at, updated_by)
       values (${sid}::uuid, ${d}::date, now(), 'app')
