@@ -221,8 +221,12 @@ export async function parseColesWorkbook(buf: ArrayBuffer | Buffer): Promise<Col
     // Entirely blank line — spacers are normal, not an error.
     if (Object.values(raw).every((v) => v == null || v === "")) continue;
 
-    rowsRead++;
+    // Skip FIRST, then count. Both Coles layouts carry a per-store `Total`
+    // row plus a `Grand Total`, and these were being counted as read, never
+    // staged and never rejected — roughly 115 phantom rows per file, on the
+    // one page whose whole point is that read = loaded + not loaded.
     if (isTotalRow(raw)) continue;
+    rowsRead++;
 
     const saleDate = toISODate(raw.saleDate);
     const location = normaliseCode(raw.location);

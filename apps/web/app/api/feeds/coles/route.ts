@@ -87,6 +87,12 @@ export async function POST(req: NextRequest) {
 
     // ---- the parser's own rejects go in the same place as the loader's --
     // so "show me what didn't load" is one list, not two.
+    //
+    // Tagged source:'parser' since 047. They are written BEFORE the loader
+    // runs, and the loader used to open with an untagged
+    // `delete from feed_rejects where upload_id = ...` that took these with it
+    // — so a row the parser could not read vanished without trace and the page
+    // printed "Not loaded: 0". It now clears only source='loader'.
     if (parsed.rejects.length) {
       for (let i = 0; i < parsed.rejects.length; i += CHUNK) {
         const slice = parsed.rejects.slice(i, i + CHUNK).map((r: ColesReject) => ({
@@ -94,6 +100,7 @@ export async function POST(req: NextRequest) {
           row_no: r.rowNo,
           reason: r.reason,
           raw: JSON.stringify(r.raw),
+          source: "parser",
         }));
         await sql`insert into feed_rejects ${sql(slice)}`;
       }
