@@ -86,11 +86,19 @@ export const getDisplayUser = cache(async (): Promise<{ email?: string; role?: s
 });
 
 export const getSessionClaims = cache(async (): Promise<UserClaims | null> => {
+  // TIMED. The Overview's twelve queries all reported 10-11.8 seconds and all
+  // completed within 1.8s of each other — which is not twelve slow queries, it
+  // is twelve fast queries behind one ~10 second stall. Every one of them waits
+  // on this function, because q() resolves claims before it runs anything.
+  // getUser() is a network call to the Supabase Auth server in Singapore. This
+  // measures it rather than assuming it. Temporary.
+  const t0 = Date.now();
   const supabase = await createSupabaseServerClient();
   if (!supabase) return null;
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  console.log(`[auth-verify] ${Date.now() - t0}ms  getUser -> ${user ? "user" : "null"}`);
   if (!user) return null;
   return {
     sub: user.id,
