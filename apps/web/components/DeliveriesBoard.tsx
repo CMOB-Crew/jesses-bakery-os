@@ -47,7 +47,6 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
     () => (shape?.shape ? [1, 2, 3, 4, 5, 6, 0].map((i) => shape.shape[i]) : SEED_DOWMULT),
     [shape],
   );
-  const DSUM = DOWMULT.reduce((a, b) => a + b, 0);
   const orig = useMemo(
     () => Object.fromEntries(lines.map((l) => [l.store_id, l.recommended])) as Record<string, number>,
     [lines],
@@ -94,12 +93,46 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isWeek = day === "week";
-  // displayed value for the current view — whole week, or one day's share
-  const dv = (n: number) => (isWeek ? n : Math.round((n * DOWMULT[day as number]) / DSUM));
+  // Displayed value for the current view — whole week, or ONE DAY'S SHARE FOR
+  // THIS STORE.
+  //
+  // This used to split the weekly figure across all seven days by the demand
+  // curve, for every store, whatever its actual schedule. So a Mon/Wed/Fri
+  // store showed a Tuesday delivery — for a day nobody drives to it — and its
+  // real Monday drop came out roughly two and a half times too small, because
+  // the week was being divided by seven days instead of three. It exported to
+  // CSV that way too.
+  //
+  // `l.days` was already being fetched for exactly this reason (see
+  // getDeliveryPlan) and was only being used to print the "3 days a week" chip.
+  // Simona, 26 Aug [37:26]: "Edgecliff and Metro Paddington do not get a
+  // delivery every day."
+  //
+  // Now: nothing on a day the store is not delivered, and on a day it IS, the
+  // week is divided across only that store's own days, still weighted by the
+  // demand curve so Saturday sits at the top of its range and Tuesday near the
+  // bottom. A store whose days we do not know shows nothing rather than a
+  // number — the seven invoice cafes Simona left blank are exactly that case,
+  // and inventing a Tuesday drop for them is worse than admitting we do not
+  // know.
+  const dv = (n: number, l?: { days?: string[] }) => {
+    if (isWeek) return n;
+    const i = day as number;
+    const days = l?.days ?? [];
+    if (days.length === 0) return 0;
+    if (!days.includes(WD_ORDER[i])) return 0;
+    const wsum = days.reduce((a, d) => {
+      const j = WD_ORDER.indexOf(d);
+      return a + (j >= 0 ? DOWMULT[j] : 0);
+    }, 0);
+    return wsum > 0 ? Math.round((n * DOWMULT[i]) / wsum) : 0;
+  };
+  // True when the selected day is one this store actually gets a delivery on.
+  const onDay = (l: { days?: string[] }) => isWeek || (l.days ?? []).includes(WD_ORDER[day as number]);
   const v = (id: string) => eng[id] ?? orig[id] ?? 0;
   const total = lines.length;
-  const totalSent = lines.reduce((a, l) => a + dv(l.sent), 0);
-  const totalEng = lines.reduce((a, l) => a + dv(v(l.store_id)), 0);
+  const totalSent = lines.reduce((a, l) => a + dv(l.sent, l), 0);
+  const totalEng = lines.reduce((a, l) => a + dv(v(l.store_id), l), 0);
   const trim = totalSent - totalEng;
   const apprCount = lines.filter((l) => approved[l.store_id]).length;
   const dirty = lines.some((l) => v(l.store_id) !== orig[l.store_id]);
@@ -111,7 +144,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
   // 250 when every unit of it comes from the ones we can see. With the Coles
   // feed down since 3 Aug that's most of the network, and it is the first thing
   // anyone will ask about.
-  const untouched = lines.filter((l) => v(l.store_id) === dv(l.sent) || v(l.store_id) === l.sent).length;
+  const untouched = lines.filter((l) => v(l.store_id) === dv(l.sent, l) || v(l.store_id) === l.sent).length;
   const sized = total - untouched;
   const allCollapsed = groups.length > 0 && groups.every((g) => collapsed[g.region]);
 
@@ -127,8 +160,8 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
     const body: string[] = [];
     for (const g of groups) {
       for (const l of g.rows) {
-        const sendNow = dv(l.sent);
-        const finalD = dv(v(l.store_id));
+        const sendNow = dv(l.sent, l);
+        const finalD = dv(v(l.store_id), l);
         body.push(
           [g.region, l.name, sendNow, finalD, finalD - sendNow, approved[l.store_id] ? "Yes" : ""]
             .map(csvCell)
@@ -205,7 +238,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
   const filtering = !!t || unappOnly;
   const regChg = (f: number) => (f > 0 ? `−${nf(f)}` : f < 0 ? `+${nf(-f)}` : "—");
   function chgPill(l: DeliveryLine) {
-    const d = dv(l.sent) - dv(v(l.store_id));
+    const d = dv(l.sent, l) - dv(v(l.store_id), l);
     if (d > 0) return <span className="chgpill">−{nf(d)}</span>;
     if (d < 0) return <span className="chgpill add">+{nf(-d)}</span>;
     return <span className="chgpill same">—</span>;
@@ -308,8 +341,8 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
           // with every group shut, a search would return headers and no rows.
           // Any active filter forces the groups open.
           const isC = !!collapsed[g.region] && !filtering;
-          const send = g.rows.reduce((a, l) => a + dv(l.sent), 0);
-          const engs = g.rows.reduce((a, l) => a + dv(v(l.store_id)), 0);
+          const send = g.rows.reduce((a, l) => a + dv(l.sent, l), 0);
+          const engs = g.rows.reduce((a, l) => a + dv(v(l.store_id), l), 0);
           const fewer = send - engs;
           return (
             <Fragment key={g.region}>
@@ -374,7 +407,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
                           </span>
                         )}
                       </div>
-                      <div className="sendnow hide">{nf(dv(l.sent))}</div>
+                      <div className="sendnow hide">{onDay(l) ? nf(dv(l.sent, l)) : "—"}</div>
                       {isWeek ? (
                         <div className="engcell"><div className="stepper">
                           <button type="button" aria-label={`decrease ${l.name}`} onClick={() => setEngine(l.store_id, val - 1)}>−</button>
@@ -388,7 +421,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
                           <button type="button" aria-label={`increase ${l.name}`} onClick={() => setEngine(l.store_id, val + 1)}>+</button>
                         </div></div>
                       ) : (
-                        <div className="engcell"><div className="engnum">{nf(dv(val))}</div></div>
+                        <div className="engcell"><div className="engnum">{onDay(l) ? nf(dv(val, l)) : "—"}</div></div>
                       )}
                       <div className="chg">
                         {isWeek && changed && (
@@ -406,8 +439,8 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
                     </div>
                   </div>
                   {open && prods.map((p) => {
-                    const psent = dv(Number(p.sent) || 0);
-                    const prec = dv(Number(p.recommended) || 0);
+                    const psent = dv(Number(p.sent) || 0, l);
+                    const prec = dv(Number(p.recommended) || 0, l);
                     const d = psent - prec;
                     return (
                       <div className="prow" key={p.product_name}>
