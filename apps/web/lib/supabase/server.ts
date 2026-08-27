@@ -54,6 +54,37 @@ export async function createSupabaseServerClient() {
 // Wrapped in React `cache` so it runs at most once per request even though the
 // enforced data wrapper (lib/db.ts `q`) calls it on every query -- one token
 // verification per request, not per statement.
+// DISPLAY ONLY. Never use this to decide what someone may see or do.
+//
+// getSessionClaims() above calls supabase.auth.getUser(), which re-validates the
+// token against the Auth server — a network round trip to Supabase in
+// ap-southeast-1. That is exactly right for the data path and Fred was right to
+// insist on it: verify before you trust.
+//
+// It is the wrong thing to put in the root layout. The layout renders before
+// every page on every route, so putting a verified read there added a serial
+// round trip in front of each page's own queries — and on /login, where there
+// is no session at all, it added one for nothing. On a cold Netlify function
+// with a 10-second budget, talking from us-east-1 to Singapore, that is not
+// free.
+//
+// The sidebar chip is cosmetic. It shows a name. It gates nothing — RLS and the
+// proxy do that, on verified claims. So it reads the session straight from the
+// request cookie, locally, with no network call. If a cookie were ever forged
+// the only consequence is a wrong name in the corner of the screen.
+export const getDisplayUser = cache(async (): Promise<{ email?: string; role?: string } | null> => {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const u = data.session?.user;
+    if (!u) return null;
+    return { email: u.email ?? undefined, role: (u.app_metadata?.role as string | undefined) ?? undefined };
+  } catch {
+    return null; // never let the chip take a page down
+  }
+});
+
 export const getSessionClaims = cache(async (): Promise<UserClaims | null> => {
   const supabase = await createSupabaseServerClient();
   if (!supabase) return null;
