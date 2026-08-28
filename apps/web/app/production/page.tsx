@@ -15,7 +15,18 @@ export default async function ProductionPage() {
       <div className="head">
         <h1>Production</h1>
         {lines.length ? (
-          <div className="meta">This week&apos;s bake plan · {lines.length} lines</div>
+          // DISTINCT PRODUCTS, not lines.length. getProductionPlan() returns one
+          // row per product PER STATE — 91 rows for 76 products — so the raw
+          // length disagreed with every other count on the page: the sheet pills
+          // (Regular 69 + Sourdough 7), the stat tile (69) and the footer (69).
+          //
+          // ProductionBoard already folds the state rows down in allLines, and
+          // carries a comment about never reading "a separately-aggregated
+          // network figure, which is what would let the headline and the list
+          // disagree". This header sat outside the board and did precisely that.
+          <div className="meta">
+            This week&apos;s bake plan · {new Set(lines.map((l) => l.name)).size} lines
+          </div>
         ) : null}
       </div>
 
