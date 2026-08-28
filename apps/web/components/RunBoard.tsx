@@ -59,6 +59,22 @@ const RETAILER: Record<string, string> = {
 };
 const order = (ds: string[]) => DAYS.filter((d) => ds.includes(d));
 const list = (ds: string[]) => order(ds).map((d) => SHORT[d]).join(", ");
+// Same list, with the evening days marked. Used wherever a run's days are
+// printed, so the run cards and the detail heading can never say different
+// things about the same run.
+function DayList({ days, pm }: { days: string[]; pm: string[] }) {
+  const ds = order(days);
+  if (ds.length === 0) return null;
+  return (
+    <>
+      {ds.map((d, i) => (
+        <span key={d} className={pm.includes(d) ? "evd" : undefined}>
+          {i ? ", " : ""}{SHORT[d]}{pm.includes(d) ? " pm" : ""}
+        </span>
+      ))}
+    </>
+  );
+}
 
 export default function RunBoard({
   runs,
@@ -178,7 +194,7 @@ export default function RunBoard({
               onClick={() => { setSelId(r.id); setEditing(false); setNote(null); setErr(null); }}
             >
               <span className="rb-n">{r.name}</span>
-              <span className="rb-d">{list(r.days)}</span>
+              <span className="rb-d"><DayList days={r.days} pm={r.pm} /></span>
               <span className="rb-m">
                 {r.stores} {r.stores === 1 ? "store" : "stores"}
                 {r.visitors > 0 && <> · {r.visitors} visiting</>}
@@ -194,7 +210,11 @@ export default function RunBoard({
               <div>
                 <div className="rb-t">{sel.name}</div>
                 <div className="rb-s">
-                  {editing ? "Pick the days this run goes out" : `Goes out ${list(sel.days) || "— no days set"}`}
+                  {editing
+                    ? "Pick the days this run goes out"
+                    : sel.days.length === 0
+                      ? "Goes out — no days set"
+                      : <>Goes out <DayList days={sel.days} pm={sel.pm} /></>}
                 </div>
               </div>
               {!editing ? (
@@ -210,12 +230,15 @@ export default function RunBoard({
             <div className="rb-days">
               {DAYS.map((d) => {
                 const on = days.includes(d);
-                if (!editing) return <span key={d} className={`rb-day${on ? " on" : ""}`}>{SHORT[d]}</span>;
+                // Evening styling only on a day the run actually goes out. An
+                // off day is off; it is never "off, in the evening".
+                const evening = on && sel.pm.includes(d);
+                if (!editing) return <span key={d} className={`rb-day${on ? " on" : ""}${evening ? " pm" : ""}`}>{SHORT[d]}{evening ? " pm" : ""}</span>;
                 return (
                   <button
                     type="button"
                     key={d}
-                    className={`rb-day tap${on ? " on" : ""}`}
+                    className={`rb-day tap${on ? " on" : ""}${evening ? " pm" : ""}`}
                     onClick={() => toggle(d)}
                     disabled={saving}
                     aria-pressed={on}
@@ -225,6 +248,18 @@ export default function RunBoard({
                 );
               })}
             </div>
+
+            {/* What the evening mark means, and what it does NOT claim.
+                Only shown on a run that has one — a note on a run with no
+                evening days would read as a denial that it has any, and three
+                of the five runs are UNKNOWN rather than daytime. */}
+            {!editing && sel.pm.length > 0 && (
+              <div className="rb-pmnote">
+                <b>pm</b> marks an <b>evening</b> run — the van goes out that night.
+                Whether it lands the same night or the next morning is still open
+                with Sahil, so nothing here assumes either.
+              </div>
+            )}
 
             {/* Say what Save will do before she presses it. */}
             {editing && (added.length > 0 || removed.length > 0) && (
@@ -358,6 +393,11 @@ export default function RunBoard({
         .rb .rb-days{display:flex;gap:6px;margin:14px 0 4px;flex-wrap:wrap}
         .rb .rb-day{font-size:12px;font-weight:700;padding:7px 13px;border-radius:8px;background:var(--bg2,rgba(0,0,0,.04));color:var(--muted);border:1px solid transparent}
         .rb .rb-day.on{background:var(--green-b);color:var(--green-t);border-color:#cadfc3}
+        /* Same evening palette as the Deliveries board and the packing sheet,
+           so one mark means one thing across every surface. */
+        .rb .rb-day.on.pm{background:#3f3a56;color:#e8e3f2;border-color:#3f3a56}
+        .rb .evd{color:#3f3a56;font-weight:700}
+        .rb .rb-pmnote{margin:2px 0 10px;font-size:12px;color:var(--muted);line-height:1.55}
         .rb .rb-day.tap{cursor:pointer;font-family:inherit}
         .rb .rb-day.tap:hover{border-color:var(--ink2)}
         .rb .rb-day.tap:disabled{opacity:.55;cursor:default}

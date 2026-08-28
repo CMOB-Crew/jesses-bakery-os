@@ -2238,7 +2238,15 @@ export async function getSeasonalEvents(): Promise<SeasonEvent[]> {
 // twenty legacy "Run N" rows (migration 043) are not runs anyone drives.
 // ---------------------------------------------------------------------
 export type RunCard = {
-  id: string; name: string; region: string; days: string[];
+  // `pm` is the subset of `days` this run goes out in the EVENING (runs.run_pm).
+  // It was already on DeliveryLine and RunOption; RunBoard never got it, which
+  // is why /map — the page actually titled "the days it goes out" — was the one
+  // surface with no evening marking on it at all.
+  //
+  // Empty means UNKNOWN, not daytime. Central Coast, City and North West had
+  // run_pm cleared when 052 was reverted, and the UI must not fill that silence
+  // in with an assumption. That assumption is what 052 was.
+  id: string; name: string; region: string; days: string[]; pm: string[];
   stores: number;        // stores whose home run this is
   visitors: number;      // stores that ride it on some days but live elsewhere
   exceptions: number;    // home stores that don't take every one of the run's days
@@ -2250,6 +2258,7 @@ export async function getRunBoard(): Promise<RunCard[]> {
              rn.name                                  as name,
              reg.name                                 as region,
              rn.run_days::text[]                      as days,
+             coalesce(rn.run_pm, '{}')::text[]        as pm,
              (select count(*) from stores s
                where s.default_run_id = rn.id and s.active)::int          as stores,
              (select count(distinct o.store_id) from store_run_overrides o
