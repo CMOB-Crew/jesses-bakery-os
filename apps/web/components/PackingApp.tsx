@@ -43,6 +43,8 @@ type UIRun = { run_id: string; name: string; stores: UIStore[]; units: number };
 const CHIPS = ["Short on the order", "Item damaged", "Substituted product", "Out of stock — nothing to pack"];
 const CHIP_LABEL: Record<string, string> = { "Short on the order": "Short", "Item damaged": "Damaged", "Substituted product": "Substituted", "Out of stock — nothing to pack": "Out of stock" };
 
+const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+
 function toUI(runs: PackRun[]): UIRun[] {
   return runs.map((r) => ({
     run_id: r.run_id,
@@ -156,7 +158,7 @@ export default function PackingApp({
               return (
                 <div key={r.run_id || r.name} className={`run ${i === cur ? "on" : ""}`} onClick={() => setCur(i)}>
                   <div className="rn">{r.name}<span className="cdot" style={{ background: done ? "var(--green)" : "var(--crust)" }} /></div>
-                  <div className="rd">{r.stores.length} stores · {r.units.toLocaleString("en-AU")} units</div>
+                  <div className="rd">{plural(r.stores.length, "store")} · {r.units.toLocaleString("en-AU")} units</div>
                   <div className="track"><i style={{ width: `${(100 * p) / Math.max(1, n)}%` }} /></div>
                   <div className="rc">{p} of {n} packed</div>
                 </div>
@@ -165,7 +167,7 @@ export default function PackingApp({
           </div>
 
           <div className="main">
-            <div className="mh"><h2>{run.name}</h2><span className="ms">{run.stores.length} stores · {run.units.toLocaleString("en-AU")} units</span></div>
+            <div className="mh"><h2>{run.name}</h2><span className="ms">{plural(run.stores.length, "store")} · {run.units.toLocaleString("en-AU")} units</span></div>
             <div className="list">
               {run.stores.map((s, si) => {
                 const itemsShown = !!expItems[key(si)];
@@ -208,7 +210,7 @@ export default function PackingApp({
               })}
             </div>
             <div className="foot">
-              <span className="st">{allDone ? `All ${run.stores.length} stores resolved — ready to finalise.` : `${run.stores.length - curPacked} store(s) still to pack or flag.`}</span>
+              <span className="st">{allDone ? `All ${run.stores.length} stores resolved — ready to finalise.` : `${plural(run.stores.length - curPacked, "store")} still to pack or flag.`}</span>
               <button className="final" disabled={!allDone} onClick={() => showToast(`${run.name} marked finalised by ${who}. Not saved and not sent to drivers yet — that is the next phase.`)}>
                 {allDone ? `Finalise ${run.name}` : "Finalise run"}
               </button>
@@ -224,7 +226,7 @@ export default function PackingApp({
       <div className="pack-slip" aria-hidden="true">
         <div className="ps-head">
           <div className="ps-brand"><span className="mk">✦</span> Jesse&apos;s Bakery — Packing Slip</div>
-          <div className="ps-meta">{run.name} · {dayLabel} · {run.stores.length} stores · {run.units.toLocaleString("en-AU")} units</div>
+          <div className="ps-meta">{run.name} · {dayLabel} · {plural(run.stores.length, "store")} · {run.units.toLocaleString("en-AU")} units</div>
           <div className="ps-date">Packer: __________________   Checked by: __________________</div>
         </div>
         {run.stores.map((s) => (
