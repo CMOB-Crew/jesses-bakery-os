@@ -504,7 +504,12 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
         .seasn .cdate{display:flex;align-items:center;justify-content:space-between;gap:4px}
         .seasn .cdate>span:first-child{font-size:13px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
         .seasn .cell.out .cdate>span{color:var(--muted);font-weight:500}
-        .seasn .todayn{background:var(--espresso);color:#f0e6d2;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center}
+        /* .cdate>span.todayn, not .todayn. `.seasn .cdate>span:first-child` sets
+   color:var(--ink) at (0,3,1) and a bare `.seasn .todayn` is (0,2,0), so
+   the marker got its dark circle and kept the dark number: measured
+   rgb(42,32,25) on rgb(33,28,22), about 1.06:1. Matching the specificity
+   and winning on source order beats reaching for !important. */
+        .seasn .cdate>span.todayn{background:var(--espresso);color:#f0e6d2;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center}
         .seasn .cmult{font-size:10.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
         .seasn .dcr-raw{display:block;font-style:normal;font-size:10.5px;font-weight:600;color:var(--muted);letter-spacing:.01em}
         .seasn .cmult.up{color:var(--crust-deep)}
