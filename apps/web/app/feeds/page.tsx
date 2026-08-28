@@ -56,7 +56,7 @@ export default async function FeedsPage() {
       )}
 
       <div className="sh-top" style={{ marginTop: 26 }}>
-        <h3>Upload a Coles report</h3>
+        <h3>Upload a sales report</h3>
       </div>
       <FeedUpload />
 

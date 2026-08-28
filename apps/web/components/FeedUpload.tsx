@@ -40,9 +40,19 @@ const FIELD_LABEL: Record<string, string> = {
 const fmtDay = (d: string | null) =>
   d ? new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short" }).format(new Date(d + "T00:00:00")) : "—";
 
+const RETAILERS: { id: string; label: string; report: string }[] = [
+  { id: "coles", label: "Coles", report: "Pay On Scan" },
+  { id: "woolworths", label: "Woolworths", report: "supplier sales" },
+  { id: "harris_farm", label: "Harris Farm", report: "vendor sales" },
+];
+
 export default function FeedUpload() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement | null>(null);
+  // Which retailer this file belongs to. The loader resolves store and
+  // product codes from the retailer's own columns, so picking the wrong
+  // one does not mis-load: every row comes back as an unknown code.
+  const [retailer, setRetailer] = useState("coles");
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
   const [res, setRes] = useState<Result | null>(null);
@@ -53,7 +63,7 @@ export default function FeedUpload() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const r = await fetch("/api/feeds/coles", { method: "POST", body: fd });
+      const r = await fetch(`/api/feeds/${retailer}`, { method: "POST", body: fd });
       const j = (await r.json()) as Result;
       setRes(j);
       if (j.ok) router.refresh();
@@ -67,6 +77,18 @@ export default function FeedUpload() {
 
   return (
     <div className="fu">
+      <div className="fu-pick" role="group" aria-label="Which retailer sent this report">
+        {RETAILERS.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            className={retailer === r.id ? "on" : ""}
+            onClick={() => { setRetailer(r.id); setRes(null); }}
+            disabled={busy}
+          >{r.label}</button>
+        ))}
+      </div>
+
       <div
         className={`fu-drop${drag ? " on" : ""}${busy ? " busy" : ""}`}
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
@@ -95,16 +117,23 @@ export default function FeedUpload() {
           </>
         ) : (
           <>
-            <div className="fu-t">Drop the Coles <b>Pay On Scan</b> report here</div>
+            <div className="fu-t">
+              Drop the {RETAILERS.find((r) => r.id === retailer)?.label}{" "}
+              <b>{RETAILERS.find((r) => r.id === retailer)?.report}</b> report here
+            </div>
             <div className="fu-s">or click to choose it · .xlsx, up to 25MB</div>
           </>
         )}
       </div>
 
       <p className="fu-note">
-        We read the columns by their <b>names</b>, not their positions — so if Coles move a
-        column or rename the tab again, this keeps working. Any row we can&apos;t match to a
+        We read the columns by their <b>names</b>, not their positions — so if a retailer moves a
+        column or renames the tab, this keeps working. Any row we can&apos;t match to a
         store and a product is listed back to you rather than quietly skipped.
+        {retailer !== "coles" && (
+          <> Only Coles reports have been through this parser so far; if this one is
+          shaped differently it will be refused with a reason, never half-loaded.</>
+        )}
       </p>
 
       {res && !res.ok && (
@@ -164,6 +193,10 @@ export default function FeedUpload() {
 
       <style>{`
         .fu{display:block}
+        .fu .fu-pick{display:flex;gap:8px;margin-bottom:12px}
+        .fu .fu-pick button{font-family:inherit;font-size:13px;font-weight:600;color:var(--ink2);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 15px;cursor:pointer}
+        .fu .fu-pick button.on{background:var(--espresso);border-color:var(--espresso);color:#f4ecd9}
+        .fu .fu-pick button:disabled{opacity:.5;cursor:not-allowed}
         .fu .fu-drop{border:2px dashed var(--line);border-radius:var(--r);background:var(--card);padding:34px 20px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
         .fu .fu-drop:hover,.fu .fu-drop.on{border-color:var(--crust);background:#fdfaf4}
         .fu .fu-drop.busy{cursor:progress;opacity:.75}

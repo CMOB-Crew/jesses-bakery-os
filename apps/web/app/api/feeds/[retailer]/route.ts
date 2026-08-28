@@ -23,9 +23,24 @@ export const maxDuration = 60;
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
-export async function POST(req: NextRequest) {
+// The three retailers whose sales we ingest. 'invoice' is in the enum but
+// has no report -- those are Jesse's own accounts, billed not scanned.
+const RETAILERS = new Set(["coles", "woolworths", "harris_farm"]);
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ retailer: string }> },
+) {
   let uploadId: string | null = null;
   try {
+    // Validated against a fixed set, never passed through to SQL as-is.
+    const { retailer } = await params;
+    if (!RETAILERS.has(retailer)) {
+      return NextResponse.json(
+        { ok: false, error: `Unknown retailer "${retailer}".` },
+        { status: 400 },
+      );
+    }
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) {
@@ -61,7 +76,7 @@ export async function POST(req: NextRequest) {
     const [up] = await sql<{ id: string }[]>`
       insert into feed_uploads
         (retailer, filename, sheet_name, header_row, column_map, period_from, period_to, rows_read)
-      values ('coles', ${file.name}, ${parsed.sheetName}, ${parsed.headerRow},
+      values (${retailer}::retailer_type, ${file.name}, ${parsed.sheetName}, ${parsed.headerRow},
               ${JSON.stringify(parsed.columns)}::jsonb,
               ${parsed.dateFrom}, ${parsed.dateTo}, ${parsed.rowsRead})
       returning id`;
