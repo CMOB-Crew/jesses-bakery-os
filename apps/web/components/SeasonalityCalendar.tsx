@@ -337,7 +337,7 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
                   {c.inMonth && (
                     <div className="cevs">
                       {evs.slice(0, 2).map((e) => (
-                        <span className="cev" key={e.id} style={{ background: KIND_META[e.kind].b, color: KIND_META[e.kind].c }}>
+                        <span className="cev" key={e.id} title={e.name} style={{ background: KIND_META[e.kind].b, color: KIND_META[e.kind].c }}>
                           {e.name}
                         </span>
                       ))}
@@ -493,10 +493,10 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
 
         .seasn .grid2{display:grid;grid-template-columns:1.9fr 1fr;gap:18px;align-items:start}
         .seasn .cal{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
-        .seasn .dowhead{display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--line)}
+        .seasn .dowhead{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-bottom:1px solid var(--line)}
         .seasn .dowhead div{padding:10px 8px;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);font-weight:700;text-align:left}
-        .seasn .cells{display:grid;grid-template-columns:repeat(7,1fr)}
-        .seasn .cell{position:relative;min-height:92px;border-right:1px solid var(--line2);border-bottom:1px solid var(--line2);padding:7px 8px;text-align:left;cursor:pointer;font-family:inherit;background:transparent;display:flex;flex-direction:column;gap:5px;transition:box-shadow .12s}
+        .seasn .cells{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+        .seasn .cell{min-width:0;position:relative;min-height:92px;border-right:1px solid var(--line2);border-bottom:1px solid var(--line2);padding:7px 8px;text-align:left;cursor:pointer;font-family:inherit;background:transparent;display:flex;flex-direction:column;gap:5px;transition:box-shadow .12s}
         .seasn .cells .cell:nth-child(7n){border-right:none}
         .seasn .cell:hover:not(.out){box-shadow:inset 0 0 0 2px rgba(176,116,28,.35)}
         .seasn .cell.sel{box-shadow:inset 0 0 0 2px var(--crust)}
@@ -509,8 +509,8 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
         .seasn .dcr-raw{display:block;font-style:normal;font-size:10.5px;font-weight:600;color:var(--muted);letter-spacing:.01em}
         .seasn .cmult.up{color:var(--crust-deep)}
         .seasn .cmult.dn{color:#4f7396}
-        .seasn .cevs{display:flex;flex-direction:column;gap:3px;margin-top:auto}
-        .seasn .cev{font-size:10px;font-weight:600;padding:2px 6px;border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.35}
+        .seasn .cevs{min-width:0;display:flex;flex-direction:column;gap:3px;margin-top:auto}
+        .seasn .cev{max-width:100%;font-size:10px;font-weight:600;padding:2px 6px;border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.35}
 
         .seasn .rail{position:sticky;top:16px}
         .seasn .daycard{padding:18px 20px}
