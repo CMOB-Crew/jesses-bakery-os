@@ -82,9 +82,26 @@ export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: 
     toastTimer.current = setTimeout(() => setToast(null), 2600);
   }
   // Persist one config group and report honestly (saved / preview-only / error).
+  // What each config group was worth when it was last saved, or at load for
+  // the three that can be reached by blurring an input. Nine inputs on this
+  // page persist on blur with no check that anything changed, so tabbing
+  // across them wrote to the database and reported a save that had not
+  // happened. Same shape as the delivery-sheet bug fixed earlier today,
+  // smaller blast radius: the value written was identical, so nothing was
+  // corrupted -- but a toast that says "saved" when nothing changed makes
+  // every real save unverifiable, and this toast is the only feedback the
+  // page gives.
+  const persistedRef = useRef<Record<string, string>>({
+    size_baskets:     JSON.stringify(sizes),
+    shelf_lead:       JSON.stringify({ shelfDays, pullDays, sdLead, otherLead }),
+    waste_thresholds: JSON.stringify({ small: wtSmall, medium: wtMedium, large: wtLarge }),
+  });
   function persist(key: string, value: unknown, label: string) {
+    const json = JSON.stringify(value);
+    if (persistedRef.current[key] === json) return;
     startSave(async () => {
       const res = await saveSetting(key, value);
+      if (res.ok) persistedRef.current[key] = json;
       if (res.ok) ping(res.readonly ? `${label} — preview only (this demo doesn't save changes)` : `${label} — saved`);
       else ping(`Couldn't save: ${res.error}`);
     });
