@@ -89,6 +89,18 @@ export default function FeedUpload() {
         ))}
       </div>
 
+      <div className="fu-pick" role="group" aria-label="Which retailer sent this report">
+        {RETAILERS.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            className={retailer === r.id ? "on" : ""}
+            onClick={() => { setRetailer(r.id); setRes(null); }}
+            disabled={busy}
+          >{r.label}</button>
+        ))}
+      </div>
+
       <div
         className={`fu-drop${drag ? " on" : ""}${busy ? " busy" : ""}`}
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
@@ -193,6 +205,10 @@ export default function FeedUpload() {
 
       <style>{`
         .fu{display:block}
+        .fu .fu-pick{display:flex;gap:8px;margin-bottom:12px}
+        .fu .fu-pick button{font-family:inherit;font-size:13px;font-weight:600;color:var(--ink2);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 15px;cursor:pointer}
+        .fu .fu-pick button.on{background:var(--espresso);border-color:var(--espresso);color:#f4ecd9}
+        .fu .fu-pick button:disabled{opacity:.5;cursor:not-allowed}
         .fu .fu-pick{display:flex;gap:8px;margin-bottom:12px}
         .fu .fu-pick button{font-family:inherit;font-size:13px;font-weight:600;color:var(--ink2);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 15px;cursor:pointer}
         .fu .fu-pick button.on{background:var(--espresso);border-color:var(--espresso);color:#f4ecd9}
