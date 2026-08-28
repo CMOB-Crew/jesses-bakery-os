@@ -534,19 +534,35 @@ export async function getFeedStatus(): Promise<FeedStatus[]> {
     // today is Coles at 17 days, and a four-month silence is a different
     // conversation from a stale badge, so that's an acceptable edge for now.
     return await sql<FeedStatus[]>`
-      with last_seen as (
+      with t as (
+        -- The SYDNEY date, not jb_asof(). jb_asof() is max(as_of) from
+        -- store_actuals -- a number made from the same data whose freshness
+        -- this is judging. Anchored there, a feed is only late relative to
+        -- whichever feed is freshest, and if they ALL stop the anchor stops
+        -- with them: every gap computes to zero and every retailer reads
+        -- "up to date" forever. That is the exact silent failure this query
+        -- was written to catch. See migration 066.
+        --
+        -- Not current_date either: that resolves in the session timezone,
+        -- which is UTC on Supabase, and does not roll over until 10am Sydney.
+        select (now() at time zone 'Australia/Sydney')::date as today
+      ),
+      last_seen as (
         select sd.source::text as source, max(sd.sale_date) as as_of
         from sales_daily sd
-        where sd.sale_date >  jb_asof() - 120
-          and sd.sale_date <= jb_asof()
+        -- Both ends bounded, INTEGER arithmetic. Written as date minus an
+        -- INTEGER. An interval instead yields a timestamp, which silently
+        -- demotes the Index Cond to a row Filter and scans the table.
+        where sd.sale_date >  (select today from t) - 120
+          and sd.sale_date <= (select today from t)
         group by 1
       )
       select l.source,
-             case when jb_asof() - l.as_of <= 2 then 'ok'
-                  when jb_asof() - l.as_of <= 5 then 'late'
+             case when (select today from t) - l.as_of <= 2 then 'ok'
+                  when (select today from t) - l.as_of <= 5 then 'late'
                   else 'stopped' end as status,
              l.as_of,
-             (jb_asof() - l.as_of)::int as days_behind,
+             ((select today from t) - l.as_of)::int as days_behind,
              null::text as detail
       from last_seen l
       order by l.as_of asc`;
