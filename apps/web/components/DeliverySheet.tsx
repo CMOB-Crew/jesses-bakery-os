@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { setStoreOverride } from "@/app/store/actions";
 import type { DeliveryLine, DeliveryDetailLine } from "@/lib/queries";
@@ -44,6 +44,12 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
     return m;
   }, [detail]);
   const [cells, setCells] = useState<Record<string, number>>(initial);
+  // What each cell was worth the last time it was successfully saved, or on
+  // load if it never has been. persistCell compares against this so that
+  // merely focusing and leaving a cell writes nothing. A ref rather than
+  // state: it must not cause a render, and it has to survive between blur
+  // events.
+  const savedRef = useRef<Record<string, number>>({ ...initial });
   const [flash, setFlash] = useState<string | null>(null);
   const [saved, setSaved] = useState("Edits save as store adjustments");
   const [, startSave] = useTransition();
@@ -68,9 +74,15 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
   function persistCell(sid: string, p: string) {
     const pid = nameToId[p];
     if (!pid) return;
-    const qty = cells[`${sid}::${p}`] ?? 0;
+    const k = `${sid}::${p}`;
+    const qty = cells[k] ?? 0;
+    // Blur fires whether or not anything was typed. Without this, reading
+    // the grid pinned every cell it touched to a permanent override that
+    // outranks the engine for good.
+    if (qty === (savedRef.current[k] ?? 0)) return;
     startSave(async () => {
       const res = await setStoreOverride({ storeId: sid, productId: pid, qty, mode: "perm" });
+      if (res.ok) savedRef.current[k] = qty;
       if (res.ok) setSaved(res.readonly ? "Preview only — this demo doesn't save changes" : "Saved ✓");
       else setSaved(`Couldn't save: ${res.error}`);
     });
@@ -90,7 +102,7 @@ export default function DeliverySheet({ plan, detail }: { plan: DeliveryLine[]; 
     return (
       <div className="panel">
         <div style={{ fontFamily: "var(--serif)", fontSize: 18, marginBottom: 8 }}>The grid warms up with the plan</div>
-        <div style={{ color: "var(--ink2)", maxWidth: 560, lineHeight: 1.6 }}>The store × product sheet is built from the per-store plan on the Woolworths feed. It fills in here as the plan is written.</div>
+        <div style={{ color: "var(--ink2)", maxWidth: 560, lineHeight: 1.6 }}>The store × product sheet is built from the per-store plan. It fills in here as the plan is written.</div>
       </div>
     );
   }
