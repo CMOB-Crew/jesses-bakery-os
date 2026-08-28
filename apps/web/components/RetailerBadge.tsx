@@ -31,14 +31,18 @@ type Brand = {
   /** Intrinsic size of the asset, so Next/Image reserves the right box. */
   w: number;
   h: number;
+  /** Per-mark class. Equal pixel height is NOT equal visual weight: the
+   *  Coles wordmark reads larger than a symbol at the same height, and the
+   *  Harris Farm lockup carries two lines and needs more. Sized in CSS. */
+  cls: string;
   /** True when the mark is a symbol only and still needs the name beside it. */
   needsWord?: boolean;
 };
 
 const LOGO: Record<string, Brand> = {
-  woolworths:  { label: "Woolworths",  src: "/retailers/woolworths.png",  w: 30, h: 28, needsWord: true },
-  coles:       { label: "Coles",       src: "/retailers/coles.png",       w: 87, h: 28 },
-  harris_farm: { label: "Harris Farm", src: "/retailers/harris-farm.png", w: 93, h: 28 },
+  woolworths:  { label: "Woolworths",  src: "/retailers/woolworths.png",  w: 30, h: 28, cls: "rb-wool",  needsWord: true },
+  coles:       { label: "Coles",       src: "/retailers/coles.png",       w: 87, h: 28, cls: "rb-coles" },
+  harris_farm: { label: "Harris Farm", src: "/retailers/harris-farm.png", w: 93, h: 28, cls: "rb-hf" },
 };
 
 export default function RetailerBadge({
@@ -65,7 +69,7 @@ export default function RetailerBadge({
       alt={b.label}
       width={b.w}
       height={b.h}
-      className="rb-logo"
+      className={`rb-logo ${b.cls}`}
       unoptimized
       priority={false}
     />

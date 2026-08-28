@@ -241,15 +241,20 @@ tr.clk:hover td{background:#faf6ee}
 /* Real retailer marks. White chip, hairline border, the logo carries the
    colour -- a green apple cannot sit on a green pill. Height is set on the
    image and width follows, so each mark keeps its own proportions. */
-.rbadge.rblogo{padding:3px 11px 3px 8px;border-radius:999px;background:#fff;border:1px solid var(--line,#e0d6c4);gap:6px}
-.rbadge.rblogo .rb-logo{height:14px;width:auto;display:block}
+.rbadge.rblogo{width:112px;justify-content:center;padding:3px 8px;border-radius:999px;background:#fff;border:1px solid var(--line,#e0d6c4);gap:6px}
+.rbadge.rblogo .rb-logo{width:auto;display:block}
+.rbadge.rblogo .rb-logo.rb-wool{height:13px}
+.rbadge.rblogo .rb-logo.rb-coles{height:11px}
+.rbadge.rblogo .rb-logo.rb-hf{height:14px}
+.rbadge.rblogo.sm{width:104px;padding:2px 7px;gap:5px}
+.rbadge.rblogo.sm .rb-logo.rb-wool{height:12px}
+.rbadge.rblogo.sm .rb-logo.rb-coles{height:10px}
+.rbadge.rblogo.sm .rb-logo.rb-hf{height:13px}
 .rbadge.rblogo .rb-w{font-family:var(--sans);font-weight:700;font-size:12.5px;letter-spacing:-.1px;line-height:1.35;color:var(--ink,#2c2118)}
-.rbadge.rblogo.sm{padding:2px 9px 2px 7px;gap:5px}
-.rbadge.rblogo.sm .rb-logo{height:12px}
 .rbadge.rblogo.sm .rb-w{font-size:11.5px}
 .rbadge.rblogo.bare{padding:3px 8px}
 .rbadge.rblogo.bare.sm{padding:2px 7px}
-.rbadge.plain{font-family:var(--sans);display:inline-block;padding:2px 9px;border-radius:999px;background:var(--line2,#eee4d4);color:var(--ink2,#6b5b45);font-weight:600;font-size:12px}
+.rbadge.plain{font-family:var(--sans);display:inline-flex;align-items:center;justify-content:center;width:104px;padding:2px 9px;border-radius:999px;background:var(--line2,#eee4d4);color:var(--ink2,#6b5b45);font-weight:600;font-size:12px}
 
 /* NOT ".logo" — that class already exists above for the sidebar brand lockup,
    and it carries font-family:var(--serif). Naming the modifier "logo" put every
