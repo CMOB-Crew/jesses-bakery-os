@@ -238,7 +238,7 @@ tr.clk:hover td{background:#faf6ee}
 .rbadge.sm{font-size:12px;gap:6px}
 .rbadge.sm i{width:17px;height:17px;border-radius:4px;font-size:10.5px}
 .rbadge-l{font-weight:600}
-.rbadge.plain{font-family:var(--sans);display:inline-block;padding:2px 9px;border-radius:999px;background:var(--line2,#eee4d4);color:var(--ink2,#6b5b45);font-weight:600;font-size:12px}
+/* Real retailer marks. White chip, hairline border, the logo carries the\n   colour -- a green apple cannot sit on a green pill. Height is set on the\n   image and width follows, so each mark keeps its own proportions. */\n.rbadge.rblogo{padding:3px 11px 3px 8px;border-radius:999px;background:#fff;border:1px solid var(--line,#e0d6c4);gap:6px}\n.rbadge.rblogo .rb-logo{height:14px;width:auto;display:block}\n.rbadge.rblogo .rb-w{font-family:var(--sans);font-weight:700;font-size:12.5px;letter-spacing:-.1px;line-height:1.35;color:var(--ink,#2c2118)}\n.rbadge.rblogo.sm{padding:2px 9px 2px 7px;gap:5px}\n.rbadge.rblogo.sm .rb-logo{height:12px}\n.rbadge.rblogo.sm .rb-w{font-size:11.5px}\n.rbadge.rblogo.bare{padding:3px 8px}\n.rbadge.rblogo.bare.sm{padding:2px 7px}\n.rbadge.plain{font-family:var(--sans);display:inline-block;padding:2px 9px;border-radius:999px;background:var(--line2,#eee4d4);color:var(--ink2,#6b5b45);font-weight:600;font-size:12px}
 
 /* NOT ".logo" — that class already exists above for the sidebar brand lockup,
    and it carries font-family:var(--serif). Naming the modifier "logo" put every

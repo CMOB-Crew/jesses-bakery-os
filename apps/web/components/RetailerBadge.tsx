@@ -1,68 +1,44 @@
+import Image from "next/image";
+
 // Retailer marker for store rows and profiles.
 //
 // Simona asked to see the retailer at a glance rather than reading the word
-// (Session 2 UAT). The first version was a brand-COLOURED monogram — a green W,
-// a red C, a green H — which was a placeholder, and Javonte called it out: the
-// point of a brand mark is that you recognise it without reading it, and a
-// letter in a box still has to be read.
+// (Session 2 UAT). The first version was a brand-COLOURED monogram, then
+// hand-drawn SVG approximations of each mark. Both were placeholders and both
+// were called out for the same reason: the point of a brand mark is that you
+// recognise it without reading it.
 //
-// So these are now the marks themselves: Woolworths' W-and-leaf, Coles' and
-// Harris Farm's wordmarks, each on its brand colour. Direct-invoice ("small
-// shops") stay a neutral text chip — Simona said those don't need a mark.
+// These are the real marks. The old file promised the swap would be "a change
+// to MARK below and nothing else -- no caller changes", and it was.
 //
-// A note on what these are. They are hand-drawn SVG in the retailers' own
-// colours and shapes, used to identify Jesse's actual customers inside Jesse's
-// own system. They are close, not pixel-exact reproductions. If we ever want the
-// official artwork, every retailer publishes it in their brand kit and swapping
-// it in is a change to MARK below and nothing else — no caller changes.
+//   Woolworths   the apple, beside the word -- the apple alone is the mark
+//   Coles        the wordmark IS the logo, so it carries the name itself
+//   Harris Farm  the lockup, same -- the words are part of the mark
+//   Invoice      unchanged: a neutral text chip, no mark (Simona's call)
 //
-// One self-contained component so every surface renders the marker the same.
+// The chip is WHITE now rather than the brand colour. A green apple cannot sit
+// on a green pill, and three saturated blocks in a dense store list were
+// louder than the data. White with a hairline border lets each mark carry its
+// own colour, which is how they are meant to be used.
+//
+// The artwork is raster, prepared from supplied images. Every one of these
+// retailers publishes vector marks in a brand kit; dropping those in is a
+// change to LOGO below and nothing else.
 
 type Brand = {
   label: string;
-  /** Wordmark as it is set in the retailer's own logo. */
-  word: string;
-  bg: string;
-  /** Lowercase, tighter tracking — Coles sets its name that way. */
-  lower?: boolean;
-  mark?: React.ReactNode;
+  src: string;
+  /** Intrinsic size of the asset, so Next/Image reserves the right box. */
+  w: number;
+  h: number;
+  /** True when the mark is a symbol only and still needs the name beside it. */
+  needsWord?: boolean;
 };
 
-const WOOLWORTHS_MARK = (
-  <svg viewBox="0 0 24 24" aria-hidden="true">
-    {/* The W, one continuous rounded stroke, with the right arm running up into
-        the leaf rather than stopping — that join is the whole mark. */}
-    <path
-      d="M2.6 6.4 L6.2 17.0 C6.6 18.3 8.4 18.4 8.9 17.1 L12 9.6 L15.1 17.1 C15.6 18.4 17.4 18.3 17.8 17.0 L18.8 14.4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.9"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-    <path
-      d="M18.3 14.9 C17.2 11.2 18.8 7.4 21.9 6.0 C22.9 9.6 21.4 13.4 18.3 14.9 Z"
-      fill="currentColor"
-    />
-  </svg>
-);
-
-const HARRIS_FARM_MARK = (
-  <svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M3.6 20.4 C3.6 10.4 10.4 3.6 20.4 3.6 C20.4 13.6 13.6 20.4 3.6 20.4 Z" fill="currentColor" />
-    {/* Midrib, cut out in the brand green so the leaf reads as a leaf and not a
-        blob. It is knocked through in the pill's own colour, which is why this
-        mark is only ever drawn on that colour. */}
-    <path d="M4.6 19.4 L16.4 7.6" fill="none" stroke="#1f6b3b" strokeWidth="1.6" strokeLinecap="round" />
-  </svg>
-);
-
-const MARK: Record<string, Brand> = {
-  woolworths: { label: "Woolworths", word: "Woolworths", bg: "#178841", mark: WOOLWORTHS_MARK },
-  // Coles' logo is a wordmark — there is no separate symbol to show, so the
-  // word IS the mark. Lowercase and tight, the way they set it.
-  coles: { label: "Coles", word: "coles", bg: "#E01A22", lower: true },
-  harris_farm: { label: "Harris Farm", word: "Harris Farm", bg: "#1f6b3b", mark: HARRIS_FARM_MARK },
+const LOGO: Record<string, Brand> = {
+  woolworths:  { label: "Woolworths",  src: "/retailers/woolworths.png",  w: 30, h: 28, needsWord: true },
+  coles:       { label: "Coles",       src: "/retailers/coles.png",       w: 87, h: 28 },
+  harris_farm: { label: "Harris Farm", src: "/retailers/harris-farm.png", w: 93, h: 28 },
 };
 
 export default function RetailerBadge({
@@ -74,32 +50,40 @@ export default function RetailerBadge({
   showLabel?: boolean;
   size?: "sm" | "md";
 }) {
-  const b = MARK[retailer];
+  const b = LOGO[retailer];
   if (!b) {
-    // Invoice / independent — a plain neutral chip, no mark.
-    const label = retailer ? retailer[0].toUpperCase() + retailer.slice(1) : "—";
+    // Invoice / independent -- a plain neutral chip, no mark.
+    const label = retailer ? retailer[0].toUpperCase() + retailer.slice(1) : "\u2014";
     return <span className={`rbadge plain ${size}`}>{label}</span>;
   }
 
-  // No room for the word (dense contexts): show the symbol alone. Coles has no
-  // symbol, so it keeps its initial rather than showing nothing.
+  // The mark alone, for dense contexts. Every retailer has one that reads at
+  // this size, so unlike the drawn version there is no letter fallback.
+  const mark = (
+    <Image
+      src={b.src}
+      alt={b.label}
+      width={b.w}
+      height={b.h}
+      className="rb-logo"
+      unoptimized
+      priority={false}
+    />
+  );
+
   if (!showLabel) {
     return (
-      <span className={`rbadge tile ${size}`} style={{ background: b.bg }} title={b.label} aria-label={b.label}>
-        {b.mark ?? <i className="rb-i">c</i>}
+      <span className={`rbadge rblogo bare ${size}`} title={b.label} aria-label={b.label}>
+        {mark}
       </span>
     );
   }
 
   return (
-    <span
-      className={`rbadge rbmark ${size}${b.lower ? " lower" : ""}`}
-      style={{ background: b.bg }}
-      title={b.label}
-      aria-label={b.label}
-    >
-      {b.mark}
-      <span className="rb-w">{b.word}</span>
+    <span className={`rbadge rblogo ${size}`} title={b.label}>
+      {mark}
+      {/* Only Woolworths needs the name beside it. The other two marks say it. */}
+      {b.needsWord && <span className="rb-w">{b.label}</span>}
     </span>
   );
 }
