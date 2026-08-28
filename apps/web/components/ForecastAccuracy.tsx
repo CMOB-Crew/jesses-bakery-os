@@ -84,7 +84,7 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
     );
   }
 
-  const { weeks, network, improve, netBias, onTrack, target, lookback, snapshots, panelStores, panelBalanced } = data;
+  const { weeks, network, improve, improveWindow, netBias, onTrack, target, lookback, snapshots, panelStores, panelBalanced } = data;
   const shown = showAll ? ranked : ranked.slice(0, TABLE_CAP);
   const hasProducts = data.hard.length > 0 && data.easy.length > 0;
 
@@ -138,8 +138,8 @@ export default function ForecastAccuracy({ data }: { data: ForecastAccuracyData 
           <div>
             <div className="cc-lbl">Forecast accuracy · last {weeks.length} weeks</div>
             <div className="cc-big">{network}<span className="u">%</span></div>
-            <div className={`cc-sub ${improve >= 0 ? "good" : "bad"}`}>
-              {improve >= 0 ? "↑" : "↓"} {Math.abs(improve)} points across the window
+            <div className={`cc-sub ${improveWindow >= 0 ? "good" : "bad"}`}>
+              {improveWindow >= 0 ? "↑" : "↓"} {Math.abs(improveWindow)} points across the window
             </div>
             <div className="cc-panel">
               {panelBalanced

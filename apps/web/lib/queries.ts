@@ -1879,6 +1879,11 @@ export type ForecastAccuracyData = {
   weeks: number[];          // network weekly closeness, oldest -> newest (up to 8)
   network: number;          // latest complete week's network closeness
   improve: number;          // network vs ~4 weeks ago (points)
+  // The delta across the WHOLE trend window. Separate from `improve`
+  // because the chart caption sits under the whole line and used to
+  // render the 4-week number while calling it "across the window" --
+  // so an 8-week climb of 3 points was captioned as 0.
+  improveWindow: number;
   panelStores: number;      // stores scored in EVERY week of the trend window
   panelBalanced: boolean;   // false when the panel was too thin and we fell back
   netBias: number;          // mean store bias, %
@@ -2024,6 +2029,7 @@ export async function getForecastAccuracy(): Promise<ForecastAccuracyData | null
     });
     const network = weeks[weeks.length - 1] ?? 0;
     const improve = weeks.length >= 5 ? network - weeks[weeks.length - 5] : network - weeks[0];
+    const improveWindow = weeks.length >= 2 ? network - weeks[0] : 0;
     const netBias = Math.round(stores.reduce((a, s) => a + s.bias, 0) / stores.length);
     const onTrack = Math.round((stores.filter((s) => s.acc >= TARGET).length / stores.length) * 100);
 
@@ -2081,7 +2087,7 @@ export async function getForecastAccuracy(): Promise<ForecastAccuracyData | null
     } catch { /* products optional — leave hard/easy empty */ }
 
     return {
-      weeks, network, improve, netBias, onTrack, target: TARGET, lookback: K, snapshots,
+      weeks, network, improve, improveWindow, netBias, onTrack, target: TARGET, lookback: K, snapshots,
       panelStores: panel.length, panelBalanced,
       stores, hard, easy,
     };
