@@ -35,6 +35,16 @@ type Evt = {
   // (nothing is planned from the seed). 0 means the event is parked: it's real,
   // but we don't yet know which stores it applies to, so it moves nobody.
   storesAffected?: number | null;
+  // Of those, how many the engine can reach TODAY — active and still
+  // reporting sales. 38 scoped / 20 reachable on the Rosh Hashanah events:
+  // the 18 missing are Coles, dark since 8 Aug. Shown alongside rather than
+  // instead of, because that gap reverses when the feed comes back.
+  storesLive?: number | null;
+  productsScoped?: number | null;
+  // uplift x the share of planned units this event's scope covers. THE
+  // NUMBER THE DAY CELL IS BUILT FROM. null = no plan to weigh against, in
+  // which case fall back to the raw uplift — never to zero.
+  dayEffect?: number | null;
 };
 
 // Seeded from the 12 Aug production session + Questions-for-Simona.
@@ -92,6 +102,7 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
             kind: (e.kind in KIND_META ? e.kind : "custom") as Kind,
             name: e.name, scope: e.scope, start: e.start, end: e.end, uplift: e.uplift, note: e.note,
             storesAffected: e.storesAffected,
+            storesLive: e.storesLive, productsScoped: e.productsScoped, dayEffect: e.dayEffect,
           }))
         : SEED,
     [liveEvents],
@@ -132,14 +143,38 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
   // list. It shows in the month list so it isn't forgotten; it must not colour
   // a day, because the plan for that day is unchanged.
   const movesThePlan = (e: Evt) => e.storesAffected == null || e.storesAffected > 0;
+  // What ONE event does to a whole network day. Not its headline uplift.
+  //
+  // An event that lifts three challah lines 90% at 20 stores does not lift the
+  // network 90%; it lifts it by 90% x the share of the day those lines at
+  // those stores represent, which is 3.02% -> +2.71%. dayEffect carries that
+  // product from v_event_scope (063).
+  //
+  // Falling back to the raw uplift when dayEffect is null is deliberate and is
+  // the SAFE direction: null means the plan table was empty, and showing the
+  // unweighted number is the old behaviour rather than silently claiming the
+  // event does nothing.
+  const effectOf = (e: Evt) => (e.dayEffect == null ? e.uplift : e.dayEffect);
+
   function dayMult(dow: number, key: string) {
-    // ADD the uplifts, don't compound them. jb_plan_day does
+    // ADD the effects, don't compound them. jb_plan_day does
     // `sum(uplift_pct) / 100`, so two events on one day give 1 + (a+b)/100.
     // Multiplying gave (1+a)(1+b) — for Sukkot +8 overlapping the spring school
     // holidays -30 that's -24.4% here against the engine's -22%. Small, and
     // exactly the kind of small that turns into "the calendar said one thing
     // and the run sheet said another".
-    const pct = eventsOn(key).filter(movesThePlan).reduce((a, e) => a + e.uplift, 0);
+    //
+    // 063: adding was never the bug. The POPULATION was. The engine sums per
+    // (store, product) over only the events matching that pair; this summed
+    // every event on the day and printed one number for the whole network.
+    // Fine while every event was network-wide. Then 036 added store scope and
+    // 056 added product scope, and on 10-13 Sept 2026 this line was adding
+    // challah's +90% to babka's +290% — two DISJOINT product sets — and
+    // rendering x6.00 against a measured network truth of +4.3%.
+    //
+    // A network-wide event has share 1.0, so effectOf === uplift and nothing
+    // about Christmas or Easter changes.
+    const pct = eventsOn(key).filter(movesThePlan).reduce((a, e) => a + effectOf(e), 0);
     return BASE[dow] * (1 + pct / 100);
   }
   function tint(m: number) {
@@ -326,17 +361,33 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
                     <span className="dcr-l">Weekday shape · {DOW_LABEL[selDow]}</span>
                     <span className={`dcr-v${BASE[selDow] >= 1.05 ? " up" : BASE[selDow] <= 0.9 ? " dn" : ""}`}>{fmtPct(BASE[selDow])}</span>
                   </div>
-                  {selEvents.map((e) => (
-                    <div className="dcr" key={e.id}>
-                      <span className="dcr-l"><i className="kd" style={{ background: KIND_META[e.kind].c }} />{e.name}</span>
-                      <span className={`dcr-v${e.uplift > 0 ? " up" : " dn"}`}>{e.uplift > 0 ? "+" : ""}{e.uplift}%</span>
-                    </div>
-                  ))}
+                  {selEvents.map((e) => {
+                    // Both numbers, always, when they differ. The headline is
+                    // the lever Simona sets and the truth for the products it
+                    // touches; the effect is what it does to the whole day.
+                    // Showing only the first overstates the day, showing only
+                    // the second makes a real +90% look like noise.
+                    const eff = effectOf(e);
+                    const scoped = e.dayEffect != null && Math.abs(e.dayEffect - e.uplift) >= 0.05;
+                    return (
+                      <div className="dcr" key={e.id}>
+                        <span className="dcr-l"><i className="kd" style={{ background: KIND_META[e.kind].c }} />{e.name}</span>
+                        <span className={`dcr-v${eff > 0 ? " up" : " dn"}`}>
+                          {scoped && <em className="dcr-raw">{e.uplift > 0 ? "+" : ""}{e.uplift}% on its lines</em>}
+                          {eff > 0 ? "+" : ""}{Math.round(eff * 10) / 10}%
+                        </span>
+                      </div>
+                    );
+                  })}
                   {selEvents.length === 0 && <div className="dc-none">Just the weekday shape — no events layered on this day.</div>}
                 </div>
                 <div className="dc-foot">
                   Plan reads this day <b>{fmtPct(selMult)}</b> against a flat week.
-                  {selEvents.length > 0 && " Product-specific spikes (e.g. challah) run higher than the network figure."}
+                  {selEvents.some((e) => e.dayEffect != null && Math.abs(e.dayEffect - e.uplift) >= 0.05)
+                    ? " That is the NETWORK figure. A scoped event shows its own rate too — that rate is what its products get at its stores, and it runs far higher than the day."
+                    : selEvents.length > 0
+                      ? " Product-specific spikes (e.g. challah) run higher than the network figure."
+                      : ""}
                 </div>
               </>
             ) : (
@@ -364,7 +415,13 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
                     <span className={`ev-reach${e.storesAffected === 0 ? " parked" : ""}`}>
                       {e.storesAffected === 0
                         ? "not applied — no stores picked yet"
-                        : `moves ${e.storesAffected} ${e.storesAffected === 1 ? "store" : "stores"}`}
+                        : e.storesLive != null && e.storesLive < e.storesAffected
+                          // The list is right; the reach is short because a
+                          // retailer feed is dark. Say both, because it comes
+                          // back on its own and a single number would be wrong
+                          // in one direction now and the other direction later.
+                          ? `${e.storesAffected} stores scoped · engine reaches ${e.storesLive} today`
+                          : `moves ${e.storesAffected} ${e.storesAffected === 1 ? "store" : "stores"}`}
                     </span>
                   )}
                 </div>
@@ -449,6 +506,7 @@ export default function SeasonalityCalendar({ live, liveEvents = [] }: { live: W
         .seasn .cell.out .cdate>span{color:var(--muted);font-weight:500}
         .seasn .todayn{background:var(--espresso);color:#f0e6d2;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center}
         .seasn .cmult{font-size:10.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
+        .seasn .dcr-raw{display:block;font-style:normal;font-size:10.5px;font-weight:600;color:var(--muted);letter-spacing:.01em}
         .seasn .cmult.up{color:var(--crust-deep)}
         .seasn .cmult.dn{color:#4f7396}
         .seasn .cevs{display:flex;flex-direction:column;gap:3px;margin-top:auto}

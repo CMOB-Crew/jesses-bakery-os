@@ -2162,10 +2162,28 @@ export async function getWeekdayShape(): Promise<WeekdayShape | null> {
 // the whole time, which is precisely why nobody caught it — the words were
 // right and the arithmetic wasn't. Now the page shows the number the engine
 // uses, so the two can never drift apart silently again.
-export type SeasonEvent = { id: string; kind: string; name: string; scope: string; start: string; end: string; uplift: number; note: string; storesAffected: number | null };
+// 063 appends three more, and the reason is the same failure repeating one
+// layer up. 036 taught the ENGINE about store scope but left the CALENDAR
+// summing every event's headline uplift into one network number. With two
+// Rosh Hashanah events on the same four days -- +90% on challah, +290% on
+// babka, disjoint product sets, 38 stores -- the page printed x6.00 for Sunday
+// 13 September. The engine's real figure for that day is +4.3%.
+//
+//   storesLive     how many of storesAffected the engine can reach TODAY
+//                  (active and still reporting). 38 vs 20 on the Rosh
+//                  Hashanah events; the 18 missing are all Coles, dark since
+//                  8 Aug. Both numbers are shown, because the gap is a feed
+//                  outage that reverses and neither number alone is honest.
+//   productsScoped null means the event moves every product.
+//   dayEffect      uplift x the share of planned units the scope covers.
+//                  This is what the calendar cell must be built from.
+//                  NULL when no plan exists to weigh against -- the caller
+//                  MUST treat null as "no weight available" and fall back to
+//                  the raw uplift, never as zero.
+export type SeasonEvent = { id: string; kind: string; name: string; scope: string; start: string; end: string; uplift: number; note: string; storesAffected: number | null; storesLive: number | null; productsScoped: number | null; dayEffect: number | null };
 export async function getSeasonalEvents(): Promise<SeasonEvent[]> {
   try {
-    const rows = await sql<{ id: string; ui_kind: string | null; name: string; scope: string | null; start: string; end: string; uplift: number | null; note: string | null; stores_affected: number | null }[]>`
+    const rows = await sql<{ id: string; ui_kind: string | null; name: string; scope: string | null; start: string; end: string; uplift: number | null; note: string | null; stores_affected: number | null; stores_live: number | null; products_scoped: number | null; day_effect_pct: number | null }[]>`
       select e.id::text                            as id,
              coalesce(e.ui_kind, 'custom')         as ui_kind,
              e.name,
@@ -2174,7 +2192,10 @@ export async function getSeasonalEvents(): Promise<SeasonEvent[]> {
              to_char(e.end_date,   'YYYY-MM-DD')   as end,
              e.uplift_pct                          as uplift,
              e.note,
-             sc.stores_affected
+             sc.stores_affected,
+             sc.stores_live,
+             sc.products_scoped,
+             sc.day_effect_pct
       from events e
       left join v_event_scope sc on sc.id = e.id
       order by e.start_date, e.name`;
@@ -2188,6 +2209,9 @@ export async function getSeasonalEvents(): Promise<SeasonEvent[]> {
       uplift: Number(r.uplift ?? 0),
       note: r.note ?? "",
       storesAffected: r.stores_affected == null ? null : Number(r.stores_affected),
+      storesLive: r.stores_live == null ? null : Number(r.stores_live),
+      productsScoped: r.products_scoped == null ? null : Number(r.products_scoped),
+      dayEffect: r.day_effect_pct == null ? null : Number(r.day_effect_pct),
     }));
   } catch {
     return []; // events table not seeded yet — calendar uses its seed
