@@ -23,6 +23,41 @@ export const maxDuration = 60;
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
+/* A file the person can act on, instead of the library's internals.
+ *
+ * An .xlsx is a zip archive, so when a PDF arrives ExcelJS hands back JSZip's
+ * "Can't find end of central directory : is this a zip file ?" complete with a
+ * link to JSZip's docs. That went on screen verbatim. The reader is Simona at
+ * 6am trying to get her sales in, not a JavaScript developer. */
+const SPREADSHEET = /\.(xlsx|xlsm)$/i;
+
+function wrongTypeMessage(filename: string): string | null {
+  if (SPREADSHEET.test(filename)) return null;
+  const ext = (filename.match(/\.([a-z0-9]+)$/i)?.[1] ?? "").toLowerCase();
+  const named = ext ? `a .${ext} file` : "a file with no extension";
+  const why =
+    ext === "pdf"
+      ? " A PDF is a picture of the numbers; we have to read them cell by cell."
+      : ext === "csv" || ext === "txt"
+        ? " Save it as .xlsx from Excel rather than exporting to text."
+        : "";
+  return `That is ${named}. It needs to be the Excel file the retailer sends -- a .xlsx.${why} If you opened the report and re-saved it, send the original instead.`;
+}
+
+function friendlyParseError(e: unknown, filename: string): string {
+  const raw = e instanceof Error ? e.message : "";
+  // JSZip's failure to open the container, in any of its spellings.
+  if (/central directory|is this a zip|corrupted zip|end of data/i.test(raw)) {
+    return (
+      wrongTypeMessage(filename) ??
+      "That file will not open as a spreadsheet. It may be damaged, or saved in an older .xls format -- re-save it as .xlsx and try again."
+    );
+  }
+  // The parser's own messages were written for a person. Leave them alone.
+  return raw || "That file could not be read as a spreadsheet.";
+}
+
+
 // The three retailers whose sales we ingest. 'invoice' is in the enum but
 // has no report -- those are Jesse's own accounts, billed not scanned.
 const RETAILERS = new Set(["coles", "woolworths", "harris_farm"]);
@@ -53,6 +88,13 @@ export async function POST(
       );
     }
 
+    // Caught before a byte is read: the common case is somebody opened the
+    // report and re-saved it as something else.
+    const wrongType = wrongTypeMessage(file.name);
+    if (wrongType) {
+      return NextResponse.json({ ok: false, error: wrongType }, { status: 400 });
+    }
+
     // ---- parse first, write nothing yet -------------------------------
     // A file we can't read must not leave a half-written upload behind.
     let parsed;
@@ -60,7 +102,7 @@ export async function POST(
       parsed = await parseColesWorkbook(await file.arrayBuffer());
     } catch (e) {
       return NextResponse.json(
-        { ok: false, error: e instanceof Error ? e.message : "That file couldn't be read as a spreadsheet." },
+        { ok: false, error: friendlyParseError(e, file.name) },
         { status: 400 },
       );
     }
