@@ -57,7 +57,7 @@ export default function LostSales({ data }: { data: LostSales }) {
         setResolved((r) => { const n = { ...r }; for (const id of ids) n[id] = "applied"; return n; });
         showToast(res.readonly
           ? `Applied ${res.count} fix${res.count === 1 ? "" : "es"} — preview only (this demo doesn't save changes)`
-          : `Applied ${res.count} fix${res.count === 1 ? "" : "es"} — saved to those stores' plans`);
+          : `Applied ${res.count} fix${res.count === 1 ? "" : "es"} — saved as standing changes on those stores' plans`);
       } else {
         showToast(`Couldn't apply: ${res.error}`);
       }
@@ -119,10 +119,22 @@ export default function LostSales({ data }: { data: LostSales }) {
         <div className="section-h"><span className="tick" />Sellouts to fix{open.length ? <span className="cnt">{open.length}</span> : null}</div>
         {highFixable.length > 0 && (
           <button className="applyall" onClick={applyAllHigh} disabled={saving}>
-            {saving ? "Applying…" : `Apply all ${highFixable.length} high-confidence fixes`}
+            {saving ? "Applying…" : `Apply all ${highFixable.length} as standing changes`}
           </button>
         )}
       </div>
+
+      {/* The button writes permanent per-(store, product) overrides. From then
+          on the engine's nightly number is ignored for those lines, across
+          deliveries, production and packing. That is what Simona asked for,
+          but "fix" read like a one-off, and the only way back is one store
+          page at a time -- so the page says so before the click, not after. */}
+      {highFixable.length > 0 && (
+        <div className="bulknote">
+          A standing change: each line is sent at this quantity from now on and stops following the forecast.
+          Undo one on that store&apos;s page, under its product list.
+        </div>
+      )}
 
       <div className="cards">
         {open.length === 0 && (
@@ -209,6 +221,7 @@ export default function LostSales({ data }: { data: LostSales }) {
         .losts .applyall{margin-left:auto;background:var(--green);border:1px solid var(--green);color:#fff;border-radius:10px;padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
         .losts .applyall:hover{background:#548050}
         .losts .applyall:disabled{opacity:.6;cursor:default}
+        .losts .bulknote{background:var(--amber-b);border:1px solid #ecdcbb;color:var(--amber-t);border-radius:10px;padding:9px 13px;font-size:12.5px;line-height:1.5;margin:-4px 0 14px}
         .losts .ltoast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:var(--espresso);color:#f6eddb;padding:12px 18px;border-radius:12px;box-shadow:var(--sh-pop);font-size:13.5px;font-weight:500;z-index:60;max-width:88vw;text-align:center}
 
         .losts .cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}
