@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sql } from "@/lib/db";
+import { runAsUser, sql as sqlClient } from "@/lib/db";
+import { getSessionClaims } from "@/lib/supabase/server";
+import { AUTH_ENFORCED } from "@/lib/auth";
+
+/** The tagged-template client, whether it is the shared connection or a
+ *  claims-carrying transaction. Same API either way. */
+type SqlClient = typeof sqlClient;
 import { parseColesWorkbook, type ColesReject } from "@/lib/feeds/coles";
 
 export const dynamic = "force-dynamic";
@@ -64,7 +70,36 @@ const RETAILERS = new Set(["coles", "woolworths", "harris_farm"]);
 
 export async function POST(
   req: NextRequest,
+  ctx: { params: Promise<{ retailer: string }> },
+) {
+  // RLS. Every page goes through withUser(), and every write action imports
+  // `q as sql`; both inject the verified claims transaction-locally. This
+  // route used the raw client, so request.jwt.claims was never set,
+  // current_app_role() was null, and migration 039's policy refused the very
+  // first insert -- for every file, every retailer, every time. Nothing had
+  // ever loaded through here, and nothing could have.
+  const claims = AUTH_ENFORCED ? await getSessionClaims() : null;
+  if (AUTH_ENFORCED && !claims) {
+    return NextResponse.json(
+      { ok: false, error: "Your session has expired. Sign in again and re-send the file." },
+      { status: 401 },
+    );
+  }
+  // One transaction for the whole load, so a crash cannot leave rows staged
+  // or half-merged. The handler still catches its own errors and RETURNS,
+  // so the transaction commits and the 'failed' audit row survives.
+  return claims
+    ? runAsUser(claims, (tx) => handle(req, ctx, tx))
+    : handle(req, ctx, sqlClient);
+}
+
+// The third parameter is deliberately named `sql`: every statement below is
+// unchanged from before this fix and now resolves to the client passed in,
+// including the two postgres.js bulk-insert helpers that q() cannot express.
+async function handle(
+  req: NextRequest,
   { params }: { params: Promise<{ retailer: string }> },
+  sql: SqlClient,
 ) {
   let uploadId: string | null = null;
   try {
