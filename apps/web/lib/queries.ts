@@ -2344,3 +2344,100 @@ export async function getRunRoster(): Promise<{ members: RunMember[]; visitors: 
     return { members: [], visitors: [] };
   }
 }
+
+
+// =====================================================================
+// PACKING — the only per-day read in this file.
+// =====================================================================
+// Everything above reads store_reco, which is a CURRENT-WEEK total, one row
+// per store-product. That is right for the Deliveries and Production boards,
+// which are weekly by design. It is wrong for a packing slip, which is one
+// day: packing off store_reco overstates every line by roughly the number of
+// delivery days in the week.
+//
+// So packing reads replenishment_plans by target_date. Checked against the
+// go-live audit before anything was built on it: 3 September comes back as
+// 564 lines / 1,778 units / 40 stores, which is what replenishment_plans says
+// read plainly.
+//
+// THE RUN IS NOT ALWAYS THE STORE'S HOME RUN. store_run_overrides carries 28
+// rows over 15 stores. COLES MAROUBRA rides Eastern Suburbs on Wed and Sat,
+// Hills on Mon, South on Fri -- never its home run of South East. Packing on
+// default_run_id alone would put those boxes in the wrong cage, so the run is
+// coalesce(override for that weekday, default run) -- the same rule
+// getDeliveryPlan uses for the delivery board. The two must agree.
+export type PackItem  = { product_id: string; name: string; qty: number };
+export type PackStore = { store_id: string; name: string; retailer: string; items: PackItem[]; units: number };
+export type PackRun   = { run_id: string; name: string; stores: PackStore[]; units: number };
+
+// The days the engine has actually planned. Drives the day picker, so the UI
+// can never ask for a day that has no plan behind it.
+export async function getPackingDays(): Promise<string[]> {
+  try {
+    const rows = await sql<{ d: string }[]>`
+      select to_char(target_date, 'YYYY-MM-DD') as d
+        from replenishment_plans
+       group by target_date
+       order by target_date`;
+    return rows.map((r) => r.d);
+  } catch {
+    return [];
+  }
+}
+
+export async function getPackingRuns(day: string): Promise<PackRun[]> {
+  try {
+    const rows = await sql<{
+      run_id: string; run_name: string | null;
+      store_id: string; store_name: string; retailer: string;
+      product_id: string; product_name: string; qty: number;
+    }[]>`
+      with d as (select ${day}::date as day),
+      wd as (select lower(to_char(day, 'Dy'))::weekday as w from d)
+      select coalesce(rn.id::text, '')                     as run_id,
+             rn.name                                       as run_name,
+             s.id::text                                    as store_id,
+             s.name                                        as store_name,
+             s.retailer::text                              as retailer,
+             p.id::text                                    as product_id,
+             p.name                                        as product_name,
+             coalesce(o.qty, rp.recommended_qty)::int      as qty
+        from replenishment_plans rp
+        join d          on rp.target_date = d.day
+        join stores s   on s.id = rp.store_id and s.active
+        join products p on p.id = rp.product_id
+        left join store_run_overrides ovr
+               on ovr.store_id = s.id and ovr.day = (select w from wd)
+        left join runs rn
+               on rn.id = coalesce(ovr.run_id, s.default_run_id)
+        left join store_product_overrides o
+               on o.store_id = rp.store_id and o.product_id = rp.product_id
+              and (o.mode = 'perm' or o.ends_on is null or o.ends_on >= current_date)
+       where coalesce(o.qty, rp.recommended_qty) > 0
+       order by rn.name nulls last, s.name, p.name`;
+
+    // Flat rows -> runs -> stores -> items. Small n (62 stores on the biggest
+    // day), so the linear find is cheaper than building two more maps.
+    const byRun = new Map<string, PackRun>();
+    for (const r of rows) {
+      const rid = r.run_id || "unassigned";
+      let run = byRun.get(rid);
+      if (!run) {
+        run = { run_id: rid, name: r.run_name ?? "No run assigned", stores: [], units: 0 };
+        byRun.set(rid, run);
+      }
+      let st = run.stores.find((s) => s.store_id === r.store_id);
+      if (!st) {
+        st = { store_id: r.store_id, name: r.store_name, retailer: r.retailer, items: [], units: 0 };
+        run.stores.push(st);
+      }
+      st.items.push({ product_id: r.product_id, name: r.product_name, qty: r.qty });
+      st.units += r.qty;
+      run.units += r.qty;
+    }
+    // Biggest run first, so the packer opens on the one that takes longest.
+    return [...byRun.values()].sort((a, b) => b.units - a.units);
+  } catch {
+    return [];
+  }
+}

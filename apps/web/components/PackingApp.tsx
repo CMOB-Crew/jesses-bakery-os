@@ -1,43 +1,82 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { PackRun } from "@/lib/queries";
 
-// Packing app — iPad prototype. Big tick-off targets, a mandatory comment on any
-// discrepancy, every action stamped to the packer — the accountability the
-// current PDF slips don't have. Ties to per-production-area logins later.
-// Prototype only; finalise + write-back to drivers/back-end is the next phase.
+// Packing app — the iPad view AND the printed packing slip, on live data.
+//
+// ---------------------------------------------------------------------
+// WHAT CHANGED, 28 AUG
+// ---------------------------------------------------------------------
+// This was a prototype with eleven invented stores hardcoded at the top of the
+// file. It now reads the real plan for a real day.
+//
+// The reason it was worth doing six days out is the print slip further down:
+// it was already complete — every store, every item, tick boxes, a
+// packed-by/checked-by line, page-break handling. It just printed fictional
+// stores. Feeding it the real plan turns "Export PDF" into the packing sheet
+// the bakery actually packs from, which is useful on day one whether or not a
+// single packer has a login yet.
+//
+// ---------------------------------------------------------------------
+// WHY IT READS A DAY AND NOT A WEEK
+// ---------------------------------------------------------------------
+// Every other board in this app reads store_reco, which is a CURRENT-WEEK
+// total. A packing slip is one day. Packing off store_reco would have
+// overstated every number on the sheet by roughly the number of delivery days
+// in the week — a mistake that looks fine on screen right up until someone
+// bakes it. getPackingRuns reads replenishment_plans by target_date instead.
+//
+// ---------------------------------------------------------------------
+// STILL NOT WIRED, AND SAID SO ON SCREEN
+// ---------------------------------------------------------------------
+// Ticks and flags live in this component for the session. Finalise shows a
+// toast and sends nothing to drivers. Both are honest in the banner rather
+// than implied to work.
+// ---------------------------------------------------------------------
 
 type SStatus = "pending" | "packed" | "flagged";
-type Store = { name: string; items: [string, number][]; status: SStatus; comment: string };
-type Run = { name: string; days: string; stores: Store[] };
+type UIStore = { store_id: string; name: string; retailer: string; items: [string, number][]; units: number; status: SStatus; comment: string };
+type UIRun = { run_id: string; name: string; stores: UIStore[]; units: number };
 
-const mk = (name: string, items: [string, number][]): Store => ({ name, items, status: "pending", comment: "" });
+const CHIPS = ["Short on the order", "Item damaged", "Substituted product", "Out of stock — nothing to pack"];
+const CHIP_LABEL: Record<string, string> = { "Short on the order": "Short", "Item damaged": "Damaged", "Substituted product": "Substituted", "Out of stock — nothing to pack": "Out of stock" };
 
-const INITIAL: Run[] = [
-  { name: "Eastern Suburbs", days: "Mon · Wed · Fri · Sat", stores: [
-    mk("Coles Bondi Junction", [["White Sourdough", 6], ["Plain Bagel", 8], ["Mini Challah", 4], ["Pita", 5]]),
-    mk("Woolworths Bondi Beach", [["White Sourdough", 5], ["Sesame Bagel", 6], ["Pita", 4]]),
-    mk("Coles Randwick", [["Spelt Sourdough", 7], ["Plain Bagel", 9], ["Mini Challah", 3]]),
-    mk("Harris Farm Bondi", [["White Sourdough", 8], ["Rye Sourdough", 4], ["Poppy Bagel", 6]]),
-    mk("Coles Coogee", [["White Sourdough", 6], ["Plain Bagel", 7]]),
-    mk("Woolworths Maroubra", [["Spelt Sourdough", 9], ["Sesame Bagel", 8]]),
-  ] },
-  { name: "Inner West", days: "Mon · Wed · Fri", stores: [
-    mk("Coles Ashfield", [["White Sourdough", 7], ["Plain Bagel", 9]]),
-    mk("Coles Marrickville", [["Spelt Sourdough", 6], ["Sesame Bagel", 7], ["Pita", 5]]),
-    mk("Woolworths Balmain", [["White Sourdough", 5], ["Mini Challah", 4]]),
-  ] },
-  { name: "City", days: "Daily", stores: [
-    mk("Coles World Square", [["White Sourdough", 9], ["Plain Bagel", 10], ["Pita", 6]]),
-    mk("Metro Surry Hills", [["Spelt Sourdough", 7], ["Poppy Bagel", 6]]),
-  ] },
-];
+function toUI(runs: PackRun[]): UIRun[] {
+  return runs.map((r) => ({
+    run_id: r.run_id,
+    name: r.name,
+    units: r.units,
+    stores: r.stores.map((s) => ({
+      store_id: s.store_id,
+      name: s.name,
+      retailer: s.retailer,
+      items: s.items.map((i) => [i.name, i.qty] as [string, number]),
+      units: s.units,
+      status: "pending" as SStatus,
+      comment: "",
+    })),
+  }));
+}
 
-const CHIPS = ["Short 2 sourdough", "Item damaged", "Substituted product", "Out of stock — nothing to pack"];
-const CHIP_LABEL: Record<string, string> = { "Short 2 sourdough": "Short 2", "Item damaged": "Damaged", "Substituted product": "Substituted", "Out of stock — nothing to pack": "Out of stock" };
-
-export default function PackingApp() {
-  const [runs, setRuns] = useState<Run[]>(INITIAL);
+export default function PackingApp({
+  runs: runsIn,
+  day,
+  dayLabel,
+  days,
+  who,
+}: {
+  runs: PackRun[];
+  day: string;
+  dayLabel: string;
+  days: { value: string; label: string }[];
+  who: string;
+}) {
+  const router = useRouter();
+  // Keyed by day so switching days starts a clean sheet rather than carrying
+  // yesterday's ticks onto today's stores.
+  const [runs, setRuns] = useState<UIRun[]>(() => toUI(runsIn));
   const [cur, setCur] = useState(0);
   const [expItems, setExpItems] = useState<Record<string, boolean>>({});
   const [flagOpen, setFlagOpen] = useState<Record<string, boolean>>({});
@@ -47,17 +86,17 @@ export default function PackingApp() {
 
   const run = runs[cur];
   const key = (si: number) => `${cur}:${si}`;
-  const packed = (r: Run) => r.stores.filter((s) => s.status !== "pending").length;
-  const curPacked = packed(run);
-  const allDone = curPacked === run.stores.length;
+  const packed = (r: UIRun) => r.stores.filter((s) => s.status !== "pending").length;
+
+  const runsMeta = useMemo(() => runs.map((r) => ({ p: packed(r), n: r.stores.length })), [runs]);
 
   function showToast(msg: string) {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 3200);
+    toastTimer.current = setTimeout(() => setToast(null), 3600);
   }
 
-  function mutate(si: number, fn: (s: Store) => Store) {
+  function mutate(si: number, fn: (s: UIStore) => UIStore) {
     setRuns((rs) => rs.map((r, ri) => (ri !== cur ? r : { ...r, stores: r.stores.map((s, i) => (i === si ? fn(s) : s)) })));
   }
   function togglePack(si: number) {
@@ -71,32 +110,54 @@ export default function PackingApp() {
     setFlagOpen((f) => ({ ...f, [key(si)]: false }));
   }
 
-  const runsMeta = useMemo(() => runs.map((r) => ({ p: packed(r), n: r.stores.length })), [runs]);
+  // Nothing is planned for this day. Real state, not an error — Sundays run a
+  // short sheet and a day past the plan's last date has none at all.
+  if (!run) {
+    return (
+      <div className="packwrap">
+        <div className="panel" style={{ maxWidth: 620 }}>
+          <div style={{ fontFamily: "var(--serif)", fontSize: 18, marginBottom: 8 }}>Nothing to pack on {dayLabel}</div>
+          <div style={{ color: "var(--ink2)", lineHeight: 1.6, marginBottom: 14 }}>
+            No run delivers on this day, or the plan does not reach it yet. The engine plans twelve days ahead and rewrites them nightly.
+          </div>
+          <DayPicker day={day} days={days} onPick={(d) => router.push(`/packing?day=${d}`)} />
+        </div>
+      </div>
+    );
+  }
+
+  const curPacked = runsMeta[cur].p;
+  const allDone = curPacked === run.stores.length;
+  const totalUnits = runs.reduce((a, r) => a + r.units, 0);
+  const totalStores = runs.reduce((a, r) => a + r.stores.length, 0);
 
   return (
     <div className="packwrap">
-      <div style={{ background: "var(--amber-b)", border: "1px solid var(--amber)", color: "var(--amber-t)", borderRadius: 10, padding: "10px 14px", margin: "0 0 12px", fontSize: 13, fontWeight: 700 }}>
-        ⚠ Prototype — these are sample stores, not your live network. Nothing here saves yet; the real packing flow is a later build.
+      <div className="livenote">
+        <b>Live plan.</b> These are the real stores and real quantities for {dayLabel} — {totalStores} stores across {runs.length} runs, {totalUnits.toLocaleString("en-AU")} units.
+        Ticks and flags are kept for this session only and are not saved yet, and <b>Finalise</b> does not send anything to the drivers. <b>Export PDF</b> prints the real slip.
       </div>
-      <div className="cap">Packing app · iPad prototype. Big tick-off targets, a mandatory comment on any discrepancy, and every action stamped to the packer — the accountability the current PDF slips don&apos;t have.</div>
+      <div className="cap">
+        Packing · iPad view. Big tick-off targets, a mandatory comment on any discrepancy, and every action stamped to the packer — the accountability the current PDF slips don&apos;t have.
+      </div>
       <div className="pad"><div className="app">
         <div className="top">
           <span className="logo"><span className="mk">✦</span> Jesse&apos;s Bakery</span><h1>Packing</h1>
-          <span className="date">Monday 9 Aug · 6:52am</span>
-          <button className="pexport no-print" onClick={() => window.print()} title={`Export the ${run.name} run as a PDF packing slip`}>⤓ Export PDF</button>
-          <span className="who"><span className="av">P</span>Priya · Packing</span>
+          <DayPicker day={day} days={days} onPick={(d) => router.push(`/packing?day=${d}`)} />
+          <button className="pexport no-print" onClick={() => window.print()} title={`Print the ${run.name} run as a packing slip`}>⤓ Export PDF</button>
+          <span className="who"><span className="av">{who.trim().charAt(0).toUpperCase() || "?"}</span>{who}</span>
         </div>
         <div className="body">
           <div className="runs">
-            <div className="h">Today&apos;s runs</div>
+            <div className="h">Runs on {dayLabel}</div>
             {runs.map((r, i) => {
               const { p, n } = runsMeta[i];
               const done = p === n;
               return (
-                <div key={r.name} className={`run ${i === cur ? "on" : ""}`} onClick={() => setCur(i)}>
+                <div key={r.run_id || r.name} className={`run ${i === cur ? "on" : ""}`} onClick={() => setCur(i)}>
                   <div className="rn">{r.name}<span className="cdot" style={{ background: done ? "var(--green)" : "var(--crust)" }} /></div>
-                  <div className="rd">{r.days} · {r.stores.length} stores</div>
-                  <div className="track"><i style={{ width: `${(100 * p) / n}%` }} /></div>
+                  <div className="rd">{r.stores.length} stores · {r.units.toLocaleString("en-AU")} units</div>
+                  <div className="track"><i style={{ width: `${(100 * p) / Math.max(1, n)}%` }} /></div>
                   <div className="rc">{p} of {n} packed</div>
                 </div>
               );
@@ -104,20 +165,19 @@ export default function PackingApp() {
           </div>
 
           <div className="main">
-            <div className="mh"><h2>{run.name}</h2><span className="ms">{run.days} · {run.stores.length} stores</span></div>
+            <div className="mh"><h2>{run.name}</h2><span className="ms">{run.stores.length} stores · {run.units.toLocaleString("en-AU")} units</span></div>
             <div className="list">
               {run.stores.map((s, si) => {
                 const itemsShown = !!expItems[key(si)];
                 const flagShown = !!flagOpen[key(si)];
-                const total = s.items.reduce((a, b) => a + b[1], 0);
                 const reason = draft[key(si)] || "";
                 return (
-                  <div key={s.name} className={`srow ${s.status}`}>
+                  <div key={s.store_id} className={`srow ${s.status}`}>
                     <div className="srhead">
                       <div className="check" onClick={() => togglePack(si)}>✓</div>
                       <div style={{ minWidth: 0 }}>
                         <div className="nm">{s.name}</div>
-                        <div className="it">{total} items · {s.items.length} products {s.status === "flagged" && <span className="tag amber">⚑ flagged</span>}</div>
+                        <div className="it">{s.units} items · {s.items.length} products {s.status === "flagged" && <span className="tag amber">⚑ flagged</span>}</div>
                         {s.status === "flagged" && <div className="cmt">⚑ {s.comment}</div>}
                       </div>
                       <button className="exp" onClick={() => setExpItems((e) => ({ ...e, [key(si)]: !e[key(si)] }))}>{itemsShown ? "hide items" : "view items"}</button>
@@ -149,8 +209,8 @@ export default function PackingApp() {
             </div>
             <div className="foot">
               <span className="st">{allDone ? `All ${run.stores.length} stores resolved — ready to finalise.` : `${run.stores.length - curPacked} store(s) still to pack or flag.`}</span>
-              <button className="final" disabled={!allDone} onClick={() => showToast(`✓ ${run.name} run finalised by Priya at 7:14am — flows to the drivers and the back-end (next phase).`)}>
-                {allDone ? `Finalise ${run.name} run` : "Finalise run"}
+              <button className="final" disabled={!allDone} onClick={() => showToast(`${run.name} marked finalised by ${who}. Not saved and not sent to drivers yet — that is the next phase.`)}>
+                {allDone ? `Finalise ${run.name}` : "Finalise run"}
               </button>
             </div>
           </div>
@@ -160,26 +220,23 @@ export default function PackingApp() {
       {/* Print-only packing slip for the current run — this is what "Export PDF"
           produces (browser print → Save as PDF). Every store's full item list
           with tick boxes and a sign-off line; the interactive iPad view is hidden
-          on paper. */}
+          on paper. Real stores and real quantities since 28 Aug. */}
       <div className="pack-slip" aria-hidden="true">
         <div className="ps-head">
           <div className="ps-brand"><span className="mk">✦</span> Jesse&apos;s Bakery — Packing Slip</div>
-          <div className="ps-meta">{run.name} run · {run.days} · {run.stores.length} stores</div>
-          <div className="ps-date">Date: __________________   Packer: __________________</div>
+          <div className="ps-meta">{run.name} · {dayLabel} · {run.stores.length} stores · {run.units.toLocaleString("en-AU")} units</div>
+          <div className="ps-date">Packer: __________________   Checked by: __________________</div>
         </div>
-        {run.stores.map((s) => {
-          const total = s.items.reduce((a, b) => a + b[1], 0);
-          return (
-            <div className="ps-store" key={s.name}>
-              <div className="ps-sh"><span className="ps-box" /><span className="ps-name">{s.name}</span><span className="ps-tot">{total} items · {s.items.length} products</span></div>
-              <table className="ps-items"><tbody>
-                {s.items.map((it) => (
-                  <tr key={it[0]}><td className="ps-p">{it[0]}</td><td className="ps-q">{it[1]}</td><td className="ps-c">☐ packed</td></tr>
-                ))}
-              </tbody></table>
-            </div>
-          );
-        })}
+        {run.stores.map((s) => (
+          <div className="ps-store" key={s.store_id}>
+            <div className="ps-sh"><span className="ps-box" /><span className="ps-name">{s.name}</span><span className="ps-tot">{s.units} items · {s.items.length} products</span></div>
+            <table className="ps-items"><tbody>
+              {s.items.map((it) => (
+                <tr key={it[0]}><td className="ps-p">{it[0]}</td><td className="ps-q">{it[1]}</td><td className="ps-c">☐ packed</td></tr>
+              ))}
+            </tbody></table>
+          </div>
+        ))}
         <div className="ps-sign">Packed by ____________________     Checked by ____________________     Time __________</div>
       </div>
 
@@ -187,6 +244,7 @@ export default function PackingApp() {
 
       <style>{`
       .packwrap{display:flex;flex-direction:column;align-items:center;padding:6px 0 30px}
+      .packwrap .livenote{background:var(--amber-b);border:1px solid #ecdcbb;color:var(--amber-t);border-radius:10px;padding:10px 14px;margin:0 0 12px;font-size:12.5px;line-height:1.55;max-width:900px}
       .packwrap .cap{font-size:12.5px;color:var(--muted);margin-bottom:12px;text-align:center;max-width:760px;line-height:1.5}
       .packwrap .pad{width:1120px;max-width:100%;height:760px;background:#151009;border-radius:30px;padding:14px;box-shadow:0 30px 70px -22px rgba(40,25,10,.5)}
       .packwrap .app{background:var(--paper);border-radius:18px;height:100%;overflow:hidden;display:flex;flex-direction:column}
@@ -194,9 +252,10 @@ export default function PackingApp() {
       .packwrap .top .logo{font-family:var(--serif);font-weight:600;font-size:18px}
       .packwrap .top .logo .mk{color:var(--crust)}
       .packwrap .top h1{font-family:var(--serif);font-size:20px;font-weight:600;margin-left:6px}
-      .packwrap .top .date{font-size:13px;color:var(--muted)}
-      .packwrap .top .who{margin-left:auto;display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--line);padding:6px 12px 6px 6px;border-radius:999px;font-size:13px;font-weight:600}
-      .packwrap .top .who .av{width:28px;height:28px;border-radius:50%;background:var(--espresso);color:#f0e6d2;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-size:13px}
+      .packwrap .daypick{font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 10px;cursor:pointer}
+      .packwrap .daypick:focus{outline:none;border-color:var(--crust);box-shadow:0 0 0 3px rgba(176,116,28,.13)}
+      .packwrap .top .who{margin-left:auto;display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--line);padding:6px 12px 6px 6px;border-radius:999px;font-size:13px;font-weight:600;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .packwrap .top .who .av{width:28px;height:28px;border-radius:50%;background:var(--espresso);color:#f0e6d2;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-size:13px;flex:none}
       .packwrap .body{flex:1;display:flex;min-height:0}
       .packwrap .runs{width:296px;border-right:1px solid var(--line);padding:16px;overflow:auto;flex:none}
       .packwrap .runs .h{font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px}
@@ -250,14 +309,14 @@ export default function PackingApp() {
       @media(max-width:900px){.packwrap .runs{width:220px}}
 
       /* Export PDF button */
-      .packwrap .pexport{margin-left:auto;display:inline-flex;align-items:center;gap:6px;background:var(--espresso);color:#f4ecd9;border:0;border-radius:999px;padding:8px 16px;font:600 13px inherit;cursor:pointer}
+      .packwrap .pexport{display:inline-flex;align-items:center;gap:6px;background:var(--espresso);color:#f4ecd9;border:0;border-radius:999px;padding:8px 16px;font:600 13px inherit;cursor:pointer}
       .packwrap .pexport:hover{background:#3a2a17}
 
       /* Print-only packing slip — hidden on screen, shown on paper/PDF */
       .packwrap .pack-slip{display:none}
       @media print{
         .packwrap .pad{display:none !important}
-        .packwrap .cap, .packwrap > div[style]{display:none !important}
+        .packwrap .cap, .packwrap .livenote{display:none !important}
         .packwrap .pack-slip{display:block;color:#000}
         .packwrap .ps-head{border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:14px}
         .packwrap .ps-brand{font-family:var(--serif);font-size:22px;font-weight:700}
@@ -278,5 +337,13 @@ export default function PackingApp() {
       }
       `}</style>
     </div>
+  );
+}
+
+function DayPicker({ day, days, onPick }: { day: string; days: { value: string; label: string }[]; onPick: (d: string) => void }) {
+  return (
+    <select className="daypick" value={day} onChange={(e) => onPick(e.target.value)} aria-label="Packing day">
+      {days.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+    </select>
   );
 }
