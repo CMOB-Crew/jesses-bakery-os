@@ -63,9 +63,17 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   // Gated enforcement. The demo build never enforces (no login wall for Simona).
   const demo = process.env.NEXT_PUBLIC_DEMO === "1";
   if (AUTH_ENFORCED && !demo && !user && !isPublicPath(request.nextUrl.pathname)) {
+    // Send the WHOLE target through, query string included, and strip the
+    // target's own parameters off the login URL. clone() copies them, so
+    // /packing?day=2026-09-03 was arriving as
+    //   /login?day=2026-09-03&next=%2Fpacking
+    // -- the parameters littering the login URL and missing from the place
+    // the user gets sent back to.
+    const target = request.nextUrl.pathname + request.nextUrl.search;
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("next", request.nextUrl.pathname);
+    redirectUrl.search = "";
+    redirectUrl.searchParams.set("next", target);
     return NextResponse.redirect(redirectUrl);
   }
 

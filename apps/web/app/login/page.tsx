@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { safeNext } from "@/lib/safe-next";
 import { signInWithPassword, signInWithMicrosoft } from "./actions";
 import SubmitButton from "./SubmitButton";
 
@@ -16,7 +17,7 @@ export default async function LoginPage({
   const sp = await searchParams;
   const error = sp.error;
   const reset = sp.reset === "1";
-  const next = sp.next && sp.next.startsWith("/") ? sp.next : "/";
+  const next = safeNext(sp.next);
 
   return (
     <div className="loginwrap">

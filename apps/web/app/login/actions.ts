@@ -3,14 +3,11 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { safeNext } from "@/lib/safe-next";
 
 // Server Actions for the login form. Cookies set by the Supabase client during
 // sign-in persist because Server Actions run where response headers can be set.
 // All inert until Supabase Auth is configured (env vars present + provider on).
-
-function safeNext(next: string | undefined | null): string {
-  return next && next.startsWith("/") ? next : "/";
-}
 
 export async function signInWithPassword(formData: FormData): Promise<void> {
   const email = String(formData.get("email") ?? "").trim();
