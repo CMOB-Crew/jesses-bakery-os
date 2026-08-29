@@ -93,7 +93,12 @@ export default function Sidebar({ user = null }: { user?: SidebarUser | null }) 
           <div className="avatar">{(user.email ?? "?").trim().charAt(0).toUpperCase()}</div>
           <div className="who">
             {(user.email ?? "Signed in").split("@")[0]}
-            <small>{user.role ?? "no role set"}</small>
+            {/* Only when we actually know. This said "no role set" to
+                everyone, the admin included, because the role is not in the
+                token -- and the sign-in page says an account with no role
+                cannot see anything, so the two screens agreed with each
+                other and both were wrong. */}
+            {user.role && <small>{user.role}</small>}
           </div>
           <a className="signout" href="/auth/signout" title="Sign out">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-4" /><path d="M10 17l-5-5 5-5M5 12h12" /></svg>

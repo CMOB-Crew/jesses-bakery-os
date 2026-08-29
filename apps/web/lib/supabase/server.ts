@@ -79,6 +79,17 @@ export const getDisplayUser = cache(async (): Promise<{ email?: string; role?: s
     const { data } = await supabase.auth.getSession();
     const u = data.session?.user;
     if (!u) return null;
+    // app_metadata.role is ALWAYS undefined here, and deliberately so.
+    // Migration 012: "role NULL = no access (default deny); an admin grants
+    // a real role. Read by security-definer helpers, never trusted from the
+    // token." Roles live in public.users.role -- which is where migration
+    // 065 had to go after the readiness check looked in the auth metadata
+    // and concluded nobody had a role at all.
+    //
+    // It is left here rather than deleted because a role MAY legitimately
+    // appear in the token one day (Supabase custom claims). Until it does
+    // this returns undefined, and the caller must not fill that silence
+    // with an assertion -- see Sidebar.
     return { email: u.email ?? undefined, role: (u.app_metadata?.role as string | undefined) ?? undefined };
   } catch {
     return null; // never let the chip take a page down
