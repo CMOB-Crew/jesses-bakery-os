@@ -1,5 +1,6 @@
 import "server-only";
 import { q as sql } from "./db";
+import { dayShare, dowMultipliers, dayIndexFromISO } from "./dayshare";
 
 export type Status = "red" | "amber" | "green";
 
@@ -2389,7 +2390,10 @@ export async function getRunRoster(): Promise<{ members: RunMember[]; visitors: 
 // coalesce(override for that weekday, default run) -- the same rule
 // getDeliveryPlan uses for the delivery board. The two must agree.
 export type PackItem  = { product_id: string; name: string; qty: number };
-export type PackStore = { store_id: string; name: string; retailer: string; items: PackItem[]; units: number };
+// standing = this store has no plan for the day and is shown at its CURRENT
+// STANDING ORDER instead. Never a forecast, and marked as such on screen --
+// a packer has to tell the difference at a glance.
+export type PackStore = { store_id: string; name: string; retailer: string; items: PackItem[]; units: number; standing: boolean };
 export type PackRun   = { run_id: string; name: string; stores: PackStore[]; units: number };
 
 // The days the engine has actually planned. Drives the day picker, so the UI
@@ -2407,41 +2411,97 @@ export async function getPackingDays(): Promise<string[]> {
   }
 }
 
-export async function getPackingRuns(day: string): Promise<PackRun[]> {
+export async function getPackingRuns(day: string, shape?: WeekdayShape | null): Promise<PackRun[]> {
   try {
+    // TWO sources, deliberately.
+    //
+    // planned  -- replenishment_plans for this exact date. What the engine sized.
+    //
+    // standing -- every OTHER store due a delivery this weekday, at its current
+    //             standing order from store_reco. Without this branch such a
+    //             store does not show as a zero; it does not show at all.
+    //
+    // Measured 30 Aug for Thursday 3 Sep: 101 stores due, 40 planned. The 61
+    // missing were 49 Coles -- feed 22 days behind, so outside jb_plan_day's
+    // seven-day ranging window -- and 12 invoice customers that have never had
+    // a sales row and never will be forecastable, including JESSE'S CAFE at
+    // 4,369 units a week, the largest standing order in the business, absent
+    // from the sheet the bakery packs from.
+    //
+    // That window is measured against max(sale_date) across ALL retailers, one
+    // global clock, so the set MOVES: loading only the Coles file pushes the
+    // clock forward and drops Woolworths and Harris Farm out. A sheet that
+    // silently omits whoever fell out this week is the failure. Showing them at
+    // their standing order, marked, is not.
     const rows = await sql<{
       run_id: string; run_name: string | null;
       store_id: string; store_name: string; retailer: string;
-      product_id: string; product_name: string; qty: number;
+      delivery_days: string[] | null;
+      product_id: string; product_name: string;
+      qty: number; week_sent: number; planned: boolean;
     }[]>`
       with d as (select ${day}::date as day),
-      wd as (select lower(to_char(day, 'Dy'))::weekday as w from d)
-      select coalesce(rn.id::text, '')                     as run_id,
-             rn.name                                       as run_name,
-             s.id::text                                    as store_id,
-             s.name                                        as store_name,
-             s.retailer::text                              as retailer,
-             p.id::text                                    as product_id,
-             p.name                                        as product_name,
-             coalesce(o.qty, rp.recommended_qty)::int      as qty
-        from replenishment_plans rp
-        join d          on rp.target_date = d.day
-        join stores s   on s.id = rp.store_id and s.active
-        join products p on p.id = rp.product_id
+      wd as (select lower(to_char(day, 'Dy'))::weekday as w from d),
+      planned as (
+        select rp.store_id, rp.product_id,
+               coalesce(o.qty, rp.recommended_qty)::int as qty
+          from replenishment_plans rp
+          join d on rp.target_date = d.day
+          left join store_product_overrides o
+                 on o.store_id = rp.store_id and o.product_id = rp.product_id
+                and (o.mode = 'perm' or o.ends_on is null or o.ends_on >= current_date)
+         where coalesce(o.qty, rp.recommended_qty) > 0
+      ),
+      standing as (
+        select sr.store_id, sr.product_id, sr.sent::int as week_sent
+          from store_reco sr
+         where sr.sent > 0
+           and not exists (
+             select 1 from replenishment_plans rp2, d
+              where rp2.store_id = sr.store_id and rp2.target_date = d.day)
+      ),
+      merged as (
+        select store_id, product_id, qty, 0 as week_sent, true  as planned from planned
+        union all
+        select store_id, product_id, 0 as qty, week_sent, false as planned from standing
+      )
+      select coalesce(rn.id::text, '')                       as run_id,
+             rn.name                                         as run_name,
+             s.id::text                                      as store_id,
+             s.name                                          as store_name,
+             s.retailer::text                                as retailer,
+             coalesce(s.delivery_days::text[], '{}'::text[]) as delivery_days,
+             p.id::text                                      as product_id,
+             p.name                                          as product_name,
+             m.qty, m.week_sent, m.planned
+        from merged m
+        join stores s   on s.id = m.store_id and s.active
+        join products p on p.id = m.product_id
         left join store_run_overrides ovr
                on ovr.store_id = s.id and ovr.day = (select w from wd)
         left join runs rn
                on rn.id = coalesce(ovr.run_id, s.default_run_id)
-        left join store_product_overrides o
-               on o.store_id = rp.store_id and o.product_id = rp.product_id
-              and (o.mode = 'perm' or o.ends_on is null or o.ends_on >= current_date)
-       where coalesce(o.qty, rp.recommended_qty) > 0
+       -- Planned rows pass through as before. A standing row only appears on a
+       -- day that store is actually delivered.
+       where m.planned or (select w from wd) = any(s.delivery_days)
        order by rn.name nulls last, s.name, p.name`;
 
-    // Flat rows -> runs -> stores -> items. Small n (62 stores on the biggest
-    // day), so the linear find is cheaper than building two more maps.
+    // The weekly standing order becomes one day's drop through the SAME helper
+    // the Deliveries sheet uses, so the two pages cannot disagree about what
+    // Thursday means. They already did once: /deliveries reads store_reco with
+    // no date filter and apportions it, /packing read replenishment_plans by
+    // date, and on 30 Aug they said 4,659 and 1,778 for the same day.
+    const mult = dowMultipliers(shape);
+    const dayIdx = dayIndexFromISO(day);
+
     const byRun = new Map<string, PackRun>();
     for (const r of rows) {
+      const qty = r.planned
+        ? r.qty
+        : dayShare(r.week_sent, r.delivery_days ?? [], dayIdx, mult);
+      // A standing order that rounds to nothing on this day is not packed.
+      if (qty <= 0) continue;
+
       const rid = r.run_id || "unassigned";
       let run = byRun.get(rid);
       if (!run) {
@@ -2450,12 +2510,12 @@ export async function getPackingRuns(day: string): Promise<PackRun[]> {
       }
       let st = run.stores.find((s) => s.store_id === r.store_id);
       if (!st) {
-        st = { store_id: r.store_id, name: r.store_name, retailer: r.retailer, items: [], units: 0 };
+        st = { store_id: r.store_id, name: r.store_name, retailer: r.retailer, items: [], units: 0, standing: !r.planned };
         run.stores.push(st);
       }
-      st.items.push({ product_id: r.product_id, name: r.product_name, qty: r.qty });
-      st.units += r.qty;
-      run.units += r.qty;
+      st.items.push({ product_id: r.product_id, name: r.product_name, qty });
+      st.units += qty;
+      run.units += qty;
     }
     // Biggest run first, so the packer opens on the one that takes longest.
     return [...byRun.values()].sort((a, b) => b.units - a.units);

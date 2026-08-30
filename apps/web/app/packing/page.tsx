@@ -1,5 +1,5 @@
 import { withUser } from "@/lib/db";
-import { getPackingDays, getPackingRuns } from "@/lib/queries";
+import { getPackingDays, getPackingRuns, getWeekdayShape } from "@/lib/queries";
 import { getDisplayUser } from "@/lib/supabase/server";
 import PackingApp from "@/components/PackingApp";
 
@@ -34,10 +34,14 @@ export default async function PackingPage({
 }: {
   searchParams: Promise<{ day?: string }>;
 }) {
-  const [sp, days, user] = await Promise.all([
+  // The measured weekday curve rides along in the same round trip. It splits
+  // a standing order into this day exactly as the Deliveries sheet splits it.
+  // Null is fine -- dayshare falls back to the seed curve.
+  const [sp, days, user, shape] = await Promise.all([
     searchParams,
     withUser(() => getPackingDays()),
     getDisplayUser().catch(() => null),
+    withUser(() => getWeekdayShape()),
   ]);
 
   const today = sydneyToday();
@@ -46,7 +50,7 @@ export default async function PackingPage({
   // else falls back to today, then to the first planned day.
   const day = days.includes(asked) ? asked : days.includes(today) ? today : (days[0] ?? today);
 
-  const runs = await withUser(() => getPackingRuns(day));
+  const runs = await withUser(() => getPackingRuns(day, shape));
   const who = user?.email ? user.email.split("@")[0] : "Packing";
 
   return (

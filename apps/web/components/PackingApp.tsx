@@ -79,6 +79,13 @@ export default function PackingApp({
   // Keyed by day so switching days starts a clean sheet rather than carrying
   // yesterday's ticks onto today's stores.
   const [runs, setRuns] = useState<UIRun[]>(() => toUI(runsIn));
+  // Which stores are on a standing order rather than a plan. Read straight off
+  // the server rows by id, so neither UIStore nor toUI has to change.
+  const standingIds = useMemo(
+    () => new Set(runsIn.flatMap((r) => r.stores.filter((s) => s.standing).map((s) => s.store_id))),
+    [runsIn],
+  );
+  const standingCount = standingIds.size;
   const [cur, setCur] = useState(0);
   const [expItems, setExpItems] = useState<Record<string, boolean>>({});
   const [flagOpen, setFlagOpen] = useState<Record<string, boolean>>({});
@@ -137,6 +144,10 @@ export default function PackingApp({
     <div className="packwrap">
       <div className="livenote">
         <b>Live plan.</b> These are the real stores and real quantities for {dayLabel} — {totalStores} stores across {runs.length} runs, {totalUnits.toLocaleString("en-AU")} units.
+        {standingCount > 0 && (
+          <> <b>{standingCount}</b> of those {standingCount === 1 ? "is" : "are"} on their <b>standing order</b>, not a forecast — their
+          sales feed is too far behind for the plan to size them, so what is going out today is shown and marked.</>
+        )}
         Ticks and flags are kept for this session only and are not saved yet, and <b>Finalise</b> does not send anything to the drivers. <b>Export PDF</b> prints the real slip.
       </div>
       <div className="cap">
@@ -179,7 +190,7 @@ export default function PackingApp({
                       <div className="check" onClick={() => togglePack(si)}>✓</div>
                       <div style={{ minWidth: 0 }}>
                         <div className="nm">{s.name}</div>
-                        <div className="it">{s.units} items · {s.items.length} products {s.status === "flagged" && <span className="tag amber">⚑ flagged</span>}</div>
+                        <div className="it">{s.units} items · {s.items.length} products {standingIds.has(s.store_id) && <span className="tag amber" title="No sales feed to size this store — this is its current standing order, not a forecast.">standing order</span>} {s.status === "flagged" && <span className="tag amber">⚑ flagged</span>}</div>
                         {s.status === "flagged" && <div className="cmt">⚑ {s.comment}</div>}
                       </div>
                       <button className="exp" onClick={() => setExpItems((e) => ({ ...e, [key(si)]: !e[key(si)] }))}>{itemsShown ? "hide items" : "view items"}</button>
