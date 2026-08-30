@@ -4,9 +4,9 @@ import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import { setRunState } from "@/app/run-state-actions";
 import Link from "next/link";
 import type { DeliveryLine, DeliveryDetailLine, WeekdayShape, RunOption } from "@/lib/queries";
+import { WD_ORDER, dowMultipliers, dayShare } from "@/lib/dayshare";
 
 // weekday enum -> short label, in week order, for the run-day chips.
-const WD_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const WD_LABEL: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
 const titleCaseRegion = (s: string) => (s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -18,10 +18,6 @@ const csvCell = (v: string | number) => {
 
 const DOWSHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-// Fallback week-shape (Mon..Sun) — quieter Mon/Tue, heavy Fri–Sun. Used only
-// until there's a measured shape; splits the weekly plan into a single day's
-// drop while the weekly totals stay exact.
-const SEED_DOWMULT = [0.85, 0.85, 0.95, 1, 1.3, 1.55, 1.4];
 
 // The "calm" delivery order sheet. The plan sizes each order; Simona works
 // through it region by region, nudging any Final delivery number (−/+ appear on
@@ -58,7 +54,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
   // reindexed from the Sun..Sat shape; else the seed curve. This is the same
   // weekend uplift the Seasonality calendar shows — one shape across the app.
   const DOWMULT = useMemo(
-    () => (shape?.shape ? [1, 2, 3, 4, 5, 6, 0].map((i) => shape.shape[i]) : SEED_DOWMULT),
+    () => dowMultipliers(shape),
     [shape],
   );
   const orig = useMemo(
@@ -133,13 +129,7 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
     if (isWeek) return n;
     const i = day as number;
     const days = l?.days ?? [];
-    if (days.length === 0) return 0;
-    if (!days.includes(WD_ORDER[i])) return 0;
-    const wsum = days.reduce((a, d) => {
-      const j = WD_ORDER.indexOf(d);
-      return a + (j >= 0 ? DOWMULT[j] : 0);
-    }, 0);
-    return wsum > 0 ? Math.round((n * DOWMULT[i]) / wsum) : 0;
+    return dayShare(n, days, i, DOWMULT);
   };
   // True when the selected day is one this store actually gets a delivery on.
   const onDay = (l: { days?: string[] }) => isWeek || (l.days ?? []).includes(WD_ORDER[day as number]);
