@@ -1,6 +1,6 @@
 import { withUser } from "@/lib/db";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import NotFoundPanel from "@/components/NotFoundPanel";
 import { getStoreById, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto, getStoreAddress, getStoreShelfCap, getStoreDayGrid, getStoreSellouts, getStoreSchedule, getRunPicklist, getStoreRevenueWeek } from "@/lib/queries";
 import StoreProfile, { type PeerStat } from "@/components/StoreProfile";
 import type { StoreWeek } from "@/lib/queries";
@@ -93,7 +93,18 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
     getStoreRevenueWeek(),
   ])
   );
-  if (!store) notFound();
+  // Rendered directly, not via notFound(): this page is force-dynamic and
+  // that boundary comes out blank here.
+  if (!store) {
+    return (
+      <NotFoundPanel
+        heading="That store is not here"
+        body="It may have been archived, or the link may be out of date."
+        primaryHref="/stores"
+        primaryLabel="All stores"
+      />
+    );
+  }
 
   const peer = computePeer(store, all);
   const revenue = revMap.get(id) ?? null;

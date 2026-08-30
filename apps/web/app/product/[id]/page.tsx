@@ -1,6 +1,6 @@
 import { withUser } from "@/lib/db";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import NotFoundPanel from "@/components/NotFoundPanel";
 import { getProductById, getProductStores } from "@/lib/queries";
 import ProductProfile from "@/components/ProductProfile";
 
@@ -11,7 +11,16 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const [product, stores] = await withUser(() =>
     Promise.all([getProductById(id), getProductStores(id)])
   );
-  if (!product) notFound();
+  if (!product) {
+    return (
+      <NotFoundPanel
+        heading="That product is not here"
+        body="It may have been retired, or the link may be out of date."
+        primaryHref="/products"
+        primaryLabel="All products"
+      />
+    );
+  }
   return (
     <>
       <div className="crumbs">

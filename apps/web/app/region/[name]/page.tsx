@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import NotFoundPanel from "@/components/NotFoundPanel";
 import { getRegionStores } from "@/lib/queries";
 import StoresList from "@/components/StoresList";
 
@@ -11,7 +11,16 @@ export default async function RegionPage({ params }: { params: Promise<{ name: s
   const { name } = await params;
   const region = decodeURIComponent(name);
   const stores = await getRegionStores(region);
-  if (!stores.length) notFound();
+  if (!stores.length) {
+    return (
+      <NotFoundPanel
+        heading="No stores in that region"
+        body="Either the region name is wrong, or every store in it has been archived."
+        primaryHref="/stores"
+        primaryLabel="All stores"
+      />
+    );
+  }
 
   // A store is only scored where we can actually see its sales — otherwise it is
   // awaiting feed, not "on track". Identical rule to the Overview and the Stores
