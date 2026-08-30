@@ -1,6 +1,6 @@
 import { withUser } from "@/lib/db";
 import Link from "next/link";
-import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek, getAppSettings, getStoreStates, getShelfCapOverrides, getPeakDaySold } from "@/lib/queries";
+import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek, getAppSettings, getStoreStates, getShelfCapOverrides, getPeakDaySold, getEngineHealth } from "@/lib/queries";
 import type { StoreWeek } from "@/lib/queries";
 import StatusTag from "@/components/StatusTag";
 import RecCard from "@/components/RecCard";
@@ -13,6 +13,17 @@ import TodayDashboard from "@/components/TodayDashboard";
 // what made deploys flaky when the build-time Supabase was slow. The runtime DB
 // is fast and readers are guarded, so dynamic is both reliable and correct here.
 export const dynamic = "force-dynamic";
+
+// Sydney, explicitly. The server is UTC, and "2:00am" rendered in UTC for a
+// run that happened at 2am Sydney would read 4pm the previous day -- which is
+// precisely the confusion the whole engine-clock thread has been about.
+function fmtWhen(d: Date | null) {
+  if (!d) return "never";
+  return new Intl.DateTimeFormat("en-AU", {
+    weekday: "short", day: "numeric", month: "short",
+    hour: "numeric", minute: "2-digit", timeZone: "Australia/Sydney",
+  }).format(new Date(d));
+}
 
 function fmtDate(d: Date) {
   return new Intl.DateTimeFormat("en-AU", { weekday: "short", day: "numeric", month: "short" }).format(new Date(d));
@@ -30,10 +41,10 @@ export default async function Overview() {
   // which is why v_store_week reported 14,030ms in the trace while every other
   // query on the page reported 10-12.6s. Same request, two connections,
   // competing.
-  const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings, states, capOverrides, peakDay] = await withUser(() => {
+  const [net, regions, recs, asOf, feeds, engine, stores, revMap, settings, states, capOverrides, peakDay, engineHealth] = await withUser(() => {
     const storesP = getStoreWeek();
     return Promise.all([
-      getNetwork(), getRegions(), storesP.then((s) => getRecommendations(3, s)), getAsOf(), getFeedStatus(), getEngineProjection(), storesP, getStoreRevenueWeek(), getAppSettings(), getStoreStates(), getShelfCapOverrides(), getPeakDaySold(),
+      getNetwork(), getRegions(), storesP.then((s) => getRecommendations(3, s)), getAsOf(), getFeedStatus(), getEngineProjection(), storesP, getStoreRevenueWeek(), getAppSettings(), getStoreStates(), getShelfCapOverrides(), getPeakDaySold(), getEngineHealth(),
     ]);
   });
 
@@ -130,6 +141,47 @@ export default async function Overview() {
           )}
         </div>
       </div>
+
+      {/* A stale PLAN is worse than a stale feed. The delivery sheet and the
+          production sheet are printed FROM the plan, so a dead engine means the
+          paper going out to the bakery is old, not just the figures on screen.
+
+          Shown only when something is wrong -- a banner that is always there is
+          furniture. Three states, because "ok" hid a real fault for six days:
+          on 26 and 27 August the scheduled job failed twice while the numbers
+          stayed correct, because the plan had been rebuilt by hand. The engine
+          was fine and the cron was broken, and only one of those was visible. */}
+      {engineHealth && (engineHealth.status !== "ok" || engineHealth.last_attempt_status === "failed") && (
+        <div className={engineHealth.status === "ok" ? "feeddead enginedead warn" : "feeddead enginedead"}>
+          <div className="fd-l">The plan</div>
+          <div className="fd-h">
+            {engineHealth.days_since_success > 3650 ? (
+              <b>The plan has never been built.</b>
+            ) : engineHealth.status === "stopped" ? (
+              <b>The plan has not been rebuilt for {engineHealth.days_since_success} days.</b>
+            ) : engineHealth.status === "late" ? (
+              <b>The plan has not been rebuilt since {fmtWhen(engineHealth.last_successful_run)}.</b>
+            ) : (
+              <b>The overnight rebuild failed. Today&apos;s plan was built by hand.</b>
+            )}
+          </div>
+          <div className="fd-b">
+            {engineHealth.status === "ok" ? (
+              <>Today&apos;s numbers are current, so nothing below is wrong. But the
+              scheduled job is broken, and unless it is fixed it will not build
+              tomorrow&apos;s plan either.</>
+            ) : (
+              <>Every recommendation below, and the delivery and production sheets,
+              are printed from the plan of{" "}
+              <b>{fmtWhen(engineHealth.last_successful_run)}</b>. Any sales that
+              have arrived since are not in them.</>
+            )}
+            {engineHealth.last_attempt_status === "failed" && engineHealth.last_attempt && (
+              <> Last scheduled attempt: <b>{fmtWhen(engineHealth.last_attempt)}</b>, failed.</>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* A stopped feed is not a badge. Every figure below this line silently
           excludes those stores, and they look exactly like healthy zeroes. */}

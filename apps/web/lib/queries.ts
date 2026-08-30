@@ -2463,3 +2463,44 @@ export async function getPackingRuns(day: string): Promise<PackRun[]> {
     return [];
   }
 }
+
+// ---------------------------------------------------------------------
+// Is the engine alive?
+// ---------------------------------------------------------------------
+// jb_engine_health() is from migration 045 and reads TWO sources, taking the
+// later: engine_runs, and cron.job_run_details. Both are needed. jb_run_engine
+// commits its log row before doing any work precisely so a 2am failure leaves
+// a trace -- but a failure BEFORE that commit (the budget check, a transaction
+// error, a timeout during the insert) leaves no row at all. On 26 and 27
+// August the scheduled job failed exactly there, twice, and engine_runs has no
+// row for either night. cron.job_run_details is the only witness.
+//
+// That is why the function is SECURITY DEFINER with a locked search_path: the
+// app role cannot read the cron schema, and it should not be granted blanket
+// access to it just for this.
+//
+// Migration 070 changed days_since_success from rounded fractional days to
+// Sydney calendar days. The old form read 1 at midday on a morning the engine
+// had run perfectly at 02:00, and read 1 for a 34-hour-old success too -- one
+// number covering "fine" and "missed a night".
+//
+// Returns null rather than throwing. This renders on the Overview, which has
+// already been blanked once by a slow query against Netlify's 10s budget; a
+// health check that can take the page down with it is worse than no health
+// check.
+export type EngineHealth = {
+  last_successful_run: Date | null;
+  last_attempt: Date | null;
+  last_attempt_status: string | null;
+  last_attempt_message: string | null;
+  days_since_success: number;
+  status: "ok" | "late" | "stopped";
+};
+export async function getEngineHealth(): Promise<EngineHealth | null> {
+  try {
+    const rows = await sql<EngineHealth[]>`select * from jb_engine_health()`;
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
