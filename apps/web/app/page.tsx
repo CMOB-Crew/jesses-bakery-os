@@ -160,7 +160,13 @@ export default async function Overview() {
             ) : engineHealth.status === "stopped" ? (
               <b>The plan has not been rebuilt for {engineHealth.days_since_success} days.</b>
             ) : engineHealth.status === "late" ? (
-              <b>The plan has not been rebuilt since {fmtWhen(engineHealth.last_successful_run)}.</b>
+              // The headline names the EVENT, not the timestamp. The body
+              // sentence below already carries the date, and having both say
+              // "Sat, 29 Aug, 3:22 pm" one line apart read as padding -- which
+              // is a bad quality to have in the banner somebody reads while
+              // deciding whether to trust the sheet in their hand. The stopped
+              // state gets this right already: duration up top, date below.
+              <b>The plan missed last night&apos;s rebuild.</b>
             ) : (
               <b>The overnight rebuild failed. Today&apos;s plan was built by hand.</b>
             )}
