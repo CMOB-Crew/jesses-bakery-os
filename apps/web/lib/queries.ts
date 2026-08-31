@@ -884,6 +884,29 @@ export async function getRunState(surface: string): Promise<Record<string, boole
   }
 }
 
+// Packing ticks for ONE day, from the same daily_run_state table the delivery
+// and production boards use (migration 017). No new table: surface is free text
+// and day is any date, so ('packing', '2026-09-03') is just another row.
+//
+// The day is a PARAMETER here, unlike getRunState which reads today. Packing
+// has a day picker and is routinely opened for a future date -- Thursday's
+// sheet, looked at on Tuesday -- so "now" is the wrong question for it.
+//
+// Richer shape than the boolean map the other surfaces store, because a store
+// is pending, packed, or flagged with a reason:
+//   { "<store_id>": { "s": "packed" } }
+//   { "<store_id>": { "s": "flagged", "c": "Short on the order" } }
+export type PackState = Record<string, { s: "packed" | "flagged"; c?: string }>;
+export async function getPackingState(day: string): Promise<PackState> {
+  try {
+    const rows = await sql<{ approved: PackState }[]>`
+      select approved from daily_run_state where surface = 'packing' and day = ${day}::date`;
+    return rows[0]?.approved ?? {};
+  } catch {
+    return {};
+  }
+}
+
 export type DailyBar = { sale_date: Date; dow: string; sold: number; sent: number };
 export async function getStoreDaily(id: string): Promise<DailyBar[]> {
   try {

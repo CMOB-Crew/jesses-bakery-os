@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { PackRun } from "@/lib/queries";
+import type { PackRun, PackState } from "@/lib/queries";
+import { setPackingState } from "@/app/run-state-actions";
 
 // Packing app — the iPad view AND the printed packing slip, on live data.
 //
@@ -45,7 +46,7 @@ const CHIP_LABEL: Record<string, string> = { "Short on the order": "Short", "Ite
 
 const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
 
-function toUI(runs: PackRun[]): UIRun[] {
+function toUI(runs: PackRun[], saved: PackState = {}): UIRun[] {
   return runs.map((r) => ({
     run_id: r.run_id,
     name: r.name,
@@ -56,8 +57,10 @@ function toUI(runs: PackRun[]): UIRun[] {
       retailer: s.retailer,
       items: s.items.map((i) => [i.name, i.qty] as [string, number]),
       units: s.units,
-      status: "pending" as SStatus,
-      comment: "",
+      // Seeded from what was saved for this day, so a reload, or an iPad
+      // that locked itself, picks up where the packer left off.
+      status: (saved[s.store_id]?.s ?? "pending") as SStatus,
+      comment: saved[s.store_id]?.c ?? "",
     })),
   }));
 }
@@ -68,17 +71,44 @@ export default function PackingApp({
   dayLabel,
   days,
   who,
+  initial = {},
 }: {
   runs: PackRun[];
   day: string;
   dayLabel: string;
   days: { value: string; label: string }[];
   who: string;
+  initial?: PackState;
 }) {
   const router = useRouter();
   // Keyed by day so switching days starts a clean sheet rather than carrying
   // yesterday's ticks onto today's stores.
-  const [runs, setRuns] = useState<UIRun[]>(() => toUI(runsIn));
+  const [runs, setRuns] = useState<UIRun[]>(() => toUI(runsIn, initial));
+  // Save the sheet whenever it changes.
+  //
+  // The ref skips the FIRST pass. Without it the initial render would write the
+  // starting state straight back over what was just loaded -- the same
+  // read-then-clobber that pinned permanent overrides on the delivery sheet
+  // just by opening it (d889cdf).
+  //
+  // day is not in the deps because the page sets key={day} on this component,
+  // so a day change remounts rather than re-running the effect.
+  const firstPass = useRef(true);
+  useEffect(() => {
+    if (firstPass.current) { firstPass.current = false; return; }
+    const next: PackState = {};
+    for (const r of runs) {
+      for (const s of r.stores) {
+        if (s.status === "packed") next[s.store_id] = { s: "packed" };
+        else if (s.status === "flagged") next[s.store_id] = { s: "flagged", c: s.comment };
+      }
+    }
+    void (async () => {
+      const res = await setPackingState(day, next);
+      if (!res.ok) setToast(`Could not save: ${res.error}`);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runs]);
   // Which stores are on a standing order rather than a plan. Read straight off
   // the server rows by id, so neither UIStore nor toUI has to change.
   const standingIds = useMemo(
