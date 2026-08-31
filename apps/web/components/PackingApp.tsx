@@ -178,7 +178,7 @@ export default function PackingApp({
           <> <b>{standingCount}</b> of those {standingCount === 1 ? "is" : "are"} on their <b>standing order</b>, not a forecast — their
           sales feed is too far behind for the plan to size them, so what is going out today is shown and marked.</>
         )}{" "}
-        Ticks and flags are kept for this session only and are not saved yet, and <b>Finalise</b> does not send anything to the drivers. <b>Export PDF</b> prints the real slip.
+        Ticks and flags <b>save as you go</b> and are stamped with who made them, so a reload or a locked screen picks up where you left off. <b>Finalise</b> still does not send anything to the drivers. <b>Export PDF</b> prints the real slip.
       </div>
       <div className="cap">
         Packing · iPad view. Big tick-off targets, a mandatory comment on any discrepancy, and every action stamped to the packer — the accountability the current PDF slips don&apos;t have.
