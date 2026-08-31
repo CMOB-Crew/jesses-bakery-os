@@ -147,7 +147,7 @@ export default function PackingApp({
         {standingCount > 0 && (
           <> <b>{standingCount}</b> of those {standingCount === 1 ? "is" : "are"} on their <b>standing order</b>, not a forecast — their
           sales feed is too far behind for the plan to size them, so what is going out today is shown and marked.</>
-        )}
+        )}{" "}
         Ticks and flags are kept for this session only and are not saved yet, and <b>Finalise</b> does not send anything to the drivers. <b>Export PDF</b> prints the real slip.
       </div>
       <div className="cap">
