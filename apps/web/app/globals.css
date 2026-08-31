@@ -209,6 +209,27 @@ tr.clk:hover td{background:#faf6ee}
   /* fixed bottom action bars never belong on paper */
   .actionbar { display: none !important; }
 
+  /* Screen-only links in a page's meta line. Deliveries carries a
+     "spreadsheet grid" link that is navigation, not information. */
+  .head .meta a { display: none !important; }
+
+  /* The packing slip prints its own header -- run, date, store count, units,
+     and the Packer / Checked by rules. The page head sits above it saying
+     "Packing" and "live plan", which is a duplicate and, on paper, meaningless.
+     :has is well supported; where it is not, this simply does nothing. */
+  body:has(.packwrap) .head { display: none !important; }
+
+  /* Sheet and State are pickers. On paper they are loose words above the
+     sheet. */
+  .pcalm .sheetrow { display: none !important; }
+
+  /* The confirm / approve column: the controls under it are already hidden
+     above, correctly, because they are interactive. That left a column
+     heading over nothing. visibility, not display -- these are grid children
+     and removing one shifts the header out of line with every row. */
+  .pcalm .colhead .grid > div:last-child,
+  .dcalm .colhead .grid > div:last-child { visibility: hidden !important; }
+
   /* Production + Deliveries: keep the sheet, drop the rest */
   .pcalm .dayrow, .pcalm .hero, .pcalm .help, .pcalm .toolbar, .pcalm .foot,
   .dcalm .dayrow, .dcalm .hero, .dcalm .help, .dcalm .toolbar, .dcalm .foot { display: none !important; }
