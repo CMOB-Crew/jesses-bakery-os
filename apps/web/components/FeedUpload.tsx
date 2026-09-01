@@ -104,10 +104,43 @@ export default function FeedUpload() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ objectPath: m.path, filename: file.name }),
     });
-    const j = (await r.json()) as Result;
+    const j = asResult(await r.json().catch(() => null), r.status);
     setRes(j);
     if (j.ok) router.refresh();
     return null;
+  }
+
+
+  // The banner said "Nothing was loaded." and then nothing at all, and an
+  // empty reason is the one outcome this screen exists to prevent.
+  //
+  // The route always answers {ok:true,...} or {ok:false,error:"..."}. But when
+  // the function is killed -- out of memory reading a big workbook, which is
+  // what happened to the 4.9MB Woolworths file -- the PLATFORM answers instead,
+  // with its own JSON. That parses fine. It has no `ok`, so the error branch
+  // rendered; it has no `error`, so the branch rendered blank.
+  //
+  // Anything that is not our shape is named as what it is, with the status
+  // code, so it can never come out empty again.
+  function asResult(j: unknown, status: number): Result {
+    const o = (j ?? {}) as Record<string, unknown>;
+    if (o.ok === true) return o as unknown as Result;
+    if (o.ok === false && typeof o.error === "string" && o.error.trim() !== "") {
+      return o as unknown as Result;
+    }
+    const detail =
+      typeof o.errorMessage === "string" && o.errorMessage.trim() !== "" ? o.errorMessage
+      : typeof o.error === "string" && o.error.trim() !== "" ? o.error
+      : typeof o.message === "string" && o.message.trim() !== "" ? o.message
+      : "";
+    return {
+      ok: false,
+      error:
+        `The server stopped partway through reading that file (HTTP ${status})` +
+        (detail ? `: ${detail}` : "") +
+        `. Nothing was loaded. Send it again, and if it happens twice tell us ` +
+        `which file it was so we can read the log.`,
+    };
   }
 
   async function send(file: File) {
@@ -141,7 +174,7 @@ export default function FeedUpload() {
         setRes({ ok: false, error: tooBig(file.size) });
         return;
       }
-      const j = (await r.json()) as Result;
+      const j = asResult(await r.json().catch(() => null), r.status);
       setRes(j);
       if (j.ok) router.refresh();
     } catch {

@@ -40,6 +40,7 @@
  *        NEW:           Sales Qty | Waste Qty | Std Unit Cost | Invoice Cost
  * ------------------------------------------------------------------ */
 
+import { Readable } from "node:stream";
 import ExcelJS from "exceljs";
 
 export type ColesRow = {
@@ -209,6 +210,71 @@ function splitCsv(text: string): string[][] {
   return rows;
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Read the workbook WITHOUT materialising every empty cell in it.
+ *
+ * Woolworths' "by Day by Store by Material" export is 4.9MB zipped and
+ * 56.8MB of XML once open, because sheet `e` is declared 100,501 rows long
+ * and only 647 of those carry a value -- the formatting was dragged to the
+ * bottom of the sheet and every one of those empty cells is written out.
+ *
+ * wb.xlsx.load() builds an object for all of them. Measured on the real file,
+ * on the same exceljs 4.4.0 the site builds with:
+ *
+ *     wb.xlsx.load()   8,377 ms   RSS 1,097 MB
+ *     streamed         4,334 ms   RSS   276 MB
+ *
+ * A Netlify function is given 1,024 MB. So this file never failed to parse --
+ * the parser ran out of room to parse it in and the function was killed, and
+ * a killed function answers with the platform's JSON rather than ours, which
+ * is why /feeds showed "Nothing was loaded." followed by nothing at all.
+ *
+ * The streaming reader hands back one row at a time and never holds the sheet.
+ * Rows with no values are dropped as they go past; the rest are rebuilt into a
+ * normal worksheet AT THEIR ORIGINAL ROW NUMBERS, so everything below is
+ * unchanged -- the header scan, the row-count tie-break between sheets `e` and
+ * `cs`, and the `rowNo` on a reject, which still points at the line of the
+ * spreadsheet the person is looking at.
+ *
+ * Checked against all four real files: same sheet, same header row, same
+ * column map, same counts, same units, same dates, same row numbers.
+ * ------------------------------------------------------------------ */
+async function loadSheetsThatHaveRows(wb: ExcelJS.Workbook, bytes: Uint8Array): Promise<void> {
+  const stream = Readable.from(Buffer.from(bytes));
+  const reader = new ExcelJS.stream.xlsx.WorkbookReader(stream, {
+    entries: "emit",
+    sharedStrings: "cache",
+    worksheets: "emit",
+    // The styles are the bulk of those 56.8MB and nothing here reads them.
+    styles: "ignore",
+    hyperlinks: "ignore",
+  });
+
+  for await (const incoming of reader) {
+    // exceljs types WorksheetReader without `name`, though it carries one at
+    // runtime -- the sheet names ("e", "cs", "Input") come from here.
+    const sheetName = (incoming as unknown as { name?: string }).name;
+    const ws = wb.addWorksheet(sheetName || `Sheet${wb.worksheets.length + 1}`);
+    for await (const row of incoming) {
+      const values = row.values as unknown[];
+      if (!Array.isArray(values)) continue;
+      let any = false;
+      for (let i = 1; i < values.length; i++) {
+        const v = values[i];
+        if (v !== null && v !== undefined && String(cell(v) ?? "").trim() !== "") { any = true; break; }
+      }
+      if (!any) continue;
+      const target = ws.getRow(row.number);
+      for (let i = 1; i < values.length; i++) {
+        const v = values[i];
+        if (v !== null && v !== undefined) target.getCell(i).value = v as ExcelJS.CellValue;
+      }
+      target.commit();
+    }
+  }
+}
+
 const MAX_HEADER_SCAN = 25;
 
 export async function parseColesWorkbook(buf: ArrayBuffer | Buffer): Promise<ColesParse> {
@@ -222,7 +288,7 @@ export async function parseColesWorkbook(buf: ArrayBuffer | Buffer): Promise<Col
   const bytes = new Uint8Array(buf as ArrayBuffer);
   const isZip = bytes.length > 1 && bytes[0] === 0x50 && bytes[1] === 0x4b;
   if (isZip) {
-    await wb.xlsx.load(buf as ArrayBuffer);
+    await loadSheetsThatHaveRows(wb, bytes);
   } else {
     const text = new TextDecoder("utf-8").decode(bytes).replace(/^\uFEFF/, "");
     const ws = wb.addWorksheet("csv");
