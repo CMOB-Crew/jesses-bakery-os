@@ -1,6 +1,7 @@
 import "server-only";
 import { q as sql } from "./db";
 import { dayShare, dowMultipliers, dayIndexFromISO } from "./dayshare";
+import { stripPack } from "./bake";
 
 export type Status = "red" | "amber" | "green";
 
@@ -2434,6 +2435,22 @@ export async function getRunRoster(): Promise<{ members: RunMember[]; visitors: 
 // coalesce(override for that weekday, default run) -- the same rule
 // getDeliveryPlan uses for the delivery board. The two must agree.
 export type PackItem  = { product_id: string; name: string; qty: number };
+// What the packer reads on the line. Simona, 1 Sept 41:18: "then in packing we
+// need to specify whether it's a five pack or single", and the format both
+// sides agreed at 43:47 -- "Bagel Plain (x5)" for the supermarkets, "Bagel
+// Plain (x1)" for the single-item customers, "just so then it's clear".
+//
+// BOTH get a label. Today the five-pack carries its suffix and the loose SKU
+// carries nothing, and an unmarked line does not read as "these are loose" --
+// it reads as an ordinary line. The one customer it affects is Jesse's Cafe,
+// the only single-bagel customer in the business ("your only anomaly here is
+// bagels. Everything else, even for the cafe, is standard").
+//
+// Tray-counted products only, the same condition Production merges on. Pita is
+// sold in fours but has no tray size yet, so it keeps its own name rather than
+// being labelled from a pack size nothing has confirmed.
+const packLabel = (name: string, uom: string | null, pack: number) =>
+  uom === "TRAY" ? `${stripPack(name)} (x${pack})` : name;
 // standing = this store has no plan for the day and is shown at its CURRENT
 // STANDING ORDER instead. Never a forecast, and marked as such on screen --
 // a packer has to tell the difference at a glance.
@@ -2482,6 +2499,7 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
       store_id: string; store_name: string; retailer: string;
       delivery_days: string[] | null;
       product_id: string; product_name: string;
+      baking_uom: string | null; pack_size: number;
       qty: number; week_sent: number; planned: boolean;
     }[]>`
       with d as (select ${day}::date as day),
@@ -2517,6 +2535,8 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
              coalesce(s.delivery_days::text[], '{}'::text[]) as delivery_days,
              p.id::text                                      as product_id,
              p.name                                          as product_name,
+             p.baking_uom::text                              as baking_uom,
+             coalesce(p.pack_size, 1)::int                   as pack_size,
              m.qty, m.week_sent, m.planned
         from merged m
         join stores s   on s.id = m.store_id and s.active
@@ -2557,7 +2577,14 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
         st = { store_id: r.store_id, name: r.store_name, retailer: r.retailer, items: [], units: 0, standing: !r.planned };
         run.stores.push(st);
       }
-      st.items.push({ product_id: r.product_id, name: r.product_name, qty });
+      // Labelled here rather than in the component: the store card and the
+      // printed slip read the same field, so there is no way for paper to end
+      // up saying something the screen does not.
+      st.items.push({
+        product_id: r.product_id,
+        name: packLabel(r.product_name, r.baking_uom, Number(r.pack_size) || 1),
+        qty,
+      });
       st.units += qty;
       run.units += qty;
     }
