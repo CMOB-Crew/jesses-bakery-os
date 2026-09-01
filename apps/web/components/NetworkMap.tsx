@@ -12,9 +12,9 @@ import type { MapStore } from "@/lib/queries";
  * Regions are placed to read cleanly; the dots are the real network.
  * ------------------------------------------------------------------ */
 
-type Kind = "green" | "amber" | "red" | "nodata";
-const COLOR: Record<Kind, string> = { green: "var(--green)", amber: "var(--amber)", red: "var(--red)", nodata: "var(--muted)" };
-const STLABEL: Record<Kind, string> = { green: "On track", amber: "Watch", red: "Needs attention", nodata: "No data" };
+type Kind = "green" | "amber" | "red" | "nodata" | "invoice";
+const COLOR: Record<Kind, string> = { green: "var(--green)", amber: "var(--amber)", red: "var(--red)", nodata: "var(--muted)", invoice: "var(--violet)" };
+const STLABEL: Record<Kind, string> = { green: "On track", amber: "Watch", red: "Needs attention", nodata: "No data", invoice: "Invoice customer" };
 
 // Neutral grey, never green, for a store whose sales we can't actually see.
 // The sent-or-sold test alone is NOT enough, and this is the third page it has
@@ -25,7 +25,14 @@ const STLABEL: Record<Kind, string> = { green: "On track", amber: "Watch", red: 
 // them or the counts stop reconciling, and Simona is the one who notices.
 const hasData = (s: MapStore) =>
   s.has_sales_feed !== false && (Number(s.sent) > 0 || Number(s.sold) > 0);
-const effOf = (s: MapStore): Kind => (hasData(s) ? (s.status as Kind) : "nodata");
+// Invoice first, and it wins outright. An invoice customer tells Jesse what
+// they want; nothing about them is forecast, so they can never be green, amber
+// or red. Before this they fell through to "nodata" and sat in the same grey
+// as a Coles store whose feed had gone dark -- which reads as "chase this
+// feed" when there is no feed to chase and never will be. Simona noticed on
+// 1 Sept: "how come grey is invoices... the schools are in grey".
+const effOf = (s: MapStore): Kind =>
+  s.retailer === "invoice" ? "invoice" : hasData(s) ? (s.status as Kind) : "nodata";
 
 export default function NetworkMap({ stores }: { stores: MapStore[] }) {
   const router = useRouter();
@@ -51,7 +58,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
     );
   }
 
-  const counts: Record<Kind, number> = { green: 0, amber: 0, red: 0, nodata: 0 };
+  const counts: Record<Kind, number> = { green: 0, amber: 0, red: 0, nodata: 0, invoice: 0 };
   stores.forEach((s) => (counts[effOf(s)] += 1));
   // Both halves of the fraction come from the same stores. Sold can only ever
   // be counted where there's a feed; sent is counted everywhere. Divide one by
@@ -117,7 +124,8 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
       <div className="panel intro">
         <div className="itxt">
           Every store is a dot, grouped by its delivery run and coloured by status — <b>red</b> needs attention today, amber is
-          watch, green is on track, grey has no feed loaded yet. Runs with the most red sit top-left, so trouble jumps
+          watch, green is on track, purple is an invoice customer (they order, so nothing is forecast for them) and grey has no
+          feed loaded yet. Runs with the most red sit top-left, so trouble jumps
           out. <b>Hover a dot to see the store; click it to open the full read.</b> It&apos;s a diagram for spotting
           patterns, not a to-scale map.
         </div>
@@ -155,7 +163,9 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
             })}
           </svg>
           <div className="maplegend">
-            {(["green", "amber", "red", "nodata"] as Kind[]).filter((st) => st !== "nodata" || counts.nodata > 0).map((st) => (
+            {(["green", "amber", "red", "invoice", "nodata"] as Kind[])
+              .filter((st) => counts[st] > 0)
+              .map((st) => (
               <span className="lg" key={st}><i style={{ background: COLOR[st] }} />{STLABEL[st]} · {counts[st]}</span>
             ))}
             <span className="lg dim">hover a store for its name · click to open</span>
@@ -270,6 +280,7 @@ export default function NetworkMap({ stores }: { stores: MapStore[] }) {
         .nmap .d-status.amber{background:var(--amber-b);color:var(--amber-t)}
         .nmap .d-status.red{background:var(--red-b);color:var(--red-t)}
         .nmap .d-status.nodata{background:var(--line2);color:var(--muted)}
+        .nmap .d-status.invoice{background:var(--violet-b);color:var(--violet-t)}
 
         .nmap .worst{overflow:hidden}
         .nmap .wrow{display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;background:var(--card);border:none;cursor:pointer;font-family:inherit;text-align:left}

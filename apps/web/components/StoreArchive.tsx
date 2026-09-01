@@ -94,7 +94,7 @@ export default function StoreArchive({ stores }: { stores: ArchivedStore[] }) {
             </select>
           )}
           {regions.length > 1 && (
-            <select className="asel" value={region} onChange={(e) => setRegion(e.target.value)} aria-label="Filter by region">
+            <select className="asel" value={region} onChange={(e) => setRegion(e.target.value)} aria-label="Filter by delivery run">
               <option value="all">All delivery runs</option>
               {regions.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>

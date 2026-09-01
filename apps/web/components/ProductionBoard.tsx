@@ -629,7 +629,11 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
       .pcalm .stepper button{width:26px;height:26px;border:1px solid var(--line);background:var(--card);border-radius:7px;font-size:15px;line-height:1;cursor:pointer;color:var(--ink2);font-family:inherit;display:flex;align-items:center;justify-content:center;transition:.12s;opacity:0}
       .pcalm .stepper button:hover{background:#f3ecdd;border-color:var(--crust)}
       .pcalm .row:hover .stepper button,.pcalm .engcell:focus-within .stepper button{opacity:1}
-      .pcalm .stepper input{width:56px;text-align:center;border:1px solid transparent;border-radius:7px;padding:6px 8px;font-size:15px;font-weight:700;font-family:inherit;font-variant-numeric:tabular-nums;color:var(--ink);background:transparent;outline:none;transition:.12s;cursor:pointer}
+      /* 76px, not 56. box-sizing is border-box (globals.css:30), so 56 left
+         38px of text after padding and borders -- four digits of 15px bold
+         numerals is about 36, which is why 3132 looked shaved. Tommy pointed
+         at it on the 1 Sept call. Five digits now fits. */
+      .pcalm .stepper input{width:76px;text-align:center;border:1px solid transparent;border-radius:7px;padding:6px 8px;font-size:15px;font-weight:700;font-family:inherit;font-variant-numeric:tabular-nums;color:var(--ink);background:transparent;outline:none;transition:.12s;cursor:pointer}
       .pcalm .row:hover .stepper input{border-color:var(--line);background:var(--surface)}
       .pcalm .stepper input:focus{border-color:var(--crust);background:#fff;box-shadow:0 0 0 3px rgba(176,116,28,.13);cursor:text}
       .pcalm .stepper input.edited{border-color:var(--amber);background:#fdf6e7;box-shadow:0 0 0 2px rgba(198,138,46,.14)}

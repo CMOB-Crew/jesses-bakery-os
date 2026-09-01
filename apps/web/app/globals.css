@@ -18,6 +18,12 @@
   --green:#5f8f5a; --green-t:#356630; --green-b:#e8efe2;
   --amber:#c68a2e; --amber-t:#7c5308; --amber-b:#f5e7cb;
   --red:#be5138;   --red-t:#9c3520;   --red-b:#f3dbd1;
+  /* Invoice customers are a CATEGORY, not a status: they are never forecast,
+     so they can never be green/amber/red and they are not 'missing a feed'
+     either. Simona spotted them sharing grey with the dark feeds on 1 Sept
+     and asked for purple. Not #3f3a56 -- RunBoard already uses that for
+     evening drops. */
+  --violet:#6f5b9e; --violet-t:#4a3a72; --violet-b:#e9e4f2;
   /* type */
   --serif:"Fraunces",Georgia,serif;
   --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;

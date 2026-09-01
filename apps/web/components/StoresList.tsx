@@ -243,7 +243,7 @@ export default function StoresList({ stores, showRegion = true, initialView, sta
           </select>
         )}
         {showRegion && (
-          <select value={region} onChange={(e) => setRegion(e.target.value)} aria-label="Filter by region">
+          <select value={region} onChange={(e) => setRegion(e.target.value)} aria-label="Filter by delivery run">
             <option value="all">All delivery runs</option>
             {regions.map((r) => (
               <option key={r} value={r}>{r}</option>
