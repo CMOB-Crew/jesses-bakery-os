@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { setRunState } from "@/app/run-state-actions";
+import { stripPack } from "@/lib/bake";
 import type { ProductionLine, TraySpec, WeekdayShape } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
@@ -32,10 +33,6 @@ const sheetOf = (l: { name: string; category: string }): Sheet =>
   l.category.toLowerCase().includes("sourdough") || /dark\s*rye/i.test(l.name) ? "sourdough" : "regular";
 const SHEET_LABEL: Record<Sheet, string> = { regular: "Regular", sourdough: "Sourdough" };
 
-// The pack size is how a product is SOLD, not how it is baked. Simona, 41:08:
-// "so production, remove the bracket times five and leave, and that's fine."
-// Anchored to the end of the name so it can only ever take a trailing suffix.
-const stripPack = (product: string) => product.replace(/\s*\(X ?\d+\)\s*$/i, "").trim();
 
 const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DOWSHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];

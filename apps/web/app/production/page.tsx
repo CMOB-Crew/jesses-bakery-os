@@ -1,6 +1,7 @@
 import { withUser } from "@/lib/db";
 import { getProductionPlan, getWeekdayShape, getRunState, getTraySizes } from "@/lib/queries";
 import ProductionBoard from "@/components/ProductionBoard";
+import { stripPack } from "@/lib/bake";
 
 export const metadata = { title: "Production · Jesse's Bakery OS" };
 export const dynamic = "force-dynamic"; // render per request; keep off the flaky build-time prerender path
@@ -15,17 +16,25 @@ export default async function ProductionPage() {
       <div className="head">
         <h1>Production</h1>
         {lines.length ? (
-          // DISTINCT PRODUCTS, not lines.length. getProductionPlan() returns one
-          // row per product PER STATE — 91 rows for 76 products — so the raw
-          // length disagreed with every other count on the page: the sheet pills
-          // (Regular 69 + Sourdough 7), the stat tile (69) and the footer (69).
+          // DISTINCT BAKES, not lines.length and not distinct product names.
           //
-          // ProductionBoard already folds the state rows down in allLines, and
-          // carries a comment about never reading "a separately-aggregated
-          // network figure, which is what would let the headline and the list
-          // disagree". This header sat outside the board and did precisely that.
+          // getProductionPlan() returns one row per product PER STATE — 91 rows
+          // — so lines.length disagreed with every other count on the page. That
+          // was fixed by counting distinct names. Then the pack-size merge moved
+          // the goalposts again: the board now folds every SKU that strips to
+          // the same bake onto one row, so BAGEL - PLAIN (X 5), (X 3) and the
+          // loose one are three names and ONE line. Distinct names read 76 while
+          // the sheet pills read 63 + 7, the stat tile 63 and the footer 63.
+          //
+          // ProductionBoard carries a comment about never reading "a separately-
+          // aggregated network figure, which is what would let the headline and
+          // the list disagree". This header sits outside the board and has now
+          // done precisely that twice, so it folds by the SAME rule the board
+          // uses — the shared stripPack, and only for tray-counted products,
+          // because those are the only ones the board merges.
           <div className="meta">
-            This week&apos;s bake plan · {new Set(lines.map((l) => l.name)).size} lines
+            This week&apos;s bake plan ·{" "}
+            {new Set(lines.map((l) => (traySizes[l.name] ? stripPack(l.name) : l.name))).size} lines
           </div>
         ) : null}
       </div>
