@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { setRunState } from "@/app/run-state-actions";
-import type { ProductionLine, WeekdayShape } from "@/lib/queries";
+import type { ProductionLine, TraySpec, WeekdayShape } from "@/lib/queries";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 const titleCase = (t: string) => t.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -44,7 +44,7 @@ type Day = "week" | number;
 // works down it by bread type, nudging any Engine-plan number (−/+ appear on
 // hover), resetting or undoing, and ticking each line to confirm. Flip to a
 // single day to hand the floor exactly what to make that day. Totals recalc live.
-export default function ProductionBoard({ lines: raw, shape = null, saved = {}, traySizes = {} }: { lines: ProductionLine[]; shape?: WeekdayShape | null; saved?: Record<string, boolean>; traySizes?: Record<string, number> }) {
+export default function ProductionBoard({ lines: raw, shape = null, saved = {}, traySizes = {} }: { lines: ProductionLine[]; shape?: WeekdayShape | null; saved?: Record<string, boolean>; traySizes?: Record<string, TraySpec> }) {
   // Day-split curve (Mon..Sun) — measured from real sell-through when we have
   // it (reindexed from the Sun..Sat shape), else the seed. Same shape the
   // Deliveries board and Seasonality calendar use — the factory bakes to the
@@ -126,13 +126,29 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
   // applied, or a product we have no size for) means the sheet shows units and
   // waits rather than inventing a tray figure.
   const traySizeOf = (product: string) => {
-    const n = traySizes[product];
+    const n = traySizes[product]?.qty;
     return n && n > 0 ? n : null;
   };
+  // Individual items in one sold unit. 1 for anything sold loose, and 1 for
+  // anything we do not recognise -- an unknown product bakes exactly as it did
+  // before rather than being multiplied by a guess.
+  const packOf = (product: string) => {
+    const p = traySizes[product]?.pack;
+    return p && p > 0 ? p : 1;
+  };
   const isTray = (product: string) => traySizeOf(product) != null;
+  // The plan counts BAGS, the tray holds BAGELS. Simona, 34:10, three times:
+  // "400 bags of five, so that's 2,000 bagels, so then divided by 24 on a
+  // tray, that's 83.3 trays." Multiplying by the pack is that middle step,
+  // and without it every multipack line was short by its own pack size --
+  // plain bagels read 147 trays where the floor bakes 733.
+  //
+  // Multiply before dividing, not units / (qty / pack). The two are equal in
+  // real arithmetic and not in floating point: 24 / (24/5) is 5.000000000000001,
+  // which ceils to 6 trays instead of 5.
   const traysFor = (units: number, product: string) => {
     const sz = traySizeOf(product);
-    return sz ? Math.ceil(units / sz) : null;
+    return sz ? Math.ceil((units * packOf(product)) / sz) : null;
   };
   // Trays across a whole category, summed per product — two lines in the same
   // category can have different tray sizes, so this cannot be one division.

@@ -232,15 +232,25 @@ export async function getDeliveryDetail(): Promise<DeliveryDetailLine[]> {
 // into the plan query would blank out the entire bake sheet. Here a missing
 // column just yields {} -- the sheet shows units and waits, which is what it
 // did before tray sizes existed at all.
-export async function getTraySizes(): Promise<Record<string, number>> {
+// qty  individual items on one tray (migration 024, from Jesse's Products_Master)
+// pack individual items in one SOLD unit (migration 071, from the product name)
+//
+// Both are needed and they are not the same number. A Coles sales qty of 1 is
+// one BAG; a tray holds 24 BAGELS. Carrying only qty is what made the sheet
+// short by the pack size.
+export type TraySpec = { qty: number; pack: number };
+export async function getTraySizes(): Promise<Record<string, TraySpec>> {
   try {
-    const rows = await sql<{ name: string; baking_qty: number }[]>`
-      select name, baking_qty from products
+    const rows = await sql<{ name: string; baking_qty: number; pack_size: number }[]>`
+      select name, baking_qty, coalesce(pack_size, 1) as pack_size from products
       where baking_uom = 'TRAY' and baking_qty is not null and baking_qty > 0`;
-    const m: Record<string, number> = {};
+    const m: Record<string, TraySpec> = {};
     for (const r of rows) {
       const n = Number(r.baking_qty) || 0;
-      if (n > 0) m[r.name] = n;
+      // Default 1, deliberately: an unknown pack bakes exactly as it does
+      // today rather than multiplying by a guess.
+      const p = Number(r.pack_size) || 1;
+      if (n > 0) m[r.name] = { qty: n, pack: p > 0 ? p : 1 };
     }
     return m;
   } catch {
