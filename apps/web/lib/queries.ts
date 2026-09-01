@@ -926,7 +926,10 @@ export async function getRunState(surface: string): Promise<Record<string, boole
 // is pending, packed, or flagged with a reason:
 //   { "<store_id>": { "s": "packed" } }
 //   { "<store_id>": { "s": "flagged", "c": "Short on the order" } }
-export type PackState = Record<string, { s: "packed" | "flagged"; c?: string }>;
+//  is the ticked LINES for that store, by product name, and "pending"
+// `i` is the ticked LINES for that store, by product name, and "pending"
+// is now a real saved state: a half-packed store is worth keeping.
+export type PackState = Record<string, { s: "packed" | "flagged" | "pending"; c?: string; i?: string[] }>;
 export async function getPackingState(day: string): Promise<PackState> {
   try {
     const rows = await sql<{ approved: PackState }[]>`

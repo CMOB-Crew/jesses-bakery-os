@@ -38,7 +38,13 @@ import { setPackingState } from "@/app/run-state-actions";
 // ---------------------------------------------------------------------
 
 type SStatus = "pending" | "packed" | "flagged";
-type UIStore = { store_id: string; name: string; retailer: string; items: [string, number][]; units: number; status: SStatus; comment: string };
+// `lines` is the per-PRODUCT tick, keyed by product name. A store is not
+// packed because someone hit one big button -- it is packed because every line
+// on its slip was ticked off. That is the whole point of the rebuild: the
+// printed slip has always been a line-by-line checklist and the screen was a
+// single tick per store, so the screen could say "packed" while a product was
+// still sitting on the bench.
+type UIStore = { store_id: string; name: string; retailer: string; items: [string, number][]; units: number; status: SStatus; comment: string; lines: Record<string, boolean> };
 type UIRun = { run_id: string; name: string; stores: UIStore[]; units: number };
 
 const CHIPS = ["Short on the order", "Item damaged", "Substituted product", "Out of stock — nothing to pack"];
@@ -56,6 +62,23 @@ function toUI(runs: PackRun[], saved: PackState = {}): UIRun[] {
       name: s.name,
       retailer: s.retailer,
       items: s.items.map((i) => [i.name, i.qty] as [string, number]),
+      // Ticked lines come back as a name array. A store saved before this
+      // existed simply has none, and a store already marked packed gets every
+      // line ticked so an old sheet opens complete rather than untouched.
+      lines: (() => {
+        const ticked = saved[s.store_id]?.i;
+        if (Array.isArray(ticked) && ticked.length) {
+          const m: Record<string, boolean> = {};
+          for (const n of ticked) m[n] = true;
+          return m;
+        }
+        if (saved[s.store_id]?.s === "packed") {
+          const m: Record<string, boolean> = {};
+          for (const i of s.items) m[i.name] = true;
+          return m;
+        }
+        return {};
+      })(),
       units: s.units,
       // Seeded from what was saved for this day, so a reload, or an iPad
       // that locked itself, picks up where the packer left off.
@@ -99,8 +122,13 @@ export default function PackingApp({
     const next: PackState = {};
     for (const r of runs) {
       for (const s of r.stores) {
-        if (s.status === "packed") next[s.store_id] = { s: "packed" };
-        else if (s.status === "flagged") next[s.store_id] = { s: "flagged", c: s.comment };
+        const ticked = s.items.map((i) => i[0]).filter((n) => s.lines[n]);
+        // Half-finished stores are saved too. A packer who ticks nine of
+        // fourteen lines and walks away has done real work, and losing it on a
+        // locked screen is exactly what this sheet promises not to do.
+        if (s.status === "packed") next[s.store_id] = { s: "packed", i: ticked };
+        else if (s.status === "flagged") next[s.store_id] = { s: "flagged", c: s.comment, i: ticked };
+        else if (ticked.length) next[s.store_id] = { s: "pending", i: ticked };
       }
     }
     void (async () => {
@@ -117,7 +145,10 @@ export default function PackingApp({
   );
   const standingCount = standingIds.size;
   const [cur, setCur] = useState(0);
-  const [expItems, setExpItems] = useState<Record<string, boolean>>({});
+  // One store open at a time. A packer works a store, finishes it, moves on --
+  // twenty-seven stores of expanded lines at once is not a checklist, it is a
+  // wall.
+  const [open, setOpen] = useState<number | null>(0);
   const [flagOpen, setFlagOpen] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<string | null>(null);
@@ -138,8 +169,41 @@ export default function PackingApp({
   function mutate(si: number, fn: (s: UIStore) => UIStore) {
     setRuns((rs) => rs.map((r, ri) => (ri !== cur ? r : { ...r, stores: r.stores.map((s, i) => (i === si ? fn(s) : s)) })));
   }
+  const lineCount = (s: UIStore) => s.items.filter((i) => s.lines[i[0]]).length;
+  const allLines = (s: UIStore) => s.items.length > 0 && lineCount(s) === s.items.length;
+
+  function toggleLine(si: number, name: string) {
+    mutate(si, (s) => {
+      const lines = { ...s.lines, [name]: !s.lines[name] };
+      // Unticking a line on a completed store reopens it. The count on the run
+      // list has to be able to go DOWN, or "12 of 14 packed" stops being true
+      // the moment someone corrects a mistake.
+      const stillAll = s.items.length > 0 && s.items.every((i) => lines[i[0]]);
+      const status: SStatus = s.status === "packed" && !stillAll ? "pending" : s.status;
+      return { ...s, lines, status };
+    });
+  }
+
+  function completeStore(si: number) {
+    mutate(si, (s) => ({ ...s, status: "packed", comment: "" }));
+    setFlagOpen((f) => ({ ...f, [key(si)]: false }));
+    // Straight on to the next store that still needs doing, so finishing one
+    // hands you the next instead of sending you back to a list to find it.
+    const stores = runs[cur].stores;
+    const nextIdx = stores.findIndex((s, i) => i !== si && s.status === "pending");
+    setOpen(nextIdx === -1 ? null : nextIdx);
+  }
+
   function togglePack(si: number) {
-    mutate(si, (s) => ({ ...s, status: s.status === "packed" ? "pending" : "packed", comment: "" }));
+    mutate(si, (s) => {
+      const to: SStatus = s.status === "packed" ? "pending" : "packed";
+      const lines: Record<string, boolean> = {};
+      // The header tick is an all-or-nothing shortcut, so it has to move the
+      // lines with it. Leaving them behind would show "packed" above a list of
+      // empty boxes.
+      if (to === "packed") for (const i of s.items) lines[i[0]] = true;
+      return { ...s, status: to, comment: "", lines };
+    });
     setFlagOpen((f) => ({ ...f, [key(si)]: false }));
   }
   function saveFlag(si: number) {
@@ -211,7 +275,9 @@ export default function PackingApp({
             <div className="mh"><h2>{run.name}</h2><span className="ms">{plural(run.stores.length, "store")} · {run.units.toLocaleString("en-AU")} units</span></div>
             <div className="list">
               {run.stores.map((s, si) => {
-                const itemsShown = !!expItems[key(si)];
+                const itemsShown = open === si;
+                const done = lineCount(s);
+                const ready = allLines(s);
                 const flagShown = !!flagOpen[key(si)];
                 const reason = draft[key(si)] || "";
                 return (
@@ -220,14 +286,35 @@ export default function PackingApp({
                       <div className="check" onClick={() => togglePack(si)}>✓</div>
                       <div style={{ minWidth: 0 }}>
                         <div className="nm">{s.name}</div>
-                        <div className="it">{s.units} items · {s.items.length} products {standingIds.has(s.store_id) && <span className="tag amber" title="No sales feed to size this store — this is its current standing order, not a forecast.">standing order</span>} {s.status === "flagged" && <span className="tag amber">⚑ flagged</span>}</div>
+                        <div className="it">{s.units} items · {done > 0 && s.status !== "packed" ? <b>{done}/{s.items.length} lines</b> : `${s.items.length} products`} {standingIds.has(s.store_id) && <span className="tag amber" title="No sales feed to size this store — this is its current standing order, not a forecast.">standing order</span>} {s.status === "flagged" && <span className="tag amber">⚑ flagged</span>}</div>
                         {s.status === "flagged" && <div className="cmt">⚑ {s.comment}</div>}
                       </div>
-                      <button className="exp" onClick={() => setExpItems((e) => ({ ...e, [key(si)]: !e[key(si)] }))}>{itemsShown ? "hide items" : "view items"}</button>
+                      <button className="exp" onClick={() => setOpen(itemsShown ? null : si)}>{itemsShown ? "close" : s.status === "packed" ? "review" : "pack this store"}</button>
                     </div>
                     {itemsShown && (
-                      <div className="items">
-                        {s.items.map((i) => <span className="iq" key={i[0]}>{i[0]} <b>{i[1]}</b></span>)}
+                      <div className="lines">
+                        {s.items.map((i) => {
+                          const on = !!s.lines[i[0]];
+                          return (
+                            <button
+                              type="button"
+                              key={i[0]}
+                              className={`lrow ${on ? "on" : ""}`}
+                              aria-pressed={on}
+                              onClick={() => toggleLine(si, i[0])}
+                            >
+                              <span className="lbox">{on ? "✓" : ""}</span>
+                              <span className="lname">{i[0]}</span>
+                              <span className="lqty">{i[1]}</span>
+                            </button>
+                          );
+                        })}
+                        <div className="lfoot">
+                          <span className="lprog">{ready ? `All ${s.items.length} lines ticked.` : `${done} of ${s.items.length} lines ticked`}</span>
+                          <button className="btn done sm" disabled={!ready || s.status === "packed"} onClick={() => completeStore(si)}>
+                            {s.status === "packed" ? "Store complete" : `Complete ${s.name.split(" ").slice(-1)[0] || "store"}`}
+                          </button>
+                        </div>
                       </div>
                     )}
                     {flagShown && (
@@ -318,6 +405,21 @@ export default function PackingApp({
       .packwrap .srow{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px;box-shadow:0 1px 2px rgba(60,45,30,.05)}
       .packwrap .srow.packed{background:#f4f8f2;border-color:#d7e6cf}
       .packwrap .srow.flagged{background:#fbf4e6;border-color:#ecdcbb}
+      .packwrap .lines{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:6px}
+      .packwrap .lrow{display:flex;align-items:center;gap:13px;width:100%;text-align:left;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:11px 14px;cursor:pointer;font:inherit;color:inherit;transition:.12s}
+      .packwrap .lrow:hover{border-color:var(--crust)}
+      .packwrap .lrow:focus-visible{outline:none;border-color:var(--crust);box-shadow:0 0 0 3px rgba(176,116,28,.2)}
+      .packwrap .lrow.on{background:#f4f8f2;border-color:#cfe2c6}
+      .packwrap .lbox{width:30px;height:30px;border-radius:8px;border:2px solid var(--line);background:var(--card);flex:none;display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1;color:transparent}
+      .packwrap .lrow.on .lbox{background:var(--green);border-color:var(--green);color:#fff}
+      .packwrap .lname{flex:1;min-width:0;font-size:14.5px;font-weight:600;overflow-wrap:anywhere}
+      .packwrap .lrow.on .lname{color:var(--ink2)}
+      .packwrap .lqty{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;flex:none;min-width:38px;text-align:right}
+      .packwrap .lfoot{display:flex;align-items:center;gap:12px;padding:4px 2px 2px;margin-top:2px}
+      .packwrap .lprog{font-size:12.5px;color:var(--muted);font-weight:600}
+      .packwrap .btn.done{margin-left:auto;background:var(--green);color:#fff;border:0}
+      .packwrap .btn.done:disabled{background:#dfe3da;color:#8d9487;cursor:default}
+      @media (prefers-reduced-motion:reduce){.packwrap .lrow{transition:none}}
       .packwrap .srhead{display:flex;align-items:center;gap:14px}
       .packwrap .check{width:40px;height:40px;border-radius:11px;border:2px solid var(--line);background:var(--card);cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center;font-size:22px;color:transparent;transition:.15s}
       .packwrap .srow.packed .check{background:var(--green);border-color:var(--green);color:#fff}

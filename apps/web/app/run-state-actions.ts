@@ -83,7 +83,7 @@ export async function setRunState(
 // The whole map is replaced on every change, exactly as the approval set is.
 // It is a few dozen small entries at most, and a wholesale replace is what
 // makes "untick" work without needing a delete path.
-export type PackStateWrite = Record<string, { s: "packed" | "flagged"; c?: string }>;
+export type PackStateWrite = Record<string, { s: "packed" | "flagged" | "pending"; c?: string; i?: string[] }>;
 
 export async function setPackingState(day: string, state: PackStateWrite): Promise<WriteResult> {
   if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
@@ -98,11 +98,23 @@ export async function setPackingState(day: string, state: PackStateWrite): Promi
     //
     // The INPUT type still allows c to be absent, because the client sends a
     // packed entry without one. Only what is stored is normalised.
-    const clean: Record<string, { s: string; c: string }> = {};
+    //
+    // `i` carries the ticked LINES. It is rebuilt here rather than passed
+    // through, same as everything else: names are coerced to strings, blanks
+    // dropped, duplicates collapsed, and the list capped. A store has a few
+    // dozen products at most, so 200 is far past any honest sheet.
+    const clean: Record<string, { s: string; c: string; i: string[] }> = {};
+    const lines = (v: { i?: string[] }) =>
+      Array.isArray(v.i)
+        ? [...new Set(v.i.map((n) => String(n).slice(0, 200)).filter(Boolean))].slice(0, 200)
+        : [];
     for (const [k, v] of Object.entries(state ?? {})) {
       if (!v) continue;
-      if (v.s === "packed") clean[k] = { s: "packed", c: "" };
-      else if (v.s === "flagged") clean[k] = { s: "flagged", c: String(v.c ?? "").slice(0, 300) };
+      if (v.s === "packed") clean[k] = { s: "packed", c: "", i: lines(v) };
+      else if (v.s === "flagged") clean[k] = { s: "flagged", c: String(v.c ?? "").slice(0, 300), i: lines(v) };
+      // A part-packed store is only worth a row if something is actually
+      // ticked. Writing empty pending rows would grow the sheet with nothing.
+      else if (v.s === "pending" && lines(v).length) clean[k] = { s: "pending", c: "", i: lines(v) };
     }
     // Stamped with whoever is signed in, not "app". The page promises "every
     // action stamped to the packer" and updated_by is the column that carries
