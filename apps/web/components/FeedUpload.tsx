@@ -106,7 +106,12 @@ export default function FeedUpload() {
         <input
           ref={fileRef}
           type="file"
-          accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          // .csv is here for the Woolworths RCTI, which Woolworths genuinely
+          // send as a CSV. Without it the file is invisible in the picker,
+          // while dragging the very same file onto this box works -- the
+          // server has accepted CSVs since de9a0cc. Same file, two answers,
+          // depending only on how you handed it over.
+          accept=".xlsx,.xlsm,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           hidden
           onChange={(e) => { const f = e.target.files?.[0]; if (f) send(f); }}
         />
@@ -121,7 +126,7 @@ export default function FeedUpload() {
               Drop the {RETAILERS.find((r) => r.id === retailer)?.label}{" "}
               <b>{RETAILERS.find((r) => r.id === retailer)?.report}</b> report here
             </div>
-            <div className="fu-s">or click to choose it · .xlsx, up to 25MB</div>
+            <div className="fu-s">or click to choose it · .xlsx or .csv, up to 25MB</div>
           </>
         )}
       </div>
