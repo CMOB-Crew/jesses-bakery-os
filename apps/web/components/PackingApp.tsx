@@ -427,13 +427,16 @@ export default function PackingApp({
          showing the thing on a laptop and absurd on the device itself -- an
          iPad drawn inside an iPad, at a height that is not the screen's.
 
-         pointer:coarse is the touch test, so this fires on the iPad and on
-         a packer's phone, and never on a trackpad no matter how the window is
-         sized. The bezel unwraps, the demo copy goes, and the app fills the
-         glass. Add to Home Screen then opens it with no Safari chrome at all.
+         Two conditions on purpose. pointer:coarse catches every touch device.
+         max-width:900px catches anything narrow, which means a laptop browser
+         squeezed down shows exactly what a packer sees -- so this is checkable
+         without borrowing the bakery's iPad, and a device that misreports its
+         pointer still gets the right layout.
 
-         The desktop view is untouched -- Simona still needs to be shown it. */
-      @media (pointer: coarse){
+         Simona's laptop at full width is well past 900px, so the demo view she
+         is shown is untouched. Add to Home Screen opens it with no Safari
+         chrome at all. */
+      @media (pointer: coarse), (max-width: 900px){
         .packwrap{padding:0;align-items:stretch}
         .packwrap .livenote, .packwrap .cap{display:none}
         .packwrap .pad{width:100%;max-width:none;height:100dvh;border-radius:0;padding:0;box-shadow:none;background:var(--paper)}
@@ -455,6 +458,79 @@ export default function PackingApp({
         .packwrap .check{width:46px;height:46px}
         .packwrap .foot{padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom))}
         .packwrap .pexport{display:none}
+      }
+
+      /* ---- ON A PHONE ----------------------------------------------
+         The block above is sized for an iPad. A phone is 390px wide, where
+         that header overflows, a 190px run card shows one and a half, and the
+         Complete button sits beside its own label instead of under it.
+
+         Drivers and packers both said they would use their phones, so this is
+         a real surface, not a courtesy.
+
+         Everything here is layout, not function -- same checklist, same ticks,
+         same rules. Tap targets stay at or above 44px throughout, which is the
+         floor for a thumb. */
+      @media (max-width: 560px){
+        /* The wordmark is decoration; on a phone it costs the day picker its
+           room. The mark stays so the header still reads as ours. */
+        .packwrap .top{padding:10px 12px;gap:8px}
+        .packwrap .top .logo{font-size:0}
+        .packwrap .top .logo .mk{font-size:19px}
+        .packwrap .top h1{font-size:17px;margin-left:0}
+        .packwrap .daypick{padding:9px 8px;font-size:12.5px;min-width:0;flex:1}
+        /* Avatar only. The name is already on every action in the audit trail;
+           it does not also need a third of the header. */
+        .packwrap .top .who{max-width:none;padding:0;background:none;border:0;font-size:0;gap:0}
+        .packwrap .top .who .av{width:34px;height:34px;font-size:14px}
+
+        .packwrap .runs{padding:10px 12px;gap:8px}
+        .packwrap .run{min-width:150px;padding:10px 12px}
+        .packwrap .run .rn{font-size:14px}
+        .packwrap .run .rd{font-size:11px;margin:1px 0 6px}
+        .packwrap .run .rc{font-size:11px}
+
+        .packwrap .mh{padding:12px 12px 2px;flex-wrap:wrap;gap:2px 10px}
+        .packwrap .mh h2{font-size:20px}
+        .packwrap .mh .ms{font-size:12px}
+        .packwrap .list{padding:8px 12px}
+
+        .packwrap .srow{padding:12px}
+        .packwrap .srhead{gap:11px}
+        .packwrap .check{width:44px;height:44px;font-size:23px}
+        .packwrap .srhead .nm{font-size:15px;overflow-wrap:anywhere}
+        .packwrap .srhead .it{font-size:12px}
+        /* The open/close control drops under the name rather than fighting it
+           for width on a long store name like WOOLWORTHS BURWOOD WESTFIELD. */
+        .packwrap .srhead{flex-wrap:wrap}
+        .packwrap .srhead .exp{margin-left:54px;padding:6px 0;font-size:13.5px}
+
+        .packwrap .lrow{padding:13px 12px;gap:11px}
+        .packwrap .lbox{width:36px;height:36px}
+        .packwrap .lname{font-size:15px}
+        .packwrap .lqty{font-size:18px;min-width:38px}
+
+        /* Stacked, and the button goes full width. A thumb reaching across a
+           phone should not have to find a small target in the corner. */
+        .packwrap .lfoot{flex-direction:column;align-items:stretch;gap:8px}
+        .packwrap .lfoot .lprog{text-align:center}
+        .packwrap .btn.done{margin-left:0;width:100%;padding:13px;font-size:15px}
+        .packwrap .foot{flex-direction:column;align-items:stretch;gap:9px}
+        .packwrap .foot .st{text-align:center;font-size:12.5px}
+        .packwrap .final{width:100%;padding:13px;font-size:15px}
+
+        /* The flag panel is a form, and forms are where phones go wrong. */
+        .packwrap .flagpanel input{width:100%}
+        .packwrap .flagpanel .chips{gap:6px}
+      }
+
+      /* A phone held sideways has almost no height. Give the list the screen
+         back by collapsing the run strip to a single scrollable line. */
+      @media (pointer: coarse) and (max-height: 460px){
+        .packwrap .runs{padding:7px 12px}
+        .packwrap .run .track, .packwrap .run .rd{display:none}
+        .packwrap .run{padding:8px 12px}
+        .packwrap .mh{padding-top:8px}
       }
       .packwrap .srhead{display:flex;align-items:center;gap:14px}
       .packwrap .check{width:40px;height:40px;border-radius:11px;border:2px solid var(--line);background:var(--card);cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center;font-size:22px;color:transparent;transition:.15s}
