@@ -57,13 +57,48 @@ export default function FeedUpload() {
   const [drag, setDrag] = useState(false);
   const [res, setRes] = useState<Result | null>(null);
 
+  // Netlify will not carry a request body past 4.5 MiB — the AWS Lambda 6MB
+  // base64 ceiling. Measured against the live app: 4,500,000 bytes reaches the
+  // function and 4,718,592 comes back 413 in under two seconds, having never
+  // reached it. So this is not a limit we chose and not one the route can
+  // raise; it is the door the bytes have to fit through.
+  //
+  // 4.4MB, not 4.5, so the multipart envelope around the file cannot push a
+  // file that just fits over the edge.
+  const PLATFORM_MAX = 4_400_000;
+  const mb = (n: number) => `${(n / 1_000_000).toFixed(1)}MB`;
+
+  // Said the same way whether we catch it before sending or the platform
+  // catches it after, so the person reads one explanation, not two.
+  const tooBig = (size: number) =>
+    `This file is ${mb(size)}, and the upload can only carry ${mb(PLATFORM_MAX)}. ` +
+    `It is not your file and not a fault — the report has outgrown what the ` +
+    `upload can take, so it never reaches us. Nothing was loaded. ` +
+    `For now: open it in Excel, and use File > Save As to save the sheet as ` +
+    `.csv — that comes through fine. We are removing this limit properly.`;
+
   async function send(file: File) {
+    // Checked BEFORE sending. Uploading 4.7MB just to be told no costs Simona
+    // two seconds and a scare, at 6am, when the answer is already knowable.
+    if (file.size > PLATFORM_MAX) {
+      setRes({ ok: false, error: tooBig(file.size) });
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
     setBusy(true);
     setRes(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
       const r = await fetch(`/api/feeds/${retailer}`, { method: "POST", body: fd });
+      // A 413 comes back with an EMPTY body, so r.json() throws and the catch
+      // below used to call it an outage: "Couldn't reach the server." That sent
+      // someone to check Netlify for a file that was simply too big. Named here
+      // so it can never be mistaken for one again.
+      if (r.status === 413) {
+        setRes({ ok: false, error: tooBig(file.size) });
+        return;
+      }
       const j = (await r.json()) as Result;
       setRes(j);
       if (j.ok) router.refresh();
@@ -126,7 +161,7 @@ export default function FeedUpload() {
               Drop the {RETAILERS.find((r) => r.id === retailer)?.label}{" "}
               <b>{RETAILERS.find((r) => r.id === retailer)?.report}</b> report here
             </div>
-            <div className="fu-s">or click to choose it · .xlsx or .csv, up to 25MB</div>
+            <div className="fu-s">or click to choose it · .xlsx or .csv, up to 4.4MB</div>
           </>
         )}
       </div>

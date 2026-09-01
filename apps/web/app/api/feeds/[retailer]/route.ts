@@ -27,7 +27,15 @@ export const maxDuration = 60;
  * from the moment she needs it.
  * ------------------------------------------------------------------ */
 
-const MAX_BYTES = 25 * 1024 * 1024;
+// Not 25MB, whatever this used to say. Netlify caps a request body at 4.5 MiB
+// (the AWS Lambda 6MB base64 ceiling) and answers 413 without ever invoking the
+// function, so anything above that never gets here to be measured against a
+// constant. Measured on the live app: 4,500,000 through, 4,718,592 refused.
+//
+// Kept slightly under the platform's number so that if a request ever does
+// arrive near the edge, it is OUR message that comes back rather than an empty
+// 413 body the client has to guess at.
+const MAX_BYTES = 4_400_000;
 
 /* A file the person can act on, instead of the library's internals.
  *
