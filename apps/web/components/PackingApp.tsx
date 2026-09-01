@@ -420,6 +420,42 @@ export default function PackingApp({
       .packwrap .btn.done{margin-left:auto;background:var(--green);color:#fff;border:0}
       .packwrap .btn.done:disabled{background:#dfe3da;color:#8d9487;cursor:default}
       @media (prefers-reduced-motion:reduce){.packwrap .lrow{transition:none}}
+
+      /* ---- ON A REAL TABLET ----------------------------------------
+         Everything above draws a PICTURE of an iPad: a black bezel at a fixed
+         1120x760 with the explanation copy above it, which is right for
+         showing the thing on a laptop and absurd on the device itself -- an
+         iPad drawn inside an iPad, at a height that is not the screen's.
+
+         pointer:coarse is the touch test, so this fires on the iPad and on
+         a packer's phone, and never on a trackpad no matter how the window is
+         sized. The bezel unwraps, the demo copy goes, and the app fills the
+         glass. Add to Home Screen then opens it with no Safari chrome at all.
+
+         The desktop view is untouched -- Simona still needs to be shown it. */
+      @media (pointer: coarse){
+        .packwrap{padding:0;align-items:stretch}
+        .packwrap .livenote, .packwrap .cap{display:none}
+        .packwrap .pad{width:100%;max-width:none;height:100dvh;border-radius:0;padding:0;box-shadow:none;background:var(--paper)}
+        .packwrap .app{border-radius:0;height:100dvh}
+        /* Runs become a strip across the top: a packer picks a run once and
+           then works down the stores, so it does not deserve a third of the
+           screen for the rest of the shift. */
+        .packwrap .body{flex-direction:column}
+        .packwrap .runs{width:auto;border-right:0;border-bottom:1px solid var(--line);display:flex;gap:10px;overflow-x:auto;padding:12px 14px;flex:none}
+        .packwrap .runs .h{display:none}
+        .packwrap .run{margin-bottom:0;min-width:190px;flex:none}
+        .packwrap .list{padding:10px 14px}
+        .packwrap .mh{padding:14px 16px 4px}
+        /* Bigger targets. This is used with flour on your hands. */
+        .packwrap .lrow{padding:15px 16px}
+        .packwrap .lbox{width:38px;height:38px;font-size:21px}
+        .packwrap .lname{font-size:16px}
+        .packwrap .lqty{font-size:19px;min-width:46px}
+        .packwrap .check{width:46px;height:46px}
+        .packwrap .foot{padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+        .packwrap .pexport{display:none}
+      }
       .packwrap .srhead{display:flex;align-items:center;gap:14px}
       .packwrap .check{width:40px;height:40px;border-radius:11px;border:2px solid var(--line);background:var(--card);cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center;font-size:22px;color:transparent;transition:.15s}
       .packwrap .srow.packed .check{background:var(--green);border-color:var(--green);color:#fff}
