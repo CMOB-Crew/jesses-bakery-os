@@ -12,7 +12,16 @@ export const FEED_BUCKET = "feed-uploads";
 
 export function supabaseAdmin(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SECRET_KEY;
+  // Three names, because the one I first used was never real. It came out of a
+  // grep whose node_modules filter silently did nothing, so I built this around
+  // a library's variable and the route answered 501 on a live deploy.
+  //
+  // SUPABASE_SERVICE_ROLE_KEY first: that is what Supabase's own dashboard
+  // calls it, so it is what anyone pasting it will name it.
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) return null;
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },

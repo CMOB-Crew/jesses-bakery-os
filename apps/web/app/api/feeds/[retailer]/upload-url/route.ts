@@ -56,7 +56,7 @@ export async function POST(
     // No service key on this deployment. The caller falls back to the ordinary
     // upload, which still works for everything under the limit.
     return NextResponse.json(
-      { ok: false, error: "Direct upload is not configured on this deployment." },
+      { ok: false, error: "Large uploads are not switched on for this site yet — SUPABASE_SERVICE_ROLE_KEY is not set. Files under 4.4MB still upload normally." },
       { status: 501 },
     );
   }
