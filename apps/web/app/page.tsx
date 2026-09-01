@@ -119,15 +119,30 @@ export default async function Overview() {
   // and unmeasurable on the other. The Stores list was right.
   const hasData = (s: StoreWeek) =>
     s.has_sales_feed !== false && (Number(s.total_sent) > 0 || Number(s.total_sold) > 0);
-  const eff: Record<"red" | "amber" | "green" | "nodata", number> = { red: 0, amber: 0, green: 0, nodata: 0 };
+  const eff: Record<"red" | "amber" | "green" | "nodata" | "invoice", number> =
+    { red: 0, amber: 0, green: 0, nodata: 0, invoice: 0 };
   const ndByRegion = new Map<string, number>();
   for (const s of stores) {
-    if (hasData(s)) eff[s.status] += 1;
-    else {
-      eff.nodata += 1;
-      const k = s.region ?? "";
-      ndByRegion.set(k, (ndByRegion.get(k) ?? 0) + 1);
-    }
+    if (hasData(s)) { eff[s.status] += 1; continue; }
+    // Not scored. But there are two reasons a store lands here and they are
+    // opposites, so they no longer share a tile:
+    //
+    //   invoice  the customer tells Jesse what they want. There is no feed and
+    //            there never will be. Nothing to chase.
+    //   nodata   the feed has gone dark. Temporary, and worth chasing.
+    //
+    // Calling the first one "awaiting feed" sends someone looking for a report
+    // that does not exist. Simona spotted the same thing on the map on 1 Sept:
+    // "how come grey is invoices... the schools are in grey."
+    if (s.retailer === "invoice") eff.invoice += 1;
+    else eff.nodata += 1;
+    // BOTH still count here. ndByRegion is not the tile — it feeds
+    // `green = Math.max(0, r.green - nd)` on every delivery run tile below, and
+    // an invoice store is still a store that cannot be scored green. Drop it
+    // from this map and every run starts counting its invoice customers as
+    // healthy, which is the exact bug the comment above this loop describes.
+    const k = s.region ?? "";
+    ndByRegion.set(k, (ndByRegion.get(k) ?? 0) + 1);
   }
 
   return (
@@ -229,6 +244,9 @@ export default async function Overview() {
           <Stat dot="var(--amber)" n={eff.amber} l="To watch" />
           <Stat dot="var(--green)" n={eff.green} l="On track" />
           {eff.nodata > 0 && <Stat dot="var(--muted)" n={eff.nodata} l="Awaiting feed" />}
+          {/* Same colour and the same population as the map's legend, so the
+              two pages reconcile at a glance. */}
+          {eff.invoice > 0 && <Stat dot="var(--violet)" n={eff.invoice} l="Invoice customers" />}
         </div>
       </div>
 
