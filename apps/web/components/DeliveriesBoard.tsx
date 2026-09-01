@@ -150,15 +150,28 @@ export default function DeliveriesBoard({ lines, detail = [], shape = null, save
   const apprCount = lines.filter((l) => approved[l.store_id]).length;
   const dirty = lines.some((l) => v(l.store_id) !== orig[l.store_id]);
   const engPct = totalSent ? (totalEng / totalSent) * 100 : 100;
-  // Stores the plan actually re-sized, vs stores carried through untouched. A
-  // store with no live sales feed has nothing to size against, so the engine
+  // Stores whose sales we can see, vs stores carried through on their standing
+  // order. A store with no live feed has nothing to size against, so the engine
   // passes its standing order straight through — correct, but it means "250
   // stores on plan · 2,926 trimmed" reads as if the trim were spread across all
   // 250 when every unit of it comes from the ones we can see. With the Coles
   // feed down since 3 Aug that's most of the network, and it is the first thing
   // anyone will ask about.
-  const untouched = lines.filter((l) => v(l.store_id) === dv(l.sent, l) || v(l.store_id) === l.sent).length;
-  const sized = total - untouched;
+  //
+  // This used to be INFERRED: count the rows whose final delivery equalled
+  // their standing order and call the rest "stores whose sales we can see".
+  // That is a numeric coincidence, not a fact about a feed, and it was wrong
+  // twice. A store we can see whose plan lands exactly on its standing order
+  // counted as one we cannot. And it read v(), the live edited value, so every
+  // nudge moved a number that is supposed to describe the sales feeds — the
+  // caption drifted 93 → 94 → 95 across one morning with nothing loaded and no
+  // engine run, following the mouse.
+  //
+  // has_feed comes from the query now: a sales row in the seven days to the
+  // as-of clock, the same definition v_store_week uses and the same window
+  // jb_plan_day ranges on.
+  const sized = lines.filter((l) => l.has_feed).length;
+  const untouched = total - sized;
   const allCollapsed = groups.length > 0 && groups.every((g) => collapsed[g.region]);
 
   function showToast(msg: string) {

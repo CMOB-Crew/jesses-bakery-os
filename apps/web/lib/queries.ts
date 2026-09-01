@@ -153,12 +153,23 @@ export async function getEngineProjection(): Promise<EngineScenario[]> {
 //
 // Assuming the default run for every day is what caught migration 052 out, and
 // it would be wrong here in the same way.
-export type DeliveryLine = { store_id: string; name: string; region: string | null; sent: number; recommended: number; days: string[]; pm: string[] };
+export type DeliveryLine = { store_id: string; name: string; region: string | null; sent: number; recommended: number; days: string[]; pm: string[]; has_feed: boolean };
 export async function getDeliveryPlan(): Promise<DeliveryLine[]> {
   try {
     const rows = await sql<(Omit<DeliveryLine, "days" | "pm"> & { days: string[] | null; pm: string[] | null })[]>`
       select s.id as store_id, s.name, reg.name as region,
              s.delivery_days::text[] as days,
+             -- "Whose sales we can see", measured rather than inferred from
+             -- whether a number happened to move. Same seven-day window as
+             -- v_store_week's feed CTE and the same one jb_plan_day ranges on,
+             -- so this and the Overview's "stores that report sales" cannot
+             -- disagree. jb_asof() is STABLE, so both bounds fold to constants
+             -- and this rides the (store_id, sale_date) index -- one probe per
+             -- store, not a scan.
+             exists (select 1 from sales_daily sd
+                      where sd.store_id = s.id
+                        and sd.sale_date >  jb_asof() - 7
+                        and sd.sale_date <= jb_asof()) as has_feed,
              (select coalesce(array_agg(d::text), '{}'::text[])
                 from unnest(s.delivery_days) d
                where d = any(coalesce(
