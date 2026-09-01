@@ -68,6 +68,9 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
     [raw],
   );
 
+  // Null where a product has a pack size but no tray — pita is sold in fours
+  // and baked on nothing, so it multiplies but shows a plain item count.
+  //
   // Items per tray, keyed by the MERGED name. baking_qty is a property of the
   // physical bagel, so every SKU that strips to the same name has to agree on
   // it. If two ever disagree the data is wrong and we do not quietly pick one:

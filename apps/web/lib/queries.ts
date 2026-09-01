@@ -239,19 +239,27 @@ export async function getDeliveryDetail(): Promise<DeliveryDetailLine[]> {
 // Both are needed and they are not the same number. A Coles sales qty of 1 is
 // one BAG; a tray holds 24 BAGELS. Carrying only qty is what made the sheet
 // short by the pack size.
-export type TraySpec = { qty: number; pack: number };
+// qty is null for a product with a pack size but no tray — pita is sold in
+// fours and baked on nothing, so it needs the multiplier without gaining a
+// tray count it has no size for.
+export type TraySpec = { qty: number | null; pack: number };
 export async function getTraySizes(): Promise<Record<string, TraySpec>> {
   try {
     const rows = await sql<{ name: string; baking_qty: number; pack_size: number }[]>`
       select name, baking_qty, coalesce(pack_size, 1) as pack_size from products
-      where baking_uom = 'TRAY' and baking_qty is not null and baking_qty > 0`;
+      where (baking_uom = 'TRAY' and baking_qty is not null and baking_qty > 0)
+         or coalesce(pack_size, 1) > 1`;
     const m: Record<string, TraySpec> = {};
     for (const r of rows) {
       const n = Number(r.baking_qty) || 0;
       // Default 1, deliberately: an unknown pack bakes exactly as it does
       // today rather than multiplying by a guess.
       const p = Number(r.pack_size) || 1;
-      if (n > 0) m[r.name] = { qty: n, pack: p > 0 ? p : 1 };
+      // A row earns its place here by having a tray size OR a pack size. Gating
+      // on the tray is what let pita slip: sold in fours, baked on nothing, so
+      // the sheet asked for a quarter of what the floor needs and no tray figure
+      // existed to look wrong.
+      if (n > 0 || p > 1) m[r.name] = { qty: n > 0 ? n : null, pack: p > 0 ? p : 1 };
     }
     return m;
   } catch {
@@ -2450,7 +2458,7 @@ export type PackItem  = { product_id: string; name: string; qty: number };
 // sold in fours but has no tray size yet, so it keeps its own name rather than
 // being labelled from a pack size nothing has confirmed.
 const packLabel = (name: string, uom: string | null, pack: number) =>
-  uom === "TRAY" ? `${stripPack(name)} (x${pack})` : name;
+  uom === "TRAY" || pack > 1 ? `${stripPack(name)} (x${pack})` : name;
 // standing = this store has no plan for the day and is shown at its CURRENT
 // STANDING ORDER instead. Never a forecast, and marked as such on screen --
 // a packer has to tell the difference at a glance.
