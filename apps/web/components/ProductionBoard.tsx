@@ -32,6 +32,11 @@ const sheetOf = (l: { name: string; category: string }): Sheet =>
   l.category.toLowerCase().includes("sourdough") || /dark\s*rye/i.test(l.name) ? "sourdough" : "regular";
 const SHEET_LABEL: Record<Sheet, string> = { regular: "Regular", sourdough: "Sourdough" };
 
+// The pack size is how a product is SOLD, not how it is baked. Simona, 41:08:
+// "so production, remove the bracket times five and leave, and that's fine."
+// Anchored to the end of the name so it can only ever take a trailing suffix.
+const stripPack = (product: string) => product.replace(/\s*\(X ?\d+\)\s*$/i, "").trim();
+
 const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DOWSHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 // Fallback demand curve (Mon..Sun) — quieter Mon/Tue, heavy Fri/Sat/Sun.
@@ -66,26 +71,67 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
     [raw],
   );
 
+  // Items per tray, keyed by the MERGED name. baking_qty is a property of the
+  // physical bagel, so every SKU that strips to the same name has to agree on
+  // it. If two ever disagree the data is wrong and we do not quietly pick one:
+  // that line loses its tray figure and shows items, which is exactly what this
+  // sheet has always done for a size it does not know.
+  const bakeTray = useMemo(() => {
+    const m = new Map<string, number | null>();
+    for (const [product, spec] of Object.entries(traySizes)) {
+      const k = stripPack(product);
+      const prev = m.get(k);
+      if (prev === undefined) m.set(k, spec.qty);
+      else if (prev !== spec.qty) m.set(k, null);
+    }
+    return m;
+  }, [traySizes]);
+
+  // ONE ROW PER THING THE FLOOR BAKES, COUNTED IN INDIVIDUAL ITEMS.
+  //
+  // Simona, four times on 1 Sept: "They're not baking bags of five. They just
+  // need the number of trays. Overall." (28:49) BAGEL - PLAIN (X 5),
+  // BAGEL - PLAIN (X 3) and BAGEL - PLAIN are three sold SKUs and one bake, so
+  // the suffix comes off and the rows are added. Renaming alone would put three
+  // rows called "BAGEL - PLAIN" on one sheet at 733, 1 and 26 trays.
+  //
+  // Adding them means converting first -- a bag of five is five bagels, and you
+  // cannot add bags to bagels. So every number below is individual items: the
+  // only unit the three rows share, and the unit a tray divides into. Multiply
+  // before dividing, never units / (qty / pack): equal in real arithmetic, not
+  // in floating point, where 24 / (24/5) is 5.000000000000001 and ceils to six
+  // trays instead of five.
+  //
+  // Only tray-counted products merge. Anything else keeps its full name --
+  // pita is sold in fours but has no tray size, so its units are already what
+  // the sheet has always shown and stripping the suffix would merge two rows
+  // without converting them.
   const allLines = useMemo(() => {
     const m = new Map<string, { name: string; category: string; sent: number; recommended: number; stores: number }>();
     for (const l of raw) {
       if (stateF !== "all" && l.state !== stateF) continue;
-      const row = m.get(l.name) ?? {
-        name: l.name,
+      const spec = traySizes[l.name];
+      const key = spec ? stripPack(l.name) : l.name;
+      const pack = spec && spec.pack > 0 ? spec.pack : 1;
+      const row = m.get(key) ?? {
+        name: key,
         category: titleCase(l.category || "Other"),
         sent: 0,
         recommended: 0,
         stores: 0,
       };
-      row.sent += Number(l.sent) || 0;
-      row.recommended += Number(l.recommended) || 0;
-      // A store sits in exactly one state, so summing the per-state counts
-      // gives the true store count for the product.
+      row.sent += (Number(l.sent) || 0) * pack;
+      row.recommended += (Number(l.recommended) || 0) * pack;
+      // A store sits in exactly one state, and the store taking five-packs is
+      // never the store taking them loose -- supermarkets do not buy singles,
+      // and Jesse's Cafe is the only loose-bagel customer (Simona: "your only
+      // anomaly here is bagels"). So summing the per-state, per-SKU counts
+      // gives the true store count for the bake.
       row.stores += Number(l.stores) || 0;
-      m.set(l.name, row);
+      m.set(key, row);
     }
     return [...m.values()];
-  }, [raw, stateF]);
+  }, [raw, stateF, traySizes]);
 
   // Which of Jesse's two sheets the floor is looking at. Adjustments are keyed
   // by product name and held across the switch, so flipping sheets never
@@ -125,30 +171,16 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
   // Sizes come from there via migration 024; an empty map (migration not yet
   // applied, or a product we have no size for) means the sheet shows units and
   // waits rather than inventing a tray figure.
-  const traySizeOf = (product: string) => {
-    const n = traySizes[product]?.qty;
+  const traySizeOf = (bake: string) => {
+    const n = bakeTray.get(bake);
     return n && n > 0 ? n : null;
   };
-  // Individual items in one sold unit. 1 for anything sold loose, and 1 for
-  // anything we do not recognise -- an unknown product bakes exactly as it did
-  // before rather than being multiplied by a guess.
-  const packOf = (product: string) => {
-    const p = traySizes[product]?.pack;
-    return p && p > 0 ? p : 1;
-  };
   const isTray = (product: string) => traySizeOf(product) != null;
-  // The plan counts BAGS, the tray holds BAGELS. Simona, 34:10, three times:
-  // "400 bags of five, so that's 2,000 bagels, so then divided by 24 on a
-  // tray, that's 83.3 trays." Multiplying by the pack is that middle step,
-  // and without it every multipack line was short by its own pack size --
-  // plain bagels read 147 trays where the floor bakes 733.
-  //
-  // Multiply before dividing, not units / (qty / pack). The two are equal in
-  // real arithmetic and not in floating point: 24 / (24/5) is 5.000000000000001,
-  // which ceils to 6 trays instead of 5.
-  const traysFor = (units: number, product: string) => {
-    const sz = traySizeOf(product);
-    return sz ? Math.ceil((units * packOf(product)) / sz) : null;
+  // Items in, trays out. The pack multiply already happened once, up in the
+  // merge -- doing it again here would multiply five-packs by twenty-five.
+  const traysFor = (items: number, bake: string) => {
+    const sz = traySizeOf(bake);
+    return sz ? Math.ceil(items / sz) : null;
   };
   // Trays across a whole category, summed per product — two lines in the same
   // category can have different tray sizes, so this cannot be one division.
@@ -172,7 +204,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
     return (
       <>
         {nf(t)}<span className="uomsub">{t === 1 ? "tray" : "trays"}</span>
-        <span className="unitsub">{nf(units)} units</span>
+        <span className="unitsub">{nf(units)} items</span>
       </>
     );
   };
@@ -231,7 +263,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
   // selected day, with the day-split), any adjustments applied, grouped by
   // category in bake order. Real CSV the floor can open and print.
   function exportBakeSheet() {
-    const header = ["Sheet", "Category", "Product", "Qty", "UoM", "Units", "Current bake", "Difference", "Stores", isWeek ? "Confirmed" : "Baked"];
+    const header = ["Sheet", "Category", "Product", "Qty", "UoM", "Items", "Current bake", "Difference", "Stores", isWeek ? "Confirmed" : "Baked"];
     const body: string[] = [];
     for (const g of groups) {
       for (const l of g.rows) {
@@ -383,12 +415,12 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
           <div className="lead">
             {isWeek ? (
               <>
-                Right now the factory bakes <b>{nf(totalSent)}</b> units this week. Sized to what actually sells, the plan is <b>{nf(totalEng)}</b>
+                Right now the factory bakes <b>{nf(totalSent)}</b> items this week. Sized to what actually sells, the plan is <b>{nf(totalEng)}</b>
                 {trim > 0 ? <> — <span className="fewer">{nf(trim)} less</span> to bake, so far less comes back at day&apos;s end.</> : <>.</>}
               </>
             ) : (
               <>
-                <b>{dayName}{isToday ? " (today)" : ""}</b> — the bakery makes <b>{nf(totalEng)}</b> loaves, down from <b>{nf(totalSent)}</b> under the old standing order{trim > 0 ? <>, so <span className="fewer">{nf(trim)} less</span> comes back at day&apos;s end</> : <></>}. This is the sheet for the floor.
+                <b>{dayName}{isToday ? " (today)" : ""}</b> — the bakery makes <b>{nf(totalEng)}</b> items, down from <b>{nf(totalSent)}</b> under the old standing order{trim > 0 ? <>, so <span className="fewer">{nf(trim)} less</span> comes back at day&apos;s end</> : <></>}. This is the sheet for the floor.
               </>
             )}
             {/* Same caveat as the Deliveries board. The trim comes entirely from
@@ -414,7 +446,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
           </div>
         </div>
         <div className="statgrid">
-          <div className="s"><div className="n">{nf(totalEng)}</div><div className="l">{isWeek ? "Loaves to bake / week" : `Loaves to bake · ${dayShort}`}</div></div>
+          <div className="s"><div className="n">{nf(totalEng)}</div><div className="l">{isWeek ? "Items to bake / week" : `Items to bake · ${dayShort}`}</div></div>
           <div className="s"><div className="n">{total}</div><div className="l">Product lines</div></div>
           <div className="s"><div className="n g">{nf(Math.max(0, trim))}</div><div className="l">Over-bake trimmed</div></div>
           <div className="s"><div className="n">{doneCount}<span style={{ fontSize: 15, color: "var(--muted)" }}>/{total}</span></div><div className="l">{isWeek ? "Lines confirmed" : "Lines baked"}</div></div>
@@ -472,7 +504,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
                   <div className="cat-send hide">{nf(send)}</div>
                   <div className="cat-eng">{(() => {
                     const t = catTraysFor(g.rows, (n) => dv(val(n)));
-                    return t == null ? <>{nf(engs)}</> : <>{nf(t)}<span className="uomsub">trays</span><span className="unitsub">{nf(engs)} units</span></>;
+                    return t == null ? <>{nf(engs)}</> : <>{nf(t)}<span className="uomsub">trays</span><span className="unitsub">{nf(engs)} items</span></>;
                   })()}</div>
                   <div className="cat-chg">{catChg(fewer)}</div>
                   <div className="hide" />
@@ -505,7 +537,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
                             />
                             <button type="button" aria-label={`increase ${l.name}`} onClick={() => setEngine(l.name, v + 1)}>+</button>
                           </div>
-                          {traysFor(dv(v), l.name) != null && <div className="unitsub">units</div>}
+                          {traysFor(dv(v), l.name) != null && <div className="unitsub">items</div>}
                         </div>
                       ) : (
                         <div className="engcell"><div className="engnum">{qtyCell(dv(v), l.name)}</div></div>
@@ -542,7 +574,7 @@ export default function ProductionBoard({ lines: raw, shape = null, saved = {}, 
       </div>
 
       <div className="actionbar">
-        <div className="prog"><b>{doneCount}</b> of {total} lines {isWeek ? "confirmed" : "baked"} · baking <span className="tr">{nf(totalEng)}</span> loaves {isWeek ? "this week" : dayShort}</div>
+        <div className="prog"><b>{doneCount}</b> of {total} lines {isWeek ? "confirmed" : "baked"} · baking <span className="tr">{nf(totalEng)}</span> items {isWeek ? "this week" : dayShort}</div>
         <div className="sp">
           <button type="button" className="btn" onClick={exportBakeSheet}>↧ {isWeek ? "Export bake sheet" : `Export ${dayShort} sheet`}</button>
           <button type="button" className="btn primary" onClick={() => {
