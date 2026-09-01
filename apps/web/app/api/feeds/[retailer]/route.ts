@@ -35,7 +35,9 @@ const MAX_BYTES = 25 * 1024 * 1024;
  * "Can't find end of central directory : is this a zip file ?" complete with a
  * link to JSZip's docs. That went on screen verbatim. The reader is Simona at
  * 6am trying to get her sales in, not a JavaScript developer. */
-const SPREADSHEET = /\.(xlsx|xlsm)$/i;
+// .csv is here for the Woolworths RCTI, which is genuinely a CSV -- that is
+// the format Woolworths send, not something anyone re-saved.
+const SPREADSHEET = /\.(xlsx|xlsm|csv)$/i;
 
 function wrongTypeMessage(filename: string): string | null {
   if (SPREADSHEET.test(filename)) return null;
@@ -44,7 +46,7 @@ function wrongTypeMessage(filename: string): string | null {
   const why =
     ext === "pdf"
       ? " A PDF is a picture of the numbers; we have to read them cell by cell."
-      : ext === "csv" || ext === "txt"
+      : ext === "txt"
         ? " Save it as .xlsx from Excel rather than exporting to text."
         : "";
   return `That is ${named}. It needs to be the Excel file the retailer sends -- a .xlsx.${why} If you opened the report and re-saved it, send the original instead.`;

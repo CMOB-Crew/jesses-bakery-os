@@ -79,13 +79,21 @@ export type ColesParse = {
 const norm = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const FIELDS: { key: keyof ColesRow | "storeDesc" | "productDesc" | "state"; names: string[]; required: boolean }[] = [
-  { key: "saleDate", names: ["day", "date", "transactiondate", "saledate"], required: true },
+  // `calendarday` is the Woolworths daily report. `transactiondate` is their
+  // RCTI. `week` is deliberately ABSENT: the Coles weekly report stamps a
+  // whole week onto one date, and accepting it here would write seven days of
+  // sales onto a single Monday. It gets its own message below instead.
+  { key: "saleDate", names: ["day", "date", "transactiondate", "saledate", "calendarday"], required: true },
   { key: "state", names: ["state"], required: false },
-  { key: "location", names: ["location", "locationcode", "site", "store", "storenumber"], required: true },
-  { key: "storeDesc", names: ["locationdescription", "storename", "sitename", "description"], required: false },
-  { key: "sellItem", names: ["sellitem", "item", "itemcode", "article", "productcode"], required: true },
-  { key: "productDesc", names: ["sellitemdescription", "itemdescription", "productdescription", "product"], required: false },
-  { key: "salesQty", names: ["salesqty", "salesquantity", "qtysold", "unitssold", "soldqty"], required: true },
+  { key: "location", names: ["location", "locationcode", "site", "siteno", "store", "storenumber"], required: true },
+  { key: "storeDesc", names: ["locationdescription", "storename", "sitename", "sitedescription", "description"], required: false },
+  { key: "sellItem", names: ["sellitem", "item", "itemcode", "article", "articleno", "productcode"], required: true },
+  { key: "productDesc", names: ["sellitemdescription", "itemdescription", "productdescription", "articledescription", "product"], required: false },
+  // The RCTI repeats (Unit Cost, Quantity Settled, Extended Cost) FOUR times.
+  // Only the first triplet is the sale; the other three are adjustment columns
+  // and on the 1 Sept file they total -3, 0 and +3. findIndex takes the first
+  // match, which is the right one -- relied on deliberately, not by accident.
+  { key: "salesQty", names: ["salesqty", "salesquantity", "salesqtybuom", "quantitysettled", "qtysold", "unitssold", "soldqty"], required: true },
   { key: "wasteQty", names: ["wasteqty", "wastequantity", "wastage"], required: false },
   { key: "invoiceCost", names: ["invoicecost", "invoicecostaud", "invoicevalue", "invoice"], required: false },
 ];
@@ -113,6 +121,15 @@ function toISODate(v: unknown): string | null {
     // ExcelJS hands back a UTC-midnight Date for a date-formatted cell.
     return v.toISOString().slice(0, 10);
   }
+  // 20260824 -- the RCTI's format. This has to come BEFORE the Excel serial
+  // branch below: read as a serial, 20260824 is a date roughly 55,000 years
+  // from now. Bounded to plausible years so a real serial cannot match.
+  if (typeof v === "number" && Number.isInteger(v) && v >= 19000101 && v <= 29991231) {
+    const y = Math.floor(v / 10000), mo = Math.floor(v / 100) % 100, d = v % 100;
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    }
+  }
   if (typeof v === "number" && Number.isFinite(v)) {
     // Excel serial: days since 1899-12-30 (the 1900 leap-year bug included).
     const ms = Math.round((v - 25569) * 86400 * 1000);
@@ -120,7 +137,12 @@ function toISODate(v: unknown): string | null {
     return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
   }
   const s = String(v).trim();
-  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  // "20260824" as text, which is how it arrives from the RCTI once it is a
+  // CSV. Without this it falls through to new Date("20260824"), which is an
+  // Invalid Date, and every row in the file is rejected for a bad date.
+  let m = /^(\d{4})(\d{2})(\d{2})$/.exec(s);
+  if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
   m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s); // AU: d/m/Y
   if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
@@ -158,11 +180,54 @@ function isTotalRow(vals: Record<string, unknown>): boolean {
   return probe.some((v) => /^\s*(grand\s+)?total\s*$/i.test(String(v ?? "")));
 }
 
+/** RFC4180 enough for a supplier report: quoted fields, doubled quotes inside
+ *  them, CRLF or LF. Written out rather than pulled in as a dependency, and
+ *  not a naive split(","): the RCTI's Site Name is free text, and one comma in
+ *  a store name would shift every column after it by one -- silently, into the
+ *  wrong field, which is worse than failing. */
+function splitCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else quoted = false;
+      } else field += ch;
+      continue;
+    }
+    if (ch === '"') { quoted = true; continue; }
+    if (ch === ",") { row.push(field.trim()); field = ""; continue; }
+    if (ch === "\r") continue;
+    if (ch === "\n") { row.push(field.trim()); rows.push(row); row = []; field = ""; continue; }
+    field += ch;
+  }
+  if (field !== "" || row.length) { row.push(field.trim()); rows.push(row); }
+  return rows;
+}
+
 const MAX_HEADER_SCAN = 25;
 
 export async function parseColesWorkbook(buf: ArrayBuffer | Buffer): Promise<ColesParse> {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buf as ArrayBuffer);
+
+  // An .xlsx is a zip archive and starts "PK". Anything else is text, and
+  // ExcelJS answers a CSV with JSZip's "Can't find end of central directory",
+  // which is what stopped the Woolworths RCTI. Rather than a second parser,
+  // the rows are read into a worksheet so the header scan, the total-row
+  // filter, the code normaliser and every other rule below apply unchanged.
+  const bytes = new Uint8Array(buf as ArrayBuffer);
+  const isZip = bytes.length > 1 && bytes[0] === 0x50 && bytes[1] === 0x4b;
+  if (isZip) {
+    await wb.xlsx.load(buf as ArrayBuffer);
+  } else {
+    const text = new TextDecoder("utf-8").decode(bytes).replace(/^\uFEFF/, "");
+    const ws = wb.addWorksheet("csv");
+    for (const line of splitCsv(text)) ws.addRow(line);
+  }
 
   // Find the sheet AND the header row together: the best-scoring header row
   // across every sheet wins. Their tab was renamed from "Daily Bakery Supplier
@@ -184,11 +249,41 @@ export async function parseColesWorkbook(buf: ArrayBuffer | Buffer): Promise<Col
         if (idx > 0) { map[f.key as string] = idx; score += f.required ? 2 : 1; }
       }
       const hasAllRequired = FIELDS.filter((f) => f.required).every((f) => map[f.key as string] != null);
-      if (hasAllRequired && (!best || score > best.score)) best = { sheet, row: r, map, score };
+      // On an equal score, prefer the sheet with more rows. The Woolworths
+      // workbook carries sheet `e` (646 rows) and sheet `cs` (500) with
+      // IDENTICAL headers, and `cs` is a strict subset of `e` -- same keys,
+      // same quantities, checked row by row. Today `e` wins only because it
+      // comes first and the test is a strict `>`. If their export ever
+      // reorders the tabs, that silently loads 75% of the data and reports
+      // success. This makes the right sheet the deliberate choice.
+      if (hasAllRequired && (!best || score > best.score ||
+          (score === best.score && sheet.rowCount > best.sheet.rowCount))) {
+        best = { sheet, row: r, map, score };
+      }
     }
   });
 
   if (!best) {
+    // The Coles WEEKLY report reaches here, and "couldn't find a header row"
+    // tells the person nothing. It is a real report, correctly sent -- it just
+    // carries a week per row instead of a day, and there is no honest way to
+    // turn one number into seven. Say so.
+    let sawWeek = false;
+    wb.eachSheet((sheet) => {
+      const limit = Math.min(sheet.rowCount, MAX_HEADER_SCAN);
+      for (let r = 1; r <= limit; r++) {
+        const headers: string[] = [];
+        sheet.getRow(r).eachCell({ includeEmpty: true }, (c, i) => { headers[i] = norm(cell(c.value)); });
+        if (headers.includes("week") && headers.some((h) => h === "salesqty" || h === "sellitem")) sawWeek = true;
+      }
+    });
+    if (sawWeek) {
+      throw new Error(
+        "This is the WEEKLY Pay on Scan report -- each row is a whole week's sales " +
+        "on one date, not a day at a time. Loading it would record a week as a single " +
+        "Monday. Please send the DAILY report instead. Nothing has been loaded.",
+      );
+    }
     const missing = FIELDS.filter((f) => f.required).map((f) => f.names[0]).join(", ");
     throw new Error(
       `Couldn't find a header row in this workbook. Every sheet was checked for its column names; ` +
