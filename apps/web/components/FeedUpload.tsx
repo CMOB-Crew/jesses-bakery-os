@@ -77,12 +77,54 @@ export default function FeedUpload() {
     `For now: open it in Excel, and use File > Save As to save the sheet as ` +
     `.csv — that comes through fine. We are removing this limit properly.`;
 
+  // Anything Netlify cannot carry goes straight to storage instead: ask our
+  // own route for a one-time signed URL, PUT the file to it, then tell the
+  // loader where it landed. Three requests, two of them a few dozen bytes.
+  //
+  // Returns an error string, or null when the file is loaded and `send` has
+  // already set the result.
+  async function sendViaStorage(file: File): Promise<string | null> {
+    const mint = await fetch(`/api/feeds/${retailer}/upload-url`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ filename: file.name }),
+    });
+    const m = (await mint.json().catch(() => null)) as
+      { ok?: boolean; path?: string; signedUrl?: string; error?: string } | null;
+    if (!m?.ok || !m.path || !m.signedUrl) return m?.error ?? tooBig(file.size);
+
+    // Straight to Supabase. This is the request that used to be impossible.
+    const put = await fetch(m.signedUrl, { method: "PUT", body: file });
+    if (!put.ok) {
+      return `The file did not finish uploading (${put.status}). Nothing was loaded — try again.`;
+    }
+
+    const r = await fetch(`/api/feeds/${retailer}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ objectPath: m.path, filename: file.name }),
+    });
+    const j = (await r.json()) as Result;
+    setRes(j);
+    if (j.ok) router.refresh();
+    return null;
+  }
+
   async function send(file: File) {
-    // Checked BEFORE sending. Uploading 4.7MB just to be told no costs Simona
-    // two seconds and a scare, at 6am, when the answer is already knowable.
+    // Over the platform limit the bytes cannot go through Netlify at all, so
+    // they take the storage path instead. Under it, nothing changes.
     if (file.size > PLATFORM_MAX) {
-      setRes({ ok: false, error: tooBig(file.size) });
-      if (fileRef.current) fileRef.current.value = "";
+      setBusy(true);
+      setRes(null);
+      try {
+        const err = await sendViaStorage(file);
+        if (err) setRes({ ok: false, error: err });
+      } catch {
+        setRes({ ok: false, error: tooBig(file.size) });
+      } finally {
+        setBusy(false);
+        if (fileRef.current) fileRef.current.value = "";
+      }
       return;
     }
     setBusy(true);
@@ -161,7 +203,7 @@ export default function FeedUpload() {
               Drop the {RETAILERS.find((r) => r.id === retailer)?.label}{" "}
               <b>{RETAILERS.find((r) => r.id === retailer)?.report}</b> report here
             </div>
-            <div className="fu-s">or click to choose it · .xlsx or .csv, up to 4.4MB</div>
+            <div className="fu-s">or click to choose it · .xlsx or .csv, up to 50MB</div>
           </>
         )}
       </div>

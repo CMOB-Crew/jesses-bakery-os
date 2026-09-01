@@ -7,6 +7,13 @@ import { AUTH_ENFORCED } from "@/lib/auth";
  *  claims-carrying transaction. Same API either way. */
 type SqlClient = typeof sqlClient;
 import { parseColesWorkbook, type ColesReject } from "@/lib/feeds/coles";
+import { supabaseAdmin, FEED_BUCKET } from "@/lib/supabase/admin";
+
+// Exactly the shape upload-url issues: retailer/uuid.ext. The path arrives from
+// the browser and goes to a service-role client that bypasses row-level
+// security, so it is matched against this rather than trusted. Without it,
+// "../" or another bucket's key would be handed straight through.
+const SAFE_OBJECT_PATH = /^[a-z_]+\/[0-9a-f-]{36}\.(xlsx|xlsm|csv)$/i;
 
 export const dynamic = "force-dynamic";
 // A week of Coles is ~8k rows; a month is ~35k. Give it room but not forever.
@@ -121,21 +128,72 @@ async function handle(
         { status: 400 },
       );
     }
-    const form = await req.formData();
-    const file = form.get("file");
-    if (!(file instanceof File)) {
-      return NextResponse.json({ ok: false, error: "No file was attached." }, { status: 400 });
-    }
-    if (file.size > MAX_BYTES) {
-      return NextResponse.json(
-        { ok: false, error: `That file is ${(file.size / 1048576).toFixed(1)}MB — the limit is 25MB.` },
-        { status: 400 },
-      );
+    // TWO WAYS THE BYTES ARRIVE, because one of them cannot carry the big file.
+    //
+    //   multipart   the normal path, unchanged, for anything under Netlify's
+    //               4.5 MiB request-body limit.
+    //   objectPath  the browser PUT the file straight to Supabase Storage with
+    //               a one-time signed URL from ./upload-url, and is telling us
+    //               where it landed. Netlify carries 90 bytes instead of 5MB.
+    //
+    // Everything below this block is identical for both — same parser, same
+    // staging, same audit row. The only thing that differs is how the buffer
+    // got here.
+    let filename: string;
+    let bytes: ArrayBuffer;
+
+    if ((req.headers.get("content-type") ?? "").includes("application/json")) {
+      const body = (await req.json().catch(() => null)) as
+        { objectPath?: string; filename?: string } | null;
+      const objectPath = body?.objectPath ?? "";
+      if (!SAFE_OBJECT_PATH.test(objectPath)) {
+        return NextResponse.json(
+          { ok: false, error: "That upload reference is not one we issued. Nothing was loaded." },
+          { status: 400 },
+        );
+      }
+      const admin = supabaseAdmin();
+      if (!admin) {
+        return NextResponse.json(
+          { ok: false, error: "Direct upload is not configured on this deployment." },
+          { status: 501 },
+        );
+      }
+      const dl = await admin.storage.from(FEED_BUCKET).download(objectPath);
+      if (dl.error || !dl.data) {
+        return NextResponse.json(
+          { ok: false, error: "The file uploaded but could not be read back. Nothing was loaded — send it again." },
+          { status: 400 },
+        );
+      }
+      bytes = await dl.data.arrayBuffer();
+      // Removed the moment it is in memory rather than at the end. It has done
+      // its only job; doing it here means none of the early returns below can
+      // skip the cleanup, and the bucket never accumulates months of a
+      // retailer's sales history waiting for a tidy-up that never runs.
+      await admin.storage.from(FEED_BUCKET).remove([objectPath]);
+      filename = body?.filename ?? objectPath.split("/").pop() ?? "report.xlsx";
+    } else {
+      const form = await req.formData();
+      const file = form.get("file");
+      if (!(file instanceof File)) {
+        return NextResponse.json({ ok: false, error: "No file was attached." }, { status: 400 });
+      }
+      if (file.size > MAX_BYTES) {
+        // Reachable only if the client skipped the direct path. The previous
+        // commit changed MAX_BYTES and left this sentence saying 25MB.
+        return NextResponse.json(
+          { ok: false, error: `That file is ${(file.size / 1_000_000).toFixed(1)}MB, which is too big for this route. Reload the page and try again — the upload will send it a different way.` },
+          { status: 400 },
+        );
+      }
+      bytes = await file.arrayBuffer();
+      filename = file.name;
     }
 
-    // Caught before a byte is read: the common case is somebody opened the
+    // Caught before a byte is parsed: the common case is somebody opened the
     // report and re-saved it as something else.
-    const wrongType = wrongTypeMessage(file.name);
+    const wrongType = wrongTypeMessage(filename);
     if (wrongType) {
       return NextResponse.json({ ok: false, error: wrongType }, { status: 400 });
     }
@@ -144,10 +202,10 @@ async function handle(
     // A file we can't read must not leave a half-written upload behind.
     let parsed;
     try {
-      parsed = await parseColesWorkbook(await file.arrayBuffer());
+      parsed = await parseColesWorkbook(bytes);
     } catch (e) {
       return NextResponse.json(
-        { ok: false, error: friendlyParseError(e, file.name) },
+        { ok: false, error: friendlyParseError(e, filename) },
         { status: 400 },
       );
     }
@@ -163,7 +221,7 @@ async function handle(
     const [up] = await sql<{ id: string }[]>`
       insert into feed_uploads
         (retailer, filename, sheet_name, header_row, column_map, period_from, period_to, rows_read)
-      values (${retailer}::retailer_type, ${file.name}, ${parsed.sheetName}, ${parsed.headerRow},
+      values (${retailer}::retailer_type, ${filename}, ${parsed.sheetName}, ${parsed.headerRow},
               ${JSON.stringify(parsed.columns)}::jsonb,
               ${parsed.dateFrom}, ${parsed.dateTo}, ${parsed.rowsRead})
       returning id`;
@@ -226,7 +284,7 @@ async function handle(
     return NextResponse.json({
       ok: true,
       uploadId,
-      filename: file.name,
+      filename,
       sheetName: parsed.sheetName,
       headerRow: parsed.headerRow,
       columns: parsed.columns,
