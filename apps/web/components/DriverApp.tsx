@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
+import type { PackRun } from "@/lib/queries";
 
 // Driver app — phone prototype. The build that matters for drivers: dead simple,
 // big taps, live-capture only (no gallery), works down the run stop by stop.
@@ -9,7 +10,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "reac
 
 type Status = "done" | "next" | "pending" | "circle";
 type Stop = { id: number; name: string; addr: string; items: [string, number][]; status: Status };
-type Screen = "licence" | "run" | "stop" | "circle" | "cam" | "photo" | "waste" | "sign" | "done";
+type Screen = "licence" | "pickrun" | "run" | "stop" | "circle" | "cam" | "photo" | "waste" | "sign" | "done";
 
 const INITIAL: Stop[] = [
   { id: 0, name: "Coles Bondi Junction", addr: "500 Oxford St · Bondi Junction", items: [["White Sourdough", 6], ["Plain Bagel", 8], ["Mini Challah", 4], ["Pita", 5]], status: "done" },
@@ -25,9 +26,39 @@ const INITIAL: Stop[] = [
 const WPRODS = ["Sourdough", "Bagels", "Challah", "Pita"];
 const REASONS = ["Truck at loading dock", "Store closed", "No room on shelf", "No one to receive"];
 
-export default function DriverApp() {
+export default function DriverApp({
+  runs = [],
+  addresses = {},
+  day = "",
+}: {
+  runs?: PackRun[];
+  addresses?: Record<string, string>;
+  day?: string;
+}) {
+  // Live when the engine has planned today. Otherwise the sample run stands in,
+  // so the flow can still be walked through rather than showing an empty phone.
+  const live = runs.length > 0;
   const [screen, setScreen] = useState<Screen>("licence");
+  const [runName, setRunName] = useState<string | null>(null);
   const [stops, setStops] = useState<Stop[]>(INITIAL);
+
+  // One run's stores become the driver's stops, in the order the packing sheet
+  // lists them. Not driving order -- the stop sequence is not recorded anywhere
+  // in this system yet, and pretending otherwise on a phone in a van would be
+  // worse than admitting it.
+  function chooseRun(r: PackRun) {
+    setRunName(r.name);
+    setStops(
+      r.stores.map((st, i) => ({
+        id: i,
+        name: st.name,
+        addr: addresses[st.store_id] ?? (st.retailer === "invoice" ? "Invoice customer" : ""),
+        items: st.items.map((it) => [it.name, it.qty] as [string, number]),
+        status: (i === 0 ? "next" : "pending") as Status,
+      })),
+    );
+    setScreen("run");
+  }
   const [curId, setCurId] = useState<number | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [nil, setNil] = useState(false);
@@ -209,7 +240,9 @@ export default function DriverApp() {
   return (
     <div className="drvwrap">
       <div style={{ background: "var(--amber-b)", border: "1px solid var(--amber)", color: "var(--amber-t)", borderRadius: 10, padding: "10px 14px", margin: "0 0 12px", fontSize: 13, fontWeight: 700 }}>
-        ⚠ Prototype — these are sample stops, not your live runs. Nothing here saves yet; the real driver flow is a later build.
+        {live
+          ? "Live runs, read from today\u2019s plan \u2014 the same source the packing sheet uses. Ticking off, photos and the signature do not save yet; that is the next build."
+          : "\u26A0 No plan for today, so these are sample stops. Ticking off, photos and the signature do not save yet."}
       </div>
       <div className="cap">Driver app · phone prototype. Live-capture only (no gallery) via the camera — grant access to see your real camera, otherwise it falls back to a simulated capture so the flow always runs.</div>
       <div className="phone">
@@ -218,7 +251,7 @@ export default function DriverApp() {
         {/* START OF SHIFT — LICENCE CAPTURE */}
         {screen === "licence" && (
           <div className="screen">
-            <div className="bar"><div><h1>Start your shift</h1><div className="sub">Eastern Suburbs · Monday</div></div></div>
+            <div className="bar"><div><h1>Start your shift</h1><div className="sub">{live ? day : "Sample run"}</div></div></div>
             <div className="content">
               <div className="drv"><div className="av">A</div><div><div className="rn">Ankit</div><small>Van 3</small></div></div>
               <div className="box">
@@ -242,15 +275,40 @@ export default function DriverApp() {
               </div>
             </div>
             <div className="actions">
-              <button className="big" disabled={!licence} onClick={() => setScreen("run")}>{licence ? "Start shift" : "Add your licence to start"}</button>
+              <button className="big" disabled={!licence} onClick={() => setScreen(live ? "pickrun" : "run")}>{licence ? "Start shift" : "Add your licence to start"}</button>
             </div>
           </div>
         )}
 
         {/* RUN LIST */}
+        {screen === "pickrun" && (
+          <div className="screen">
+            <div className="bar"><div><h1>Today\u2019s runs</h1><div className="sub">{day}</div></div></div>
+            <div className="content">
+              <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 12 }}>
+                Every run is here, not just yours. Tap the one you are taking.
+              </div>
+              {runs.map((r) => (
+                <button
+                  key={r.run_id}
+                  type="button"
+                  className="box"
+                  onClick={() => chooseRun(r)}
+                  style={{ display: "block", width: "100%", textAlign: "left", cursor: "pointer", font: "inherit", marginBottom: 10 }}
+                >
+                  <div className="bh" style={{ marginBottom: 4 }}>{r.name}</div>
+                  <div style={{ fontSize: 13, color: "var(--ink2)" }}>
+                    {r.stores.length} stop{r.stores.length === 1 ? "" : "s"} · {r.units.toLocaleString()} items
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {screen === "run" && (
           <div className="screen">
-            <div className="bar"><div><h1>Your run</h1><div className="sub">Eastern Suburbs · Monday</div></div></div>
+            <div className="bar"><div><h1>Your run</h1><div className="sub">{runName ?? "Sample run"}{live && day ? " · " + day : " · Monday"}</div></div></div>
             <div className="content">
               <div className="drv"><div className="av">A</div><div><div className="rn">Ankit</div><small>Van 3 · started 6:40am</small></div></div>
               <div className="prog"><div className="track"><div className="fill" style={{ width: `${(100 * doneCount) / stops.length}%` }} /></div><div className="lbl">{doneCount} / {stops.length}</div></div>

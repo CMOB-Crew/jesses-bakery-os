@@ -2885,3 +2885,21 @@ export async function getProductPicklist(): Promise<ProductPick[]> {
     return [];
   }
 }
+
+// Every store's address in one read, for the driver's stop list. getStoreAddress
+// exists but is per-store; a run of twenty stops would be twenty round trips to
+// the Singapore pooler.
+export async function getStoreAddresses(): Promise<Record<string, string>> {
+  try {
+    const rows = await sql<{ id: string; address: string | null; postcode: string | null }[]>`
+      select id::text as id, address, postcode from stores where active`;
+    const out: Record<string, string> = {};
+    for (const r of rows) {
+      const full = [r.address?.trim() || "", r.postcode?.trim() || ""].filter(Boolean).join(" ");
+      if (full) out[r.id] = full;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
