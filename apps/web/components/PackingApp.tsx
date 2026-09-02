@@ -483,7 +483,14 @@ export default function PackingApp({
         .packwrap .main{min-height:0}
         .packwrap .list{overflow:visible;flex:none}
         /* Clear of the notch and the status bar. */
-        .packwrap .top{padding-top:calc(14px + env(safe-area-inset-top))}
+        /* NOT unconditionally. Safari already positions the page below the
+           status bar, so adding the inset here as well pushed the header a
+           long way down the screen -- that was most of the dead space at the
+           top. It is only needed once the page runs as a home-screen app with
+           no browser chrome above it. */
+        @media (display-mode: standalone){
+          .packwrap .top{padding-top:calc(14px + env(safe-area-inset-top))}
+        }
       }
 
       /* ---- ON A PHONE ----------------------------------------------
@@ -619,61 +626,93 @@ export default function PackingApp({
 
       /* Print-only packing slip — hidden on screen, shown on paper/PDF */
       .packwrap .pack-slip{display:none}
-      /* ---- THE PHONE ROW, REBUILT ----------------------------------
-         Not a shrunken desktop row. A collapsed store was running to about
-         270px -- a name, a count, and two stacked text links -- so twenty-
-         seven stores came to roughly 7,000px of scrolling before anything was
-         opened.
+      /* ---- THE PHONE LAYOUT ----------------------------------------
+         Written for a phone, not shrunk from a laptop.
 
-         A packer wants: which run, a tight list of stores, tap one, tick it
-         off, next. So collapsed is one compact tappable row and everything
-         else only appears once the store is open.
+         What was wrong: a narrow column of small text floating in the middle
+         of a 390px screen, inset from both edges by the app shell's 30px page
+         margin, with 12px labels and 34px targets. It read as a website that
+         had been squeezed. This is a thing someone uses at 5am with flour on
+         their hands.
 
-         Every selector carries an extra element (div.check, button.exp) so it
-         outranks the base rules, which sit LATER in this stylesheet and were
-         quietly winning on source order. */
+         So: full bleed to the edges, and everything sized up. Store names
+         18px, product names 17px, quantities 24px, tick targets 44-46px.
+         Nothing here is decorative -- the name, the count and the number are
+         the whole job.
+
+         Every selector carries an extra element (div.check, button.exp,
+         .srow .srhead) because the base rules sit LATER in this stylesheet and
+         win on source order otherwise. */
       @media (max-width: 560px){
-        .packwrap .srow{padding:0;margin-bottom:8px;overflow:hidden}
+        /* globals.css wraps every page in .main{padding:22px 30px 70px}. That
+           page margin is why the cards sat in a narrow column with air either
+           side. Packing is full bleed here. */
+        .main{padding:0}
 
-        /* Three columns, no wrapping: tick, text, chevron. */
+        /* The run name and counts are repeated verbatim on the run card
+           directly above, which is already outlined as the selected one. */
+        .packwrap .mh{display:none}
+
+        .packwrap .top{padding:12px 14px;gap:10px}
+        .packwrap .runs{padding:10px 12px;gap:8px}
+        .packwrap .run{min-width:0;width:162px;flex:none;padding:11px 13px}
+        .packwrap .run .rn{font-size:14px}
+        .packwrap .list{padding:12px 10px calc(40px + env(safe-area-inset-bottom))}
+
+        /* ---- a store, closed: one row, big enough to hit without looking */
+        .packwrap .srow{padding:0;margin-bottom:10px;border-radius:14px;overflow:hidden}
         .packwrap .srow .srhead{display:grid;grid-template-columns:auto 1fr auto;
-          align-items:center;gap:12px;padding:12px 13px;cursor:pointer;flex-wrap:nowrap}
+          align-items:center;gap:14px;padding:16px 14px;cursor:pointer;flex-wrap:nowrap}
         .packwrap .srow.open .srhead{border-bottom:1px solid var(--line)}
-        .packwrap .srow .srhead > div.check{width:38px;height:38px;font-size:20px;margin:0}
+        .packwrap .srow .srhead > div.check{width:46px;height:46px;font-size:25px;margin:0;border-radius:12px}
         .packwrap .srow .srhead > div:nth-child(2){flex:none;min-width:0}
-        .packwrap .srow .srhead .nm{font-size:15px;line-height:1.25;font-weight:600}
-        .packwrap .srow .srhead .it{font-size:12px;margin-top:3px;flex-wrap:wrap;gap:4px 7px}
-        .packwrap .srow .srhead .it .tag{font-size:10px;padding:2px 6px}
+        .packwrap .srow .srhead .nm{font-size:18px;line-height:1.2;font-weight:600}
+        .packwrap .srow .srhead .it{font-size:13.5px;margin-top:5px;display:block;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .packwrap .srow .srhead .it .tag{display:inline-block;vertical-align:middle;
+          margin-left:6px;font-size:11px;padding:3px 8px}
 
-        /* The row is the target, so the text link is redundant. A chevron
-           says "opens" without spending a line on it. */
+        /* The row is the target, so the text link is redundant. */
         .packwrap .srow .srhead button.exp{display:none}
-        .packwrap .srow .srhead::after{content:"";width:9px;height:9px;flex:none;
-          border-right:2px solid var(--crust);border-bottom:2px solid var(--crust);
-          transform:rotate(-45deg);margin-right:4px;transition:transform .15s}
+        .packwrap .srow .srhead::after{content:"";width:11px;height:11px;flex:none;
+          border-right:2.5px solid var(--crust);border-bottom:2.5px solid var(--crust);
+          transform:rotate(-45deg);margin-right:6px;transition:transform .15s}
         .packwrap .srow.open .srhead::after{transform:rotate(45deg)}
 
-        /* Flagging is something you do to the store in front of you, not a
-           link under all twenty-seven of them. */
+        /* ---- a store, open: the checklist gets the screen */
+        .packwrap .lines{margin-top:0;border-top:0;padding:12px 12px 14px;gap:9px}
+        .packwrap .lrow{padding:16px 14px;gap:14px;border-radius:12px}
+        .packwrap .lbox{width:42px;height:42px;font-size:24px;border-radius:10px}
+        .packwrap .lname{font-size:17px;line-height:1.25;font-weight:600}
+        .packwrap .lqty{font-size:24px;min-width:42px}
+
+        .packwrap .lfoot{flex-direction:column;align-items:stretch;gap:10px;padding:4px 2px 0}
+        .packwrap .lfoot .lprog{text-align:center;font-size:14px}
+        .packwrap .btn.done{margin-left:0;width:100%;padding:16px;font-size:16px;border-radius:12px}
+
+        /* Flagging belongs to the store in front of you, not to a link under
+           all twenty-seven of them. */
         .packwrap .srow:not(.open) .flagrow{display:none}
-        .packwrap .srow .flagrow{padding:0 13px 12px}
-        .packwrap .srow .flagrow button.exp{margin-left:0;font-size:13.5px}
+        .packwrap .srow .flagrow{padding:0 14px 14px}
+        .packwrap .srow .flagrow button.exp{margin-left:0;font-size:15px}
 
-        .packwrap .lines{margin-top:0;border-top:0;padding:10px 13px 12px;gap:7px}
-        .packwrap .lrow{padding:12px 11px;gap:10px}
-        .packwrap .lbox{width:34px;height:34px}
-        .packwrap .lname{font-size:14.5px;line-height:1.3}
-        .packwrap .lqty{font-size:17px;min-width:30px}
-        .packwrap .lfoot{padding:2px 0 0}
+        .packwrap .flagpanel{padding:0 14px 14px}
+        .packwrap .flagpanel input{width:100%;font-size:16px;padding:12px}
 
-        .packwrap .flagpanel{padding:0 13px 12px}
-        .packwrap .flagpanel input{width:100%}
-      }
+        .packwrap .foot{flex-direction:column;align-items:stretch;gap:10px;
+          padding:14px 14px calc(14px + env(safe-area-inset-bottom))}
+        .packwrap .foot .st{text-align:center;font-size:13.5px}
+        .packwrap .final{width:100%;padding:16px;font-size:16px;border-radius:12px}
 
-      /* A packed store should read as done at a glance while scrolling past. */
-      @media (max-width: 560px){
+        /* A packed store reads as done while scrolling past. */
         .packwrap .srow.packed .srhead .nm{color:var(--ink2)}
         .packwrap .srow.packed .srhead::after{border-color:var(--green)}
+      }
+
+      /* Only in standalone. Safari already clears the status bar, and adding
+         the inset there as well was most of the dead space at the top. */
+      @media (display-mode: standalone){
+        .packwrap .top{padding-top:calc(14px + env(safe-area-inset-top))}
       }
 
       @media print{
