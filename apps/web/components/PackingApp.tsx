@@ -457,7 +457,24 @@ export default function PackingApp({
         .packwrap .lqty{font-size:19px;min-width:46px}
         .packwrap .check{width:46px;height:46px}
         .packwrap .foot{padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom))}
-        .packwrap .pexport{display:none}
+        .packwrap .pexport{display:none !important}
+        /* The PAGE's own "Packing" heading and strapline sit above this
+           component. On a laptop that is the frame around a demo. On a phone
+           it is furniture you scroll past to reach the work, and with the app
+           pinned at 100dvh underneath it the checklist could never fit on one
+           screen -- which is exactly what the phone screenshots showed.
+           The app carries its own header, so the page's is redundant here. */
+        .head{display:none}
+        /* Let the document scroll as one thing rather than an app-in-a-box
+           with its own inner scroller. A phone has one scroll gesture; giving
+           it two nested ones is how you lose your place mid-run. */
+        .packwrap .pad{height:auto;min-height:100dvh}
+        .packwrap .app{height:auto;min-height:100dvh}
+        .packwrap .body{min-height:0}
+        .packwrap .main{min-height:0}
+        .packwrap .list{overflow:visible;flex:none}
+        /* Clear of the notch and the status bar. */
+        .packwrap .top{padding-top:calc(14px + env(safe-area-inset-top))}
       }
 
       /* ---- ON A PHONE ----------------------------------------------
@@ -522,6 +539,28 @@ export default function PackingApp({
         /* The flag panel is a form, and forms are where phones go wrong. */
         .packwrap .flagpanel input{width:100%}
         .packwrap .flagpanel .chips{gap:6px}
+
+        /* The header row was wrapping into three: box alone, then the name,
+           then "close" stranded on the right by the margin-left:auto it
+           inherits. Pin the tick and the name on one line and give the
+           open/close control a full-width row of its own underneath. */
+        .packwrap .srhead > div:nth-child(2){flex:1 1 auto}
+        .packwrap .srhead .exp{flex:0 0 100%;margin-left:0;text-align:left;padding:8px 0 2px}
+        /* The retailer tag was pushing "14 items - 4 products" onto two lines.
+           Let the whole meta line wrap as one block instead. */
+        .packwrap .srhead .it{flex-wrap:wrap;gap:5px}
+
+        /* Product names were breaking across three lines. Reclaim the width:
+           tighter gap, narrower quantity column, and hyphenate long names
+           rather than stacking every word. */
+        .packwrap .lrow{gap:9px;padding:12px 10px}
+        .packwrap .lname{font-size:14.5px;line-height:1.3;hyphens:auto}
+        .packwrap .lqty{min-width:30px;font-size:17px}
+        .packwrap .lbox{width:34px;height:34px}
+
+        /* Two run cards should fit, not one and a sliver. */
+        .packwrap .run{min-width:132px;padding:9px 11px}
+        .packwrap .run .rn{font-size:13px}
       }
 
       /* A phone held sideways has almost no height. Give the list the screen
