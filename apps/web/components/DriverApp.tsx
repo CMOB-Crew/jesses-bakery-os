@@ -458,22 +458,6 @@ export default function DriverApp({
       <style>{`
       .drvwrap{display:flex;flex-direction:column;align-items:center;padding:8px 4px 30px}
 
-      /* On the device this is actually for, the app is the page. */
-      @media (max-width:760px){
-        .drvwrap{padding:0;display:block}
-        .drvwrap .cap{display:none}
-        .drvwrap .notch{display:none}
-        .drvwrap .phone{
-          width:100%;max-width:none;height:auto;min-height:100dvh;
-          border:0;border-radius:0;box-shadow:none;position:relative
-        }
-        /* The screens were absolutely positioned to fill a fixed-height frame.
-           With no frame they flow, and the run list scrolls the page rather
-           than a box inside it. */
-        .drvwrap .screen{position:static;min-height:100dvh}
-        .drvwrap .content{overflow:visible}
-        .drvwrap .bar{padding-top:calc(16px + env(safe-area-inset-top))}
-      }
       .drvwrap .cap{font-size:12.5px;color:var(--muted);margin-bottom:14px;text-align:center;max-width:390px;line-height:1.5}
       .drvwrap .phone{width:390px;max-width:100%;height:820px;background:var(--paper);border:11px solid #1c1610;border-radius:46px;box-shadow:0 30px 70px -20px rgba(40,25,10,.5);overflow:hidden;position:relative}
       .drvwrap .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:130px;height:26px;background:#1c1610;border-radius:0 0 16px 16px;z-index:50}
@@ -552,7 +536,23 @@ export default function DriverApp({
       .drvwrap .chips{display:flex;gap:8px;flex-wrap:wrap}
       .drvwrap .rchip{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:9px 13px;font-size:13px;cursor:pointer;font-weight:600}
       .drvwrap .rchip.on{background:var(--amber);border-color:var(--amber);color:#fff}
-      `}</style>
+            /* On the device this is actually for, the app is the page. */
+      @media (max-width:760px){
+        .drvwrap{padding:0;display:block}
+        .drvwrap .cap{display:none}
+        .drvwrap .notch{display:none}
+        .drvwrap .phone{
+          width:100%;max-width:none;height:auto;min-height:100dvh;
+          border:0;border-radius:0;box-shadow:none;position:relative
+        }
+        /* The screens were absolutely positioned to fill a fixed-height frame.
+           With no frame they flow, and the run list scrolls the page rather
+           than a box inside it. */
+        .drvwrap .screen{position:static;min-height:100dvh}
+        .drvwrap .content{overflow:visible}
+        .drvwrap .bar{padding-top:calc(16px + env(safe-area-inset-top))}
+      }
+    `}</style>
     </div>
   );
 }
