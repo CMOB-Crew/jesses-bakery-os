@@ -667,18 +667,23 @@ export default function PackingApp({
              available = 100% - 24px padding
              two cards + one 8px gap  ->  card = 50% - 16px
            A couple of px come off that to leave the peek. */
-        /* scroll-padding-left matters here. Without it the snap aligns the
-           first card to the scroll container's start edge and eats the left
-           padding, so Eastern Suburbs sat hard against the screen edge -- the
-           padding was there and simply never seen. The snap now stops short by
-           the same amount. */
-        .packwrap .runs{width:100%;padding:10px 14px;gap:8px;
-          scroll-snap-type:x proximity;scroll-padding-left:14px;
-          -webkit-overflow-scrolling:touch}
-        /* Belt and braces: if the snap or the padding is ever defeated again,
-           the first card still keeps its gap. */
-        .packwrap .runs > .run:first-child{margin-left:2px}
-        .packwrap .run{min-width:0;width:auto;flex:0 0 calc(50% - 20px);
+        /* THE EDGE GAP IS A SPACER, NOT PADDING.
+           Three attempts at padding on this strip failed: padding-left, then
+           more of it, then scroll-padding-left plus a first-child margin. The
+           card still sat hard against the screen edge, so the cause was never
+           the value -- padding on a horizontal scroll container is simply not
+           reliable at the start edge here.
+           A pseudo-element is part of the SCROLL CONTENT. It cannot be
+           scrolled past, snapped over, or beaten by another padding rule
+           further down the sheet. The one thing nothing else can undo. */
+        .packwrap .runs{width:100%;padding:10px 0;gap:8px;
+          scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+        .packwrap .runs::before,
+        .packwrap .runs::after{content:"";flex:0 0 14px;align-self:stretch}
+        /* Two cards fully visible:
+             14 spacer + 8 gap + card + 8 gap + card  =  100%
+             -> card = 50% - 15px ; a few px more so the third peeks. */
+        .packwrap .run{min-width:0;width:auto;flex:0 0 calc(50% - 18px);
           padding:11px 13px;scroll-snap-align:start}
         .packwrap .run .rn{font-size:14px}
         .packwrap .run .rd{font-size:11.5px}
