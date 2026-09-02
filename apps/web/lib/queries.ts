@@ -2515,9 +2515,13 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
     }[]>`
       with d as (select ${day}::date as day),
       wd as (select lower(to_char(day, 'Dy'))::weekday as w from d),
+      -- The engine's own number and the human override are kept APART here
+      -- rather than coalesced, because they are measured in different units.
+      -- rp.recommended_qty is this day's quantity. o.qty is a week's.
       planned as (
         select rp.store_id, rp.product_id,
-               coalesce(o.qty, rp.recommended_qty)::int as qty
+               rp.recommended_qty::int as day_qty,
+               o.qty::int              as week_override
           from replenishment_plans rp
           join d on rp.target_date = d.day
           left join store_product_overrides o
@@ -2559,12 +2563,22 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
       -- engine planned them. Standing rows and added lines only show on a day
       -- the store is actually delivered. Overloading one flag would have put
       -- ad-hoc lines on days with no van.
+      -- src carries two facts: what UNIT the number is in, and whether the row
+      -- may appear on a day this store is not delivered.
+      --   plan     engine quantity for this day. Raw. Any planned day.
+      --   planwk   a human override on a planned line. Weekly, so day-shared.
+      --   standing carried forward from last week. Weekly. Delivery days only.
+      --   extra    an override with no plan behind it. Weekly. Delivery days only.
       merged as (
-        select store_id, product_id, qty, 0 as week_sent, 'plan'     as src from planned
+        select store_id, product_id, day_qty as qty, 0 as week_sent, 'plan' as src
+          from planned where week_override is null
+        union all
+        select store_id, product_id, 0 as qty, week_override as week_sent, 'planwk' as src
+          from planned where week_override is not null
         union all
         select store_id, product_id, 0 as qty, week_sent, 'standing' as src from standing
         union all
-        select store_id, product_id, qty, 0 as week_sent, 'extra'    as src from extra
+        select store_id, product_id, 0 as qty, qty as week_sent, 'extra' as src from extra
       )
       select coalesce(rn.id::text, '')                       as run_id,
              rn.name                                         as run_name,
@@ -2586,7 +2600,7 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
                on rn.id = coalesce(ovr.run_id, s.default_run_id)
        -- Planned rows pass through as before. A standing row, and an added
        -- line, only appear on a day that store is actually delivered.
-       where m.src = 'plan' or (select w from wd) = any(s.delivery_days)
+       where m.src in ('plan', 'planwk') or (select w from wd) = any(s.delivery_days)
        order by rn.name nulls last, s.name, p.name`;
 
     // The weekly standing order becomes one day's drop through the SAME helper
@@ -2599,12 +2613,14 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
 
     const byRun = new Map<string, PackRun>();
     for (const r of rows) {
-      // A plan row and an added line both carry a real quantity for the day.
-      // Only a standing row is a weekly total that has to be split across the
-      // week, which is what dayShare does.
-      const qty = r.src === "standing"
-        ? dayShare(r.week_sent, r.delivery_days ?? [], dayIdx, mult)
-        : r.qty;
+      // Only the engine's own number is already a per-day quantity. Everything
+      // a person typed is a weekly figure -- that is what both screens that
+      // write an override display -- so it gets split across the delivery days
+      // by the same helper the Deliveries sheet uses, and the two pages cannot
+      // disagree about what Thursday means.
+      const qty = r.src === "plan"
+        ? r.qty
+        : dayShare(r.week_sent, r.delivery_days ?? [], dayIdx, mult);
       // A standing order that rounds to nothing on this day is not packed.
       if (qty <= 0) continue;
 
