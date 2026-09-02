@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
-import type { PackRun } from "@/lib/queries";
+import type { PackRun, DriverState } from "@/lib/queries";
+import { setDriverState } from "@/app/run-state-actions";
 
 // Driver app — phone prototype. The build that matters for drivers: dead simple,
 // big taps, live-capture only (no gallery), works down the run stop by stop.
@@ -9,7 +10,9 @@ import type { PackRun } from "@/lib/queries";
 // always demos. Nothing persists yet — the offline queue + upload is next phase.
 
 type Status = "done" | "next" | "pending" | "circle";
-type Stop = { id: number; name: string; addr: string; items: [string, number][]; status: Status };
+// sid is the real store id. Optional because the sample stops have none -- they
+// are not real stores and must never write a delivery record.
+type Stop = { id: number; name: string; addr: string; items: [string, number][]; status: Status; sid?: string };
 type Screen = "licence" | "pickrun" | "run" | "stop" | "circle" | "cam" | "photo" | "waste" | "sign" | "done";
 
 const INITIAL: Stop[] = [
@@ -30,12 +33,16 @@ export default function DriverApp({
   runs = [],
   addresses = {},
   day = "",
+  dayIso = "",
   driver = null,
+  initialState = {},
 }: {
   runs?: PackRun[];
   addresses?: Record<string, string>;
   day?: string;
+  dayIso?: string;
   driver?: string | null;
+  initialState?: DriverState;
 }) {
   // Live when the engine has planned today. Otherwise the sample run stands in,
   // so the flow can still be walked through rather than showing an empty phone.
@@ -43,6 +50,24 @@ export default function DriverApp({
   const [screen, setScreen] = useState<Screen>("licence");
   const [runName, setRunName] = useState<string | null>(null);
   const [stops, setStops] = useState<Stop[]>(INITIAL);
+  // What has already been recorded today, so reopening the phone mid-run does
+  // not start the driver from the top of the list again.
+  const [record, setRecord] = useState<DriverState>(initialState);
+  const [saveErr, setSaveErr] = useState(false);
+
+  // Fire and forget, but surface a failure. A driver who taps "delivered" and
+  // gets silence has no way to know the record did not save, and finding out at
+  // the end of the day is finding out too late.
+  const persist = useCallback(
+    (next: DriverState) => {
+      if (!dayIso || !live) return;
+      setRecord(next);
+      setDriverState(dayIso, next)
+        .then((r) => setSaveErr(!r.ok))
+        .catch(() => setSaveErr(true));
+    },
+    [dayIso, live],
+  );
 
   // One run's stores become the driver's stops, in the order the packing sheet
   // lists them. Not driving order -- the stop sequence is not recorded anywhere
@@ -50,15 +75,22 @@ export default function DriverApp({
   // worse than admitting it.
   function chooseRun(r: PackRun) {
     setRunName(r.name);
-    setStops(
-      r.stores.map((st, i) => ({
+    const mapped: Stop[] = r.stores.map((st, i) => {
+      const done = record[st.store_id];
+      return {
         id: i,
+        sid: st.store_id,
         name: st.name,
         addr: addresses[st.store_id] ?? (st.retailer === "invoice" ? "Invoice customer" : ""),
         items: st.items.map((it) => [it.name, it.qty] as [string, number]),
-        status: (i === 0 ? "next" : "pending") as Status,
-      })),
-    );
+        status: (done?.s === "delivered" ? "done" : done?.s === "circled" ? "circle" : "pending") as Status,
+      };
+    });
+    // The first stop still outstanding is the one they are on, wherever that
+    // falls in the list -- not always the top, because the run may be half done.
+    const nextIdx = mapped.findIndex((m) => m.status === "pending");
+    if (nextIdx !== -1) mapped[nextIdx].status = "next";
+    setStops(mapped);
     setScreen("run");
   }
   const [curId, setCurId] = useState<number | null>(null);
@@ -186,11 +218,17 @@ export default function DriverApp({
   }
 
   function doCircle() {
+    {
+      const sid = stops.find((s) => s.id === curId)?.sid;
+      if (sid) persist({ ...record, [sid]: { s: "circled", at: new Date().toISOString(), r: reason ?? "" } });
+    }
     setStops((ss) => ss.map((s) => (s.id === curId ? { ...s, status: "circle" } : s)));
     setScreen("run");
   }
 
   function deliver() {
+    const sid = stops.find((s) => s.id === curId)?.sid;
+    if (sid) persist({ ...record, [sid]: { s: "delivered", at: new Date().toISOString() } });
     setStops((ss) => {
       const updated = ss.map((s) => (s.id === curId ? { ...s, status: "done" as Status } : s));
       const nxt = updated.find((s) => s.status === "pending");
@@ -242,8 +280,10 @@ export default function DriverApp({
   return (
     <div className="drvwrap">
       <div className="livenote" style={{ background: "var(--amber-b)", border: "1px solid var(--amber)", color: "var(--amber-t)", borderRadius: 10, padding: "10px 14px", margin: "0 0 12px", fontSize: 13, fontWeight: 700 }}>
-        {live
-          ? "Today\u2019s real runs. Nothing you tap is saved yet."
+        {saveErr
+          ? "\u26A0 That last one did not save. Check your signal and tap it again."
+          : live
+          ? "Today\u2019s real runs. Deliveries are saved; photos and the signature are not yet."
           : "\u26A0 No plan for today, so these are sample stops. Nothing you tap is saved yet."}
       </div>
       <div className="cap">Driver app · phone prototype. Live-capture only (no gallery) via the camera — grant access to see your real camera, otherwise it falls back to a simulated capture so the flow always runs.</div>

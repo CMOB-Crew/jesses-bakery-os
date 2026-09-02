@@ -2903,3 +2903,16 @@ export async function getStoreAddresses(): Promise<Record<string, string>> {
     return {};
   }
 }
+
+// What the driver recorded today, keyed by store id. Same shape and same table
+// as getPackingState.
+export type DriverState = Record<string, { s: "delivered" | "circled"; at?: string; r?: string }>;
+export async function getDriverState(day: string): Promise<DriverState> {
+  try {
+    const rows = await sql<{ approved: DriverState }[]>`
+      select approved from daily_run_state where surface = 'driver' and day = ${day}::date`;
+    return rows[0]?.approved ?? {};
+  } catch {
+    return {};
+  }
+}

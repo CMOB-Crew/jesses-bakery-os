@@ -1,6 +1,6 @@
 import { withUser } from "@/lib/db";
 import DriverApp from "@/components/DriverApp";
-import { getPackingRuns, getStoreAddresses } from "@/lib/queries";
+import { getPackingRuns, getStoreAddresses, getDriverState } from "@/lib/queries";
 import { getSessionClaims } from "@/lib/supabase/server";
 
 export const metadata = { title: "Driver · Jesse's Bakery OS" };
@@ -13,8 +13,8 @@ export default async function DriverPage() {
   // the entire bakery working morning -- and the driver would be shown the
   // wrong day's run.
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(new Date());
-  const [runs, addresses] = await withUser(() =>
-    Promise.all([getPackingRuns(today), getStoreAddresses()]),
+  const [runs, addresses, state] = await withUser(() =>
+    Promise.all([getPackingRuns(today), getStoreAddresses(), getDriverState(today)]),
   );
   // Whoever is actually signed in. The screen used to say "Ankit / Van 3" to
   // everyone -- showing a real driver a different driver's name on their own
@@ -28,7 +28,7 @@ export default async function DriverPage() {
     <>
       <div className="head drvhead"><h1>Driver app</h1><div className="meta">Today&apos;s runs, stop by stop</div></div>
       <style>{".drvhead{display:block}@media(max-width:760px){.drvhead{display:none}}"}</style>
-      <DriverApp runs={runs} addresses={addresses} day={pretty} driver={driver} />
+      <DriverApp runs={runs} addresses={addresses} day={pretty} dayIso={today} driver={driver} initialState={state} />
     </>
   );
 }

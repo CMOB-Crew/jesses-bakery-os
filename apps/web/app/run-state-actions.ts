@@ -127,3 +127,44 @@ export async function setPackingState(day: string, state: PackStateWrite): Promi
     return { ok: false, error: e instanceof Error ? e.message : "Could not save the sheet." };
   }
 }
+
+// ---------------------------------------------------------------------------
+// What the driver actually did, per store, for one day.
+//
+// Same table and same shape as the packing sheet: daily_run_state is a generic
+// (surface, day) -> jsonb store, so this needs no migration and inherits the
+// RLS already on it.
+//
+// Deliberately NOT storing the photo or the signature here. Both are images,
+// and a base64 data URL in a jsonb column that is read on every page load is
+// how you turn a 2KB row into a 2MB one. They belong in storage, which is the
+// next piece. What persists now is the fact and the time -- which is the part
+// that answers "did Coles Bondi get their bread this morning".
+// ---------------------------------------------------------------------------
+export type DriverStateWrite = Record<string, { s: "delivered" | "circled"; at?: string; r?: string }>;
+
+export async function setDriverState(day: string, state: DriverStateWrite): Promise<WriteResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
+  try {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(day)) return { ok: false, error: "Bad day." };
+    const clean: Record<string, { s: string; at: string; r: string }> = {};
+    for (const [k, v] of Object.entries(state ?? {})) {
+      if (!v) continue;
+      if (v.s !== "delivered" && v.s !== "circled") continue;
+      // The timestamp is validated rather than trusted -- it arrives from a
+      // phone, and a phone's clock is whatever the phone says it is. An
+      // unparseable one falls back to now on the server.
+      const t = Date.parse(String(v.at ?? ""));
+      clean[k] = {
+        s: v.s,
+        at: Number.isFinite(t) ? new Date(t).toISOString() : new Date().toISOString(),
+        r: v.s === "circled" ? String(v.r ?? "").slice(0, 200) : "",
+      };
+    }
+    const who = await getDisplayUser().catch(() => null);
+    await writeRunState("driver", day, clean, who?.email ?? "app");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not save the run." };
+  }
+}
