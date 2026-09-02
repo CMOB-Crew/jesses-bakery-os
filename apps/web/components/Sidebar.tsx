@@ -55,6 +55,12 @@ export default function Sidebar({ user = null }: { user?: SidebarUser | null }) 
         <Link prefetch={false} href="/new-store" className={isOn("/new-store") ? "on" : ""}>
           <svg viewBox="0 0 24 24"><path d="M3 10l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" /><path d="M12 8v6M9 11h6" /></svg>New store
         </Link>
+        <Link prefetch={false} href="/new-run" className={isOn("/new-run") ? "on" : ""}>
+          <svg viewBox="0 0 24 24"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z" /><path d="M12 9v6M9 12h6" /></svg>New run
+        </Link>
+        <Link prefetch={false} href="/new-product" className={isOn("/new-product") ? "on" : ""}>
+          <svg viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z" /><path d="M3 8v8l9 5 9-5V8" /><path d="M12 14v5M9.5 16.5h5" /></svg>New product
+        </Link>
         <Link prefetch={false} href="/launches" className={isOn("/launches") ? "on" : ""}>
           <svg viewBox="0 0 24 24"><path d="M14 4c3 1 5 4 5 8l-3 3-4-4 3-3c-1 0-2 0-3 1M9 11l-4 1-1 4 3-1M12 15l1 4 4-1-1-4M6 15l-2 4 4-2" /></svg>Launches
         </Link>

@@ -2646,3 +2646,66 @@ export async function getEngineHealth(): Promise<EngineHealth | null> {
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Setup pick-lists. Two small reads that back the New run and New product
+// screens (2 Sept). Both are deliberately plain: no v_store_week, no as_of, no
+// engine — a Setup screen must render even on a day the feeds are dead.
+// ---------------------------------------------------------------------------
+
+// Every run with the number of stores that go out on it. The count is the whole
+// point of the screen: Simona is splitting an over-full South East and needs to
+// see which runs are carrying what before she creates City 2.
+export type RunWithCount = { id: string; name: string; days: string[]; stores: number; created: Date | null };
+export async function getRunsWithCounts(): Promise<RunWithCount[]> {
+  try {
+    const rows = await sql<{ id: string; name: string; days: string[]; stores: number; created: Date | null }[]>`
+      select rn.id::text as id,
+             rn.name,
+             rn.run_days::text[] as days,
+             (select count(*)::int from stores s
+               where s.default_run_id = rn.id and s.active) as stores,
+             rn.created_at as created
+        from runs rn
+       order by rn.name`;
+    return rows.map((r) => ({ id: r.id, name: r.name, days: r.days ?? [], stores: r.stores ?? 0, created: r.created ?? null }));
+  } catch {
+    return [];
+  }
+}
+
+// Active stores for the ranging picker on New product. Ordered by run then name
+// so the list reads the way the runs board does.
+export type StorePick = { id: string; name: string; retailer: string; run: string | null };
+export async function getStorePicklist(): Promise<StorePick[]> {
+  try {
+    const rows = await sql<{ id: string; name: string; retailer: string; run: string | null }[]>`
+      select s.id::text as id, s.name, s.retailer::text as retailer, rn.name as run
+        from stores s
+        left join runs rn on rn.id = s.default_run_id
+       where s.active
+       order by coalesce(rn.name, 'zzz'), s.name`;
+    return rows.map((r) => ({ id: r.id, name: r.name, retailer: r.retailer, run: r.run ?? null }));
+  } catch {
+    return [];
+  }
+}
+
+// The product lines that already exist, with the three retailer article numbers
+// on them. New product shows this so a duplicate is visible BEFORE you type it,
+// and so the code-clash error has something to point at.
+export type ProductCodeRow = { id: string; name: string; category: string; coles: string | null; woolworths: string | null; harris: string | null; pack: number; uom: string; qty: number | null };
+export async function getProductCodes(): Promise<ProductCodeRow[]> {
+  try {
+    const rows = await sql<{ id: string; name: string; category: string; coles: string | null; woolworths: string | null; harris: string | null; pack: number; uom: string; qty: number | null }[]>`
+      select id::text as id, name, category::text as category,
+             coles_code as coles, woolworths_code as woolworths, harris_farm_code as harris,
+             pack_size as pack, baking_uom as uom, baking_qty as qty
+        from products
+       where active
+       order by category, name`;
+    return rows;
+  } catch {
+    return [];
+  }
+}
