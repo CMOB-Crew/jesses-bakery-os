@@ -610,6 +610,34 @@ export default function PackingApp({
 
       /* Print-only packing slip — hidden on screen, shown on paper/PDF */
       .packwrap .pack-slip{display:none}
+      /* ---- ORDER-PROOF OVERRIDES ------------------------------------
+         The base rules for .srhead .exp sit AFTER the media blocks in this
+         stylesheet. At equal specificity the later rule wins, so every
+         override above was being beaten by
+             .packwrap .srhead .exp{margin-left:auto;flex:none}
+         which is why "pack this store" stayed hard right however it was
+         written, and why the tick box kept getting pushed onto its own line.
+
+         These carry one extra element selector each -- button.exp, div.check
+         -- so they outrank the base on specificity and no longer depend on
+         where they happen to sit in the file. */
+      @media (max-width: 560px){
+        /* Tick and name hold one line. flex-basis 0, not auto: with auto, the
+           name's content width is its hypothetical size, which overflows the
+           row and forces a wrap before any shrinking happens. That is what
+           put the box on a line of its own. */
+        .packwrap .srhead > div.check{flex:0 0 auto}
+        .packwrap .srhead > div:nth-child(2){flex:1 1 0;min-width:0}
+        /* Its own full-width row underneath, left aligned, as a real target. */
+        .packwrap .srhead button.exp{flex:0 0 100%;margin-left:0;text-align:left;padding:10px 0 2px;font-size:14px}
+        /* The retailer pill was taking a fourth line on its own. */
+        .packwrap .srhead .it .tag{font-size:10.5px;padding:2px 7px}
+        /* A collapsed store was running to about 350px. Twenty-seven of those
+           is a lot of thumb. */
+        .packwrap .srow{padding:11px 12px;margin-bottom:8px}
+        .packwrap .srhead{gap:10px}
+      }
+
       @media print{
         .packwrap .pad{display:none !important}
         .packwrap .cap, .packwrap .livenote{display:none !important}
