@@ -2511,7 +2511,7 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
       delivery_days: string[] | null;
       product_id: string; product_name: string;
       baking_uom: string | null; pack_size: number;
-      qty: number; week_sent: number; planned: boolean;
+      qty: number; week_sent: number; src: string;
     }[]>`
       with d as (select ${day}::date as day),
       wd as (select lower(to_char(day, 'Dy'))::weekday as w from d),
@@ -2533,10 +2533,38 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
              select 1 from replenishment_plans rp2, d
               where rp2.store_id = sr.store_id and rp2.target_date = d.day)
       ),
+      -- An override on a (store, product) the engine has no row for at all.
+      -- Deliberately not date-gated for perm: a permanent override with no plan
+      -- behind it means "this store gets this every delivery", so it appears on
+      -- each of that store's delivery days. temp respects its own window, which
+      -- is what makes a one-off order possible.
+      extra as (
+        select o.store_id, o.product_id, o.qty::int as qty
+          from store_product_overrides o
+          cross join d
+         where o.qty > 0
+           and (o.mode = 'perm' or o.ends_on   is null or o.ends_on   >= d.day)
+           and (o.mode = 'perm' or o.starts_on is null or o.starts_on <= d.day)
+           and not exists (
+             select 1 from replenishment_plans rp2
+              where rp2.store_id = o.store_id and rp2.product_id = o.product_id
+                and rp2.target_date = d.day)
+           and not exists (
+             select 1 from store_reco sr2
+              where sr2.store_id = o.store_id and sr2.product_id = o.product_id
+                and sr2.sent > 0)
+      ),
+      -- src, not just a boolean, because the two things that boolean was
+      -- carrying are not the same question. Plan rows show on any day the
+      -- engine planned them. Standing rows and added lines only show on a day
+      -- the store is actually delivered. Overloading one flag would have put
+      -- ad-hoc lines on days with no van.
       merged as (
-        select store_id, product_id, qty, 0 as week_sent, true  as planned from planned
+        select store_id, product_id, qty, 0 as week_sent, 'plan'     as src from planned
         union all
-        select store_id, product_id, 0 as qty, week_sent, false as planned from standing
+        select store_id, product_id, 0 as qty, week_sent, 'standing' as src from standing
+        union all
+        select store_id, product_id, qty, 0 as week_sent, 'extra'    as src from extra
       )
       select coalesce(rn.id::text, '')                       as run_id,
              rn.name                                         as run_name,
@@ -2548,7 +2576,7 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
              p.name                                          as product_name,
              p.baking_uom::text                              as baking_uom,
              coalesce(p.pack_size, 1)::int                   as pack_size,
-             m.qty, m.week_sent, m.planned
+             m.qty, m.week_sent, m.src
         from merged m
         join stores s   on s.id = m.store_id and s.active
         join products p on p.id = m.product_id
@@ -2556,9 +2584,9 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
                on ovr.store_id = s.id and ovr.day = (select w from wd)
         left join runs rn
                on rn.id = coalesce(ovr.run_id, s.default_run_id)
-       -- Planned rows pass through as before. A standing row only appears on a
-       -- day that store is actually delivered.
-       where m.planned or (select w from wd) = any(s.delivery_days)
+       -- Planned rows pass through as before. A standing row, and an added
+       -- line, only appear on a day that store is actually delivered.
+       where m.src = 'plan' or (select w from wd) = any(s.delivery_days)
        order by rn.name nulls last, s.name, p.name`;
 
     // The weekly standing order becomes one day's drop through the SAME helper
@@ -2571,9 +2599,12 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
 
     const byRun = new Map<string, PackRun>();
     for (const r of rows) {
-      const qty = r.planned
-        ? r.qty
-        : dayShare(r.week_sent, r.delivery_days ?? [], dayIdx, mult);
+      // A plan row and an added line both carry a real quantity for the day.
+      // Only a standing row is a weekly total that has to be split across the
+      // week, which is what dayShare does.
+      const qty = r.src === "standing"
+        ? dayShare(r.week_sent, r.delivery_days ?? [], dayIdx, mult)
+        : r.qty;
       // A standing order that rounds to nothing on this day is not packed.
       if (qty <= 0) continue;
 
@@ -2585,7 +2616,7 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
       }
       let st = run.stores.find((s) => s.store_id === r.store_id);
       if (!st) {
-        st = { store_id: r.store_id, name: r.store_name, retailer: r.retailer, items: [], units: 0, standing: !r.planned };
+        st = { store_id: r.store_id, name: r.store_name, retailer: r.retailer, items: [], units: 0, standing: r.src === "standing" };
         run.stores.push(st);
       }
       // Labelled here rather than in the component: the store card and the
@@ -2705,6 +2736,90 @@ export async function getProductCodes(): Promise<ProductCodeRow[]> {
        where active
        order by category, name`;
     return rows;
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The standing order for one invoice customer.
+//
+// There is no such thing as a forecast for these stores -- they have no sales
+// feed, so v_store_week carries last week's deliveries forward and the number
+// on screen is a REFLECTION of what happened, not a DEFINITION of what should.
+// This read is the definition: every line the store currently receives, plus
+// every override, INCLUDING overrides on products the engine has no row for.
+//
+// That last part is the whole point. store_product_overrides is an upsert on
+// (store_id, product_id) with no dependency on a reco row, so a line can be
+// added for a product the store has never had -- which until the getPackingRuns
+// change went in was written correctly and then never read back.
+// ---------------------------------------------------------------------------
+export type StandingLine = {
+  product_id: string;
+  name: string;
+  category: string;
+  pack_size: number;
+  baking_uom: string | null;
+  sent: number;              // what it currently gets, per week, carried forward
+  override_qty: number | null;
+  mode: "perm" | "temp" | null;
+  starts_on: string | null;
+  ends_on: string | null;
+};
+export async function getStoreStandingOrder(id: string): Promise<StandingLine[]> {
+  try {
+    const rows = await sql<{
+      product_id: string; name: string; category: string; pack_size: number;
+      baking_uom: string | null; sent: number; override_qty: number | null;
+      mode: string | null; starts_on: Date | null; ends_on: Date | null;
+    }[]>`
+      select p.id::text                     as product_id,
+             p.name,
+             p.category::text               as category,
+             coalesce(p.pack_size, 1)::int  as pack_size,
+             p.baking_uom::text             as baking_uom,
+             coalesce(r.sent, 0)::int       as sent,
+             o.qty                          as override_qty,
+             o.mode::text                   as mode,
+             o.starts_on,
+             o.ends_on
+        from products p
+        left join store_reco r
+               on r.product_id = p.id and r.store_id = ${id}::uuid
+        left join store_product_overrides o
+               on o.product_id = p.id and o.store_id = ${id}::uuid
+       where p.active
+         and (coalesce(r.sent, 0) > 0 or o.qty is not null)
+       order by p.category, p.name`;
+    const iso = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+    return rows.map((r) => ({
+      product_id: r.product_id,
+      name: r.name,
+      category: r.category,
+      pack_size: Number(r.pack_size) || 1,
+      baking_uom: r.baking_uom,
+      sent: Number(r.sent) || 0,
+      override_qty: r.override_qty == null ? null : Number(r.override_qty),
+      mode: r.mode === "temp" ? "temp" : r.mode === "perm" ? "perm" : null,
+      starts_on: iso(r.starts_on),
+      ends_on: iso(r.ends_on),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// Every active product, for the "add a line" picker. Deliberately the whole
+// list and not just what the store is ranged on -- adding a product it has
+// never had is the case this exists for.
+export type ProductPick = { id: string; name: string; category: string; pack_size: number };
+export async function getProductPicklist(): Promise<ProductPick[]> {
+  try {
+    const rows = await sql<{ id: string; name: string; category: string; pack_size: number }[]>`
+      select id::text as id, name, category::text as category, coalesce(pack_size,1)::int as pack_size
+        from products where active order by category, name`;
+    return rows.map((r) => ({ ...r, pack_size: Number(r.pack_size) || 1 }));
   } catch {
     return [];
   }

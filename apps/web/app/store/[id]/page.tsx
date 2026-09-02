@@ -1,8 +1,9 @@
 import { withUser } from "@/lib/db";
 import Link from "next/link";
 import NotFoundPanel from "@/components/NotFoundPanel";
-import { getStoreById, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto, getStoreAddress, getStoreShelfCap, getStoreDayGrid, getStoreSellouts, getStoreSchedule, getRunPicklist, getStoreRevenueWeek } from "@/lib/queries";
+import { getStoreById, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto, getStoreAddress, getStoreShelfCap, getStoreDayGrid, getStoreSellouts, getStoreSchedule, getRunPicklist, getStoreRevenueWeek, getStoreStandingOrder, getProductPicklist } from "@/lib/queries";
 import StoreProfile, { type PeerStat } from "@/components/StoreProfile";
+import StandingOrderPanel from "@/components/StandingOrderPanel";
 import type { StoreWeek } from "@/lib/queries";
 
 // Render per request, like the other data pages — this is the "single source of
@@ -87,7 +88,7 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
   // All in one Promise.all. Every one of these is a round trip to the Singapore
   // pooler at ~130ms; awaited in sequence the three new ones would add ~400ms to
   // a page Tommy already called slow on the 26 Aug screen share.
-  const [store, recos, all, overrides, ranging, serviceLevel, lastVisit, photo, address, shelf, dayGrid, sellouts, schedule, runs, revMap] = await withUser(() =>
+  const [store, recos, all, overrides, ranging, serviceLevel, lastVisit, photo, address, shelf, dayGrid, sellouts, schedule, runs, revMap, standingLines, allProducts] = await withUser(() =>
     Promise.all([
     getStoreById(id), getStoreRecos(id), getStoreWeek(), getStoreOverrides(id),
     getStoreRanging(id), getStoreServiceLevel(id), getStoreLastVisit(id), getStorePhoto(id), getStoreAddress(id), getStoreShelfCap(id),
@@ -97,7 +98,7 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
     // costs the page nothing. getStoreRevenueWeek never throws — it returns an
     // empty map — so a store with no priced sales degrades to the units-only
     // panel instead of breaking the page.
-    getStoreRevenueWeek(),
+    getStoreRevenueWeek(), getStoreStandingOrder(id), getProductPicklist(),
   ])
   );
   // Rendered directly, not via notFound(): this page is force-dynamic and
@@ -131,6 +132,15 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
         {" "}› {store.name}
       </div>
       <StoreProfile store={store} recos={recos} revenue={revenue} peer={peer} overrides={overrides} ranging={ranging} serviceLevel={serviceLevel} lastVisit={lastVisit} today={today} photo={photo} address={address} shelfCap={shelf.shelfCap} noCap={shelf.noCap} dayGrid={dayGrid} sellouts={sellouts} schedule={schedule} runs={runs} />
+      {store.retailer === "invoice" && (
+        <StandingOrderPanel
+          storeId={id}
+          storeName={store.name}
+          lines={standingLines}
+          products={allProducts}
+          today={today}
+        />
+      )}
     </>
   );
 }
