@@ -30,10 +30,12 @@ export default function DriverApp({
   runs = [],
   addresses = {},
   day = "",
+  driver = null,
 }: {
   runs?: PackRun[];
   addresses?: Record<string, string>;
   day?: string;
+  driver?: string | null;
 }) {
   // Live when the engine has planned today. Otherwise the sample run stands in,
   // so the flow can still be walked through rather than showing an empty phone.
@@ -241,8 +243,8 @@ export default function DriverApp({
     <div className="drvwrap">
       <div style={{ background: "var(--amber-b)", border: "1px solid var(--amber)", color: "var(--amber-t)", borderRadius: 10, padding: "10px 14px", margin: "0 0 12px", fontSize: 13, fontWeight: 700 }}>
         {live
-          ? "Live runs, read from today\u2019s plan \u2014 the same source the packing sheet uses. Ticking off, photos and the signature do not save yet; that is the next build."
-          : "\u26A0 No plan for today, so these are sample stops. Ticking off, photos and the signature do not save yet."}
+          ? "Today\u2019s real runs. Nothing you tap is saved yet."
+          : "\u26A0 No plan for today, so these are sample stops. Nothing you tap is saved yet."}
       </div>
       <div className="cap">Driver app · phone prototype. Live-capture only (no gallery) via the camera — grant access to see your real camera, otherwise it falls back to a simulated capture so the flow always runs.</div>
       <div className="phone">
@@ -253,7 +255,12 @@ export default function DriverApp({
           <div className="screen">
             <div className="bar"><div><h1>Start your shift</h1><div className="sub">{live ? day : "Sample run"}</div></div></div>
             <div className="content">
-              <div className="drv"><div className="av">A</div><div><div className="rn">Ankit</div><small>Van 3</small></div></div>
+              {driver ? (
+                <div className="drv">
+                  <div className="av">{driver.slice(0, 1).toUpperCase()}</div>
+                  <div><div className="rn">{driver}</div><small>Signed in</small></div>
+                </div>
+              ) : null}
               <div className="box">
                 <div className="bh">Driver licence</div>
                 <div style={{ fontSize: 13.5, color: "var(--ink2)", lineHeight: 1.5, marginBottom: 12 }}>
@@ -310,7 +317,12 @@ export default function DriverApp({
           <div className="screen">
             <div className="bar"><div><h1>Your run</h1><div className="sub">{runName ?? "Sample run"}{live && day ? " · " + day : " · Monday"}</div></div></div>
             <div className="content">
-              <div className="drv"><div className="av">A</div><div><div className="rn">Ankit</div><small>Van 3 · started 6:40am</small></div></div>
+              {driver ? (
+                <div className="drv">
+                  <div className="av">{driver.slice(0, 1).toUpperCase()}</div>
+                  <div><div className="rn">{driver}</div><small>On shift</small></div>
+                </div>
+              ) : null}
               <div className="prog"><div className="track"><div className="fill" style={{ width: `${(100 * doneCount) / stops.length}%` }} /></div><div className="lbl">{doneCount} / {stops.length}</div></div>
               {stops.map((s) => {
                 const cls = s.status === "done" ? "done" : s.status === "next" ? "next" : s.status === "circle" ? "circle" : "";
@@ -426,7 +438,7 @@ export default function DriverApp({
                 <div className="sighint">Receiver signs above · <a onClick={clearSig} style={{ color: "var(--crust-deep)", cursor: "pointer" }}>clear</a></div>
               </div>
             </div>
-            <div className="actions"><button className="big green" onClick={deliver}>Confirm delivered as Ankit</button></div>
+            <div className="actions"><button className="big green" onClick={deliver}>{driver ? "Confirm delivered as " + driver : "Confirm delivered"}</button></div>
           </div>
         )}
 
@@ -445,6 +457,23 @@ export default function DriverApp({
 
       <style>{`
       .drvwrap{display:flex;flex-direction:column;align-items:center;padding:8px 4px 30px}
+
+      /* On the device this is actually for, the app is the page. */
+      @media (max-width:760px){
+        .drvwrap{padding:0;display:block}
+        .drvwrap .cap{display:none}
+        .drvwrap .notch{display:none}
+        .drvwrap .phone{
+          width:100%;max-width:none;height:auto;min-height:100dvh;
+          border:0;border-radius:0;box-shadow:none;position:relative
+        }
+        /* The screens were absolutely positioned to fill a fixed-height frame.
+           With no frame they flow, and the run list scrolls the page rather
+           than a box inside it. */
+        .drvwrap .screen{position:static;min-height:100dvh}
+        .drvwrap .content{overflow:visible}
+        .drvwrap .bar{padding-top:calc(16px + env(safe-area-inset-top))}
+      }
       .drvwrap .cap{font-size:12.5px;color:var(--muted);margin-bottom:14px;text-align:center;max-width:390px;line-height:1.5}
       .drvwrap .phone{width:390px;max-width:100%;height:820px;background:var(--paper);border:11px solid #1c1610;border-radius:46px;box-shadow:0 30px 70px -20px rgba(40,25,10,.5);overflow:hidden;position:relative}
       .drvwrap .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:130px;height:26px;background:#1c1610;border-radius:0 0 16px 16px;z-index:50}
