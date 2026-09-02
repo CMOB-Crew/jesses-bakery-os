@@ -281,9 +281,18 @@ export default function PackingApp({
                 const flagShown = !!flagOpen[key(si)];
                 const reason = draft[key(si)] || "";
                 return (
-                  <div key={s.store_id} className={`srow ${s.status}`}>
-                    <div className="srhead">
-                      <div className="check" onClick={() => togglePack(si)}>✓</div>
+                  <div key={s.store_id} className={`srow ${s.status} ${itemsShown ? "open" : ""}`}>
+                    <div
+                      className="srhead"
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={itemsShown}
+                      onClick={() => setOpen(itemsShown ? null : si)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(itemsShown ? null : si); } }}
+                    >
+                      {/* stopPropagation: the tick is an all-or-nothing shortcut and
+                          must not also open the store underneath it. */}
+                      <div className="check" onClick={(e) => { e.stopPropagation(); togglePack(si); }}>✓</div>
                       <div style={{ minWidth: 0 }}>
                         <div className="nm">{s.name}</div>
                         <div className="it">{s.units} items · {done > 0 && s.status !== "packed" ? <b>{done}/{s.items.length} lines</b> : `${s.items.length} products`} {standingIds.has(s.store_id) && <span className="tag amber" title="No sales feed to size this store — this is its current standing order, not a forecast.">standing order</span>} {s.status === "flagged" && <span className="tag amber">⚑ flagged</span>}</div>
@@ -329,7 +338,7 @@ export default function PackingApp({
                       </div>
                     )}
                     {s.status === "pending" && !flagShown && (
-                      <div style={{ marginTop: 10 }}>
+                      <div className="flagrow">
                         <button className="exp amber" onClick={() => setFlagOpen((f) => ({ ...f, [key(si)]: true }))}>⚑ Flag an issue instead</button>
                       </div>
                     )}
@@ -610,32 +619,61 @@ export default function PackingApp({
 
       /* Print-only packing slip — hidden on screen, shown on paper/PDF */
       .packwrap .pack-slip{display:none}
-      /* ---- ORDER-PROOF OVERRIDES ------------------------------------
-         The base rules for .srhead .exp sit AFTER the media blocks in this
-         stylesheet. At equal specificity the later rule wins, so every
-         override above was being beaten by
-             .packwrap .srhead .exp{margin-left:auto;flex:none}
-         which is why "pack this store" stayed hard right however it was
-         written, and why the tick box kept getting pushed onto its own line.
+      /* ---- THE PHONE ROW, REBUILT ----------------------------------
+         Not a shrunken desktop row. A collapsed store was running to about
+         270px -- a name, a count, and two stacked text links -- so twenty-
+         seven stores came to roughly 7,000px of scrolling before anything was
+         opened.
 
-         These carry one extra element selector each -- button.exp, div.check
-         -- so they outrank the base on specificity and no longer depend on
-         where they happen to sit in the file. */
+         A packer wants: which run, a tight list of stores, tap one, tick it
+         off, next. So collapsed is one compact tappable row and everything
+         else only appears once the store is open.
+
+         Every selector carries an extra element (div.check, button.exp) so it
+         outranks the base rules, which sit LATER in this stylesheet and were
+         quietly winning on source order. */
       @media (max-width: 560px){
-        /* Tick and name hold one line. flex-basis 0, not auto: with auto, the
-           name's content width is its hypothetical size, which overflows the
-           row and forces a wrap before any shrinking happens. That is what
-           put the box on a line of its own. */
-        .packwrap .srhead > div.check{flex:0 0 auto}
-        .packwrap .srhead > div:nth-child(2){flex:1 1 0;min-width:0}
-        /* Its own full-width row underneath, left aligned, as a real target. */
-        .packwrap .srhead button.exp{flex:0 0 100%;margin-left:0;text-align:left;padding:10px 0 2px;font-size:14px}
-        /* The retailer pill was taking a fourth line on its own. */
-        .packwrap .srhead .it .tag{font-size:10.5px;padding:2px 7px}
-        /* A collapsed store was running to about 350px. Twenty-seven of those
-           is a lot of thumb. */
-        .packwrap .srow{padding:11px 12px;margin-bottom:8px}
-        .packwrap .srhead{gap:10px}
+        .packwrap .srow{padding:0;margin-bottom:8px;overflow:hidden}
+
+        /* Three columns, no wrapping: tick, text, chevron. */
+        .packwrap .srow .srhead{display:grid;grid-template-columns:auto 1fr auto;
+          align-items:center;gap:12px;padding:12px 13px;cursor:pointer;flex-wrap:nowrap}
+        .packwrap .srow.open .srhead{border-bottom:1px solid var(--line)}
+        .packwrap .srow .srhead > div.check{width:38px;height:38px;font-size:20px;margin:0}
+        .packwrap .srow .srhead > div:nth-child(2){flex:none;min-width:0}
+        .packwrap .srow .srhead .nm{font-size:15px;line-height:1.25;font-weight:600}
+        .packwrap .srow .srhead .it{font-size:12px;margin-top:3px;flex-wrap:wrap;gap:4px 7px}
+        .packwrap .srow .srhead .it .tag{font-size:10px;padding:2px 6px}
+
+        /* The row is the target, so the text link is redundant. A chevron
+           says "opens" without spending a line on it. */
+        .packwrap .srow .srhead button.exp{display:none}
+        .packwrap .srow .srhead::after{content:"";width:9px;height:9px;flex:none;
+          border-right:2px solid var(--crust);border-bottom:2px solid var(--crust);
+          transform:rotate(-45deg);margin-right:4px;transition:transform .15s}
+        .packwrap .srow.open .srhead::after{transform:rotate(45deg)}
+
+        /* Flagging is something you do to the store in front of you, not a
+           link under all twenty-seven of them. */
+        .packwrap .srow:not(.open) .flagrow{display:none}
+        .packwrap .srow .flagrow{padding:0 13px 12px}
+        .packwrap .srow .flagrow button.exp{margin-left:0;font-size:13.5px}
+
+        .packwrap .lines{margin-top:0;border-top:0;padding:10px 13px 12px;gap:7px}
+        .packwrap .lrow{padding:12px 11px;gap:10px}
+        .packwrap .lbox{width:34px;height:34px}
+        .packwrap .lname{font-size:14.5px;line-height:1.3}
+        .packwrap .lqty{font-size:17px;min-width:30px}
+        .packwrap .lfoot{padding:2px 0 0}
+
+        .packwrap .flagpanel{padding:0 13px 12px}
+        .packwrap .flagpanel input{width:100%}
+      }
+
+      /* A packed store should read as done at a glance while scrolling past. */
+      @media (max-width: 560px){
+        .packwrap .srow.packed .srhead .nm{color:var(--ink2)}
+        .packwrap .srow.packed .srhead::after{border-color:var(--green)}
       }
 
       @media print{
