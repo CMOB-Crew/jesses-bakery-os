@@ -618,7 +618,13 @@ export default function PackingApp({
       .packwrap .tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px}
       .packwrap .tag.amber{background:var(--amber-b);color:var(--amber-t)}
       .packwrap .packtoast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--espresso);color:#f6eddb;padding:12px 18px;border-radius:12px;box-shadow:var(--sh-pop);font-size:13.5px;font-weight:500;z-index:60;max-width:88vw;text-align:center}
-      @media(max-width:900px){.packwrap .runs{width:220px}}
+      /* REMOVED: @media(max-width:900px){.packwrap .runs{width:220px}}
+         That was correct when .runs was a narrow SIDEBAR and 900px just made
+         it narrower. It is now a horizontal strip across the top, so a fixed
+         220px pinned it to just over half the screen -- the strip stopped
+         short of the right edge and only one run card and a sliver fitted,
+         however the cards themselves were sized. It sat after the touch block
+         and quietly won on source order. */
 
       /* Export PDF button */
       .packwrap .pexport{display:inline-flex;align-items:center;gap:6px;background:var(--espresso);color:#f4ecd9;border:0;border-radius:999px;padding:8px 16px;font:600 13px inherit;cursor:pointer}
@@ -758,3 +764,4 @@ function DayPicker({ day, days, onPick }: { day: string; days: { value: string; 
     </select>
   );
 }
+
