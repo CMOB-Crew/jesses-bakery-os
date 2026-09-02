@@ -241,7 +241,7 @@ export default function DriverApp({
 
   return (
     <div className="drvwrap">
-      <div style={{ background: "var(--amber-b)", border: "1px solid var(--amber)", color: "var(--amber-t)", borderRadius: 10, padding: "10px 14px", margin: "0 0 12px", fontSize: 13, fontWeight: 700 }}>
+      <div className="livenote" style={{ background: "var(--amber-b)", border: "1px solid var(--amber)", color: "var(--amber-t)", borderRadius: 10, padding: "10px 14px", margin: "0 0 12px", fontSize: 13, fontWeight: 700 }}>
         {live
           ? "Today\u2019s real runs. Nothing you tap is saved yet."
           : "\u26A0 No plan for today, so these are sample stops. Nothing you tap is saved yet."}
@@ -551,6 +551,12 @@ export default function DriverApp({
         .drvwrap .screen{position:static;min-height:100dvh}
         .drvwrap .content{overflow:visible}
         .drvwrap .bar{padding-top:calc(16px + env(safe-area-inset-top))}
+        /* Three bands of chrome before a driver sees anything actionable: the
+           page header, the banner, then the screen's own title. On a phone the
+           app supplies its own heading, so the page one goes -- same as
+           /packing. The banner shrinks to a line; it still has to say nothing
+           is being saved, but it does not need a third of the screen. */
+        .drvwrap .livenote{font-size:11.5px;padding:7px 11px;margin-bottom:10px;font-weight:600}
       }
     `}</style>
     </div>

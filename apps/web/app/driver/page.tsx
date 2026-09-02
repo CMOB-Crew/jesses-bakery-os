@@ -26,7 +26,8 @@ export default async function DriverPage() {
   }).format(new Date());
   return (
     <>
-      <div className="head"><h1>Driver app</h1><div className="meta">Today&apos;s runs, stop by stop</div></div>
+      <div className="head drvhead"><h1>Driver app</h1><div className="meta">Today&apos;s runs, stop by stop</div></div>
+      <style>{".drvhead{display:block}@media(max-width:760px){.drvhead{display:none}}"}</style>
       <DriverApp runs={runs} addresses={addresses} day={pretty} driver={driver} />
     </>
   );
