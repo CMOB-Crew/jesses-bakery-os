@@ -667,8 +667,17 @@ export default function PackingApp({
              available = 100% - 24px padding
              two cards + one 8px gap  ->  card = 50% - 16px
            A couple of px come off that to leave the peek. */
-        .packwrap .runs{width:100%;padding:10px 12px;gap:8px;
-          scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+        /* scroll-padding-left matters here. Without it the snap aligns the
+           first card to the scroll container's start edge and eats the left
+           padding, so Eastern Suburbs sat hard against the screen edge -- the
+           padding was there and simply never seen. The snap now stops short by
+           the same amount. */
+        .packwrap .runs{width:100%;padding:10px 14px;gap:8px;
+          scroll-snap-type:x proximity;scroll-padding-left:14px;
+          -webkit-overflow-scrolling:touch}
+        /* Belt and braces: if the snap or the padding is ever defeated again,
+           the first card still keeps its gap. */
+        .packwrap .runs > .run:first-child{margin-left:2px}
         .packwrap .run{min-width:0;width:auto;flex:0 0 calc(50% - 20px);
           padding:11px 13px;scroll-snap-align:start}
         .packwrap .run .rn{font-size:14px}
@@ -764,4 +773,3 @@ function DayPicker({ day, days, onPick }: { day: string; days: { value: string; 
     </select>
   );
 }
-
