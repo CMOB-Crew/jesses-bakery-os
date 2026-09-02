@@ -654,9 +654,19 @@ export default function PackingApp({
         .packwrap .mh{display:none}
 
         .packwrap .top{padding:12px 14px;gap:10px}
-        .packwrap .runs{padding:10px 12px;gap:8px}
-        .packwrap .run{min-width:0;width:162px;flex:none;padding:11px 13px}
+        /* Two runs visible at once, always, with the third peeking so it is
+           obvious the strip scrolls. A fixed 162px card meant one and a bit on
+           a narrow phone and left the strip short of the right edge; halves of
+           the actual width cannot get that wrong.
+             available = 100% - 24px padding
+             two cards + one 8px gap  ->  card = 50% - 16px
+           A couple of px come off that to leave the peek. */
+        .packwrap .runs{width:100%;padding:10px 12px;gap:8px;
+          scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+        .packwrap .run{min-width:0;width:auto;flex:0 0 calc(50% - 20px);
+          padding:11px 13px;scroll-snap-align:start}
         .packwrap .run .rn{font-size:14px}
+        .packwrap .run .rd{font-size:11.5px}
         .packwrap .list{padding:12px 10px calc(40px + env(safe-area-inset-bottom))}
 
         /* ---- a store, closed: one row, big enough to hit without looking */
