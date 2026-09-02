@@ -215,7 +215,7 @@ export default function NewProductSetup({ stores, products }: Props) {
                   placeholder="1"
                 />
               </label>
-              <div className="fld f-2 note">
+              <div className="f-3 note packnote">
                 A supermarket sells one <b>unit</b>. For a 5-pack of bagels that unit is five items, so the tray maths has to
                 multiply by five before it divides by the tray. Leave it at 1 for anything sold loose.
                 {suggestedPack && !packTouched ? <> Read <b>{suggestedPack}</b> from the name.</> : null}
@@ -351,6 +351,8 @@ export default function NewProductSetup({ stores, products }: Props) {
         .nprod .fld>span{font-size:12px;font-weight:600;color:var(--ink2)}
         .nprod .opt{font-style:normal;color:var(--faint);font-weight:400}
         .nprod .f-2{grid-column:span 2}
+        .nprod .f-3{grid-column:span 3}
+        .nprod .packnote{margin-top:2px}
         .nprod input,.nprod select{border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:14px;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;width:100%}
         .nprod input:focus,.nprod select:focus{border-color:var(--crust);box-shadow:0 0 0 3px rgba(176,116,28,.13)}
         .nprod .seg{display:flex;gap:0;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex-wrap:wrap}
@@ -410,6 +412,7 @@ export default function NewProductSetup({ stores, products }: Props) {
         @media (max-width:620px){
           .nprod .fgrid{grid-template-columns:1fr}
           .nprod .f-2{grid-column:span 1}
+          .nprod .f-3{grid-column:span 1}
           .nprod .sec{padding:15px 14px}
           .nprod .picker{max-height:300px}
         }

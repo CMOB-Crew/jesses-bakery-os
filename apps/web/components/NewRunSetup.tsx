@@ -50,7 +50,19 @@ export default function NewRunSetup({ runs }: { runs: RunWithCount[] }) {
     });
   }
 
-  const empty = runs.filter((r) => r.stores === 0).length;
+  // MEASURED ON THE LIVE SITE, 2 Sept: 34 run rows, and 20 of them have no days
+  // and no stores. They are named "Run 1" and they are scaffolding -- everything
+  // else in the app filters on cardinality(run_days) > 0, so /map and the New
+  // store dropdown have never shown them and nobody has ever seen one.
+  //
+  // Listing them alongside the real runs made this page open with "34 runs, 20
+  // with nothing on them yet", which reads like an alarm about the business when
+  // it is an artefact of the data load. Real runs get the list; the dayless ones
+  // get one quiet line, because hiding them entirely would mean this page lies
+  // about what is in the table.
+  const real = runs.filter((r) => r.days.length > 0);
+  const legacy = runs.length - real.length;
+  const empty = real.filter((r) => r.stores === 0).length;
 
   return (
     <div className="nrun">
@@ -90,11 +102,11 @@ export default function NewRunSetup({ runs }: { runs: RunWithCount[] }) {
           <div className="sec">
             <div className="sec-h">Runs today</div>
             <div className="lead">
-              {runs.length} run{runs.length === 1 ? "" : "s"}, carrying {runs.reduce((a, r) => a + r.stores, 0)} active stores
+              {real.length} run{real.length === 1 ? "" : "s"}, carrying {real.reduce((a, r) => a + r.stores, 0)} active stores
               {empty > 0 ? ` · ${empty} with nothing on ${empty === 1 ? "it" : "them"} yet` : ""}.
             </div>
             <div className="rlist">
-              {runs.map((r) => (
+              {real.map((r) => (
                 <div className="rrow" key={r.id}>
                   <div className="rn">
                     {r.name}
@@ -103,8 +115,14 @@ export default function NewRunSetup({ runs }: { runs: RunWithCount[] }) {
                   <span className={`rc ${r.stores === 0 ? "zero" : ""}`}>{r.stores}</span>
                 </div>
               ))}
-              {runs.length === 0 && <div className="note">No runs loaded.</div>}
+              {real.length === 0 && <div className="note">No runs loaded.</div>}
             </div>
+            {legacy > 0 && (
+              <div className="legacy">
+                {legacy} older run record{legacy === 1 ? "" : "s"} with no days and no stores, left over from the data load.
+                Nothing else in the app shows {legacy === 1 ? "it" : "them"} and nothing depends on {legacy === 1 ? "it" : "them"}.
+              </div>
+            )}
             <a className="rlink" href="/map">Move stores between runs →</a>
           </div>
         </aside>
@@ -139,6 +157,7 @@ export default function NewRunSetup({ runs }: { runs: RunWithCount[] }) {
         .nrun .rn small{font-size:11px;color:var(--muted);font-weight:500;margin-top:2px}
         .nrun .rc{flex:none;font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums;background:var(--line2);color:var(--ink2);border-radius:999px;padding:3px 11px}
         .nrun .rc.zero{background:var(--amber-b);color:var(--amber-t)}
+        .nrun .legacy{margin-top:12px;font-size:11.5px;color:var(--faint);line-height:1.5}
         .nrun .rlink{display:inline-block;margin-top:14px;font-size:12.5px;font-weight:600;color:var(--crust-deep);text-decoration:underline}
         @media (max-width:1000px){
           .nrun .grid2{grid-template-columns:1fr}

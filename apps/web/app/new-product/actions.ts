@@ -153,7 +153,7 @@ export async function createProduct(input: CreateProductInput): Promise<CreatePr
     const id = rows[0].id;
 
     // RANGING. store_product_ranging (migration 015) treats ABSENCE as ranged,
-    // so a brand new product is live at every store the moment it exists. That
+    // so a brand new product is live at all 264 active stores the moment it exists. That
     // is right for a line Jesse's sells everywhere and wrong for the Woolworths
     // Metro one-off that started this.
     //
