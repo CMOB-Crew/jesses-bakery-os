@@ -103,6 +103,27 @@ export default function DriverApp({
   // and have accidents, and there's no record of licences today). Prototype: held
   // in state for the session; real capture writes to the driver record next phase.
   const [licence, setLicence] = useState<string | null>(null);
+
+  // Restore this device's licence for today. Wrapped because localStorage
+  // throws outright in some private-browsing modes rather than returning null,
+  // and a driver losing their run list to a storage exception would be a worse
+  // bug than the one this fixes.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("jb.driver.licence");
+      if (!raw) return;
+      const v = JSON.parse(raw) as { day?: string; img?: string };
+      // Keyed to the day so it expires on its own. A licence photographed on
+      // Monday is not evidence of Tuesday's shift.
+      // Reading a device store on mount is the case effects exist for --
+      // "subscribe for updates from some external system". The lint's usual
+      // alternative, a lazy useState initialiser, would touch window during the
+      // server render and mismatch on hydration: the server has no licence, the
+      // client does, and React would swap the screen out under the driver.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (v?.day && v.day === dayIso && v.img) setLicence(v.img);
+    } catch { /* no stored licence; the driver photographs it again */ }
+  }, [dayIso]);
   const [licBusy, setLicBusy] = useState(false);
   const licRef = useRef<HTMLInputElement>(null);
   function onPickLicence(e: ChangeEvent<HTMLInputElement>) {
@@ -121,7 +142,12 @@ export default function DriverApp({
         const c = document.createElement("canvas");
         c.width = w; c.height = h;
         c.getContext("2d")?.drawImage(img, 0, 0, w, h);
-        setLicence(c.toDataURL("image/jpeg", 0.8));
+        // Not `img` -- that name is already the Image() this canvas drew from.
+        const dataUrl = c.toDataURL("image/jpeg", 0.8);
+        setLicence(dataUrl);
+        try {
+          window.localStorage.setItem("jb.driver.licence", JSON.stringify({ day: dayIso, img: dataUrl }));
+        } catch { /* storage full or blocked -- the shift still starts */ }
         setLicBusy(false);
       };
       img.onerror = () => { setLicBusy(false); };
@@ -304,7 +330,7 @@ export default function DriverApp({
               <div className="box">
                 <div className="bh">Driver licence</div>
                 <div style={{ fontSize: 13.5, color: "var(--ink2)", lineHeight: 1.5, marginBottom: 12 }}>
-                  Snap your licence to start your shift. We keep it on file so there&apos;s a record for every run — for fines, incidents and insurance. One quick photo.
+                  Snap your licence to start your shift. One quick photo, kept on this phone for today.
                 </div>
                 <input ref={licRef} type="file" accept="image/*" capture="environment" onChange={onPickLicence} hidden aria-hidden="true" />
                 {licence ? (
