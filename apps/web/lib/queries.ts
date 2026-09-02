@@ -158,6 +158,21 @@ export type DeliveryLine = { store_id: string; name: string; region: string | nu
 export async function getDeliveryPlan(): Promise<DeliveryLine[]> {
   try {
     const rows = await sql<(Omit<DeliveryLine, "days" | "pm"> & { days: string[] | null; pm: string[] | null })[]>`
+      with reco as (
+        select r.store_id, r.product_id, r.sent, r.recommended from store_reco r
+        union all
+        -- A line somebody added by hand, for a product the engine has never
+        -- planned at this store. sent is 0 because none has ever been sent;
+        -- the override IS the recommendation.
+        select o.store_id, o.product_id, 0 as sent, o.qty as recommended
+          from store_product_overrides o
+         where o.qty > 0
+           and (o.mode = 'perm' or o.ends_on   is null or o.ends_on   >= current_date)
+           and (o.mode = 'perm' or o.starts_on is null or o.starts_on <= current_date)
+           and not exists (
+             select 1 from store_reco r2
+              where r2.store_id = o.store_id and r2.product_id = o.product_id)
+      )
       select s.id as store_id, s.name, reg.name as region,
              s.delivery_days::text[] as days,
              -- "Whose sales we can see", measured rather than inferred from
@@ -183,7 +198,7 @@ export async function getDeliveryPlan(): Promise<DeliveryLine[]> {
              ) as pm,
              sum(r.sent)::int as sent,
              sum(coalesce(o.qty, r.recommended))::int as recommended
-      from store_reco r
+      from reco r
       join stores s on s.id = r.store_id
       left join regions reg on reg.id = s.region_id
       left join runs rn on rn.id = s.default_run_id
@@ -208,10 +223,25 @@ export async function getDeliveryDetail(): Promise<DeliveryDetailLine[]> {
     // number, so store-profile adjustments (and delivery-sheet edits, which save
     // as overrides) flow through here. Falls back to the engine rec when unset.
     return await sql<DeliveryDetailLine[]>`
+      with reco as (
+        select r.store_id, r.product_id, r.sent, r.recommended from store_reco r
+        union all
+        -- A line somebody added by hand, for a product the engine has never
+        -- planned at this store. sent is 0 because none has ever been sent;
+        -- the override IS the recommendation.
+        select o.store_id, o.product_id, 0 as sent, o.qty as recommended
+          from store_product_overrides o
+         where o.qty > 0
+           and (o.mode = 'perm' or o.ends_on   is null or o.ends_on   >= current_date)
+           and (o.mode = 'perm' or o.starts_on is null or o.starts_on <= current_date)
+           and not exists (
+             select 1 from store_reco r2
+              where r2.store_id = o.store_id and r2.product_id = o.product_id)
+      )
       select r.store_id, p.id::text as product_id, p.name as product_name,
              sum(r.sent)::int as sent,
              sum(coalesce(o.qty, r.recommended))::int as recommended
-      from store_reco r
+      from reco r
       join products p on p.id = r.product_id
       left join store_product_overrides o
         on o.store_id = r.store_id and o.product_id = r.product_id
@@ -271,11 +301,26 @@ export type ProductionLine = { name: string; category: string; state: string | n
 export async function getProductionPlan(): Promise<ProductionLine[]> {
   try {
     return await sql<ProductionLine[]>`
+      with reco as (
+        select r.store_id, r.product_id, r.sent, r.recommended from store_reco r
+        union all
+        -- A line somebody added by hand, for a product the engine has never
+        -- planned at this store. sent is 0 because none has ever been sent;
+        -- the override IS the recommendation.
+        select o.store_id, o.product_id, 0 as sent, o.qty as recommended
+          from store_product_overrides o
+         where o.qty > 0
+           and (o.mode = 'perm' or o.ends_on   is null or o.ends_on   >= current_date)
+           and (o.mode = 'perm' or o.starts_on is null or o.starts_on <= current_date)
+           and not exists (
+             select 1 from store_reco r2
+              where r2.store_id = o.store_id and r2.product_id = o.product_id)
+      )
       select p.name, p.category::text as category, st.state,
              sum(r.sent)::int as sent,
              sum(coalesce(o.qty, r.recommended))::int as recommended,
              count(distinct r.store_id)::int as stores
-      from store_reco r join products p on p.id = r.product_id
+      from reco r join products p on p.id = r.product_id
       left join stores st on st.id = r.store_id
       left join store_product_overrides o
         on o.store_id = r.store_id and o.product_id = r.product_id
