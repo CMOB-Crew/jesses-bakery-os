@@ -44,6 +44,36 @@ async function writeRunState(surface: string, day: string | null, payload: JsonP
       approved = excluded.approved, updated_at = now(), updated_by = excluded.updated_by`;
 }
 
+// The driver surface MERGES rather than replaces, which is why it cannot use
+// writeRunState above.
+//
+// daily_run_state holds ONE row per (surface, day) for the whole business, and
+// on a normal morning six runs are out at once. Every phone posts what it knows
+// about the day. Replace-wholesale means the last save wins: driver B marks
+// three stops, driver A -- whose page loaded before that -- marks one, and A's
+// write silently erases B's three. Six runs makes that the normal case, not an
+// edge case.
+//
+// `approved || excluded.approved` is a shallow jsonb merge evaluated inside the
+// statement, so it is atomic: no read-modify-write race either. Paired with the
+// client sending only the stop it just changed, a phone can only ever add or
+// update its own stops.
+//
+// The corollary: nothing can be UN-recorded through this path, because a missing
+// key means "no news", not "undo". There is no undo in the driver UI, so that is
+// correct today. If one is ever added it needs a tombstone value, not a deletion.
+async function mergeRunState(surface: string, day: string | null, payload: JsonPayload, by: string) {
+  await sql`
+    insert into daily_run_state (surface, day, approved, updated_at, updated_by)
+    values (${surface},
+            coalesce(${day}::date, (now() at time zone 'Australia/Sydney')::date),
+            ${db.json(payload)}, now(), ${by})
+    on conflict (surface, day) do update set
+      approved   = daily_run_state.approved || excluded.approved,
+      updated_at = now(),
+      updated_by = excluded.updated_by`;
+}
+
 export async function setRunState(
   surface: string,
   approved: Record<string, boolean>,
@@ -132,8 +162,13 @@ export async function setPackingState(day: string, state: PackStateWrite): Promi
 // What the driver actually did, per store, for one day.
 //
 // Same table and same shape as the packing sheet: daily_run_state is a generic
-// (surface, day) -> jsonb store, so this needs no migration and inherits the
-// RLS already on it.
+// (surface, day) -> jsonb store, so this needs no schema change.
+//
+// It did NOT inherit usable RLS, which is what the first version of this comment
+// claimed. 018's biz_all policy on the table admits admin, manager and office
+// only; the driver role was never added, so after the AUTH_ENFORCED flip every
+// delivery a driver taps would be refused by the database. Migration 071 adds
+// the driver policies, scoped to surface = 'driver'.
 //
 // Deliberately NOT storing the photo or the signature here. Both are images,
 // and a base64 data URL in a jsonb column that is read on every page load is
@@ -162,7 +197,9 @@ export async function setDriverState(day: string, state: DriverStateWrite): Prom
       };
     }
     const who = await getDisplayUser().catch(() => null);
-    await writeRunState("driver", day, clean, who?.email ?? "app");
+    // Merge, not replace -- see mergeRunState. Two drivers working the same
+    // morning must not be able to erase each other's stops.
+    await mergeRunState("driver", day, clean, who?.email ?? "app");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save the run." };

@@ -58,11 +58,18 @@ export default function DriverApp({
   // Fire and forget, but surface a failure. A driver who taps "delivered" and
   // gets silence has no way to know the record did not save, and finding out at
   // the end of the day is finding out too late.
+  // `next` is this phone's whole picture of the day, for its own display.
+  // `delta` is the one stop that just changed, and is all that is sent.
+  //
+  // Posting the whole map is how one driver wipes another's work: this phone's
+  // copy of the day is only as fresh as its last page load, so a full write
+  // stamps stale entries over stops another driver recorded since. Sending just
+  // the change means a phone can never write anything it did not do itself.
   const persist = useCallback(
-    (next: DriverState) => {
+    (next: DriverState, delta: DriverState) => {
       if (!dayIso || !live) return;
       setRecord(next);
-      setDriverState(dayIso, next)
+      setDriverState(dayIso, delta)
         .then((r) => setSaveErr(!r.ok))
         .catch(() => setSaveErr(true));
     },
@@ -246,7 +253,10 @@ export default function DriverApp({
   function doCircle() {
     {
       const sid = stops.find((s) => s.id === curId)?.sid;
-      if (sid) persist({ ...record, [sid]: { s: "circled", at: new Date().toISOString(), r: reason ?? "" } });
+      if (sid) {
+        const entry = { s: "circled" as const, at: new Date().toISOString(), r: reason ?? "" };
+        persist({ ...record, [sid]: entry }, { [sid]: entry });
+      }
     }
     setStops((ss) => ss.map((s) => (s.id === curId ? { ...s, status: "circle" } : s)));
     setScreen("run");
@@ -254,7 +264,10 @@ export default function DriverApp({
 
   function deliver() {
     const sid = stops.find((s) => s.id === curId)?.sid;
-    if (sid) persist({ ...record, [sid]: { s: "delivered", at: new Date().toISOString() } });
+    if (sid) {
+      const entry = { s: "delivered" as const, at: new Date().toISOString() };
+      persist({ ...record, [sid]: entry }, { [sid]: entry });
+    }
     setStops((ss) => {
       const updated = ss.map((s) => (s.id === curId ? { ...s, status: "done" as Status } : s));
       const nxt = updated.find((s) => s.status === "pending");
