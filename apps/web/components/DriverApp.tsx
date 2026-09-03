@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { PackRun, DriverState } from "@/lib/queries";
 import { setDriverState } from "@/app/run-state-actions";
+import { saveDeliveryProof } from "@/app/driver-proof-actions";
+import { uploadProof } from "@/lib/driver-proof";
 
 // Driver app — phone prototype. The build that matters for drivers: dead simple,
 // big taps, live-capture only (no gallery), works down the run stop by stop.
@@ -167,6 +169,12 @@ export default function DriverApp({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const sigRef = useRef<HTMLCanvasElement | null>(null);
+  // Whether anything has actually been drawn on the pad this stop. A ref, not
+  // state: it changes on every pointer move and nothing renders off it.
+  const sigDrawn = useRef(false);
+  // One line, shown in the banner, when a photo or signature did not keep. The
+  // delivery itself is saved either way -- this never blocks the run.
+  const [proofNote, setProofNote] = useState<string | null>(null);
 
   const cur = stops.find((s) => s.id === curId) ?? null;
   const doneCount = stops.filter((s) => s.status === "done").length;
@@ -262,11 +270,50 @@ export default function DriverApp({
     setScreen("run");
   }
 
+  // Put the photo and the signature into storage, and record that they exist.
+  //
+  // Fired from deliver() and deliberately NOT awaited. The delivery is already
+  // recorded by the time this starts; a driver in a loading dock with one bar
+  // must never be held on a spinner while a 3MB photo goes up, and must never
+  // lose the drop because it didn't. Anything that fails says so in the banner
+  // and leaves the delivery exactly as it was.
+  //
+  // The signature is read from the canvas HERE, synchronously, because deliver()
+  // is called from the sign screen and the canvas unmounts the moment the screen
+  // changes to "done".
+  const sendProof = useCallback(
+    async (sid: string, sig: string | null, shot: string | null) => {
+      if (!dayIso || !live) return;
+      const jobs: [("photo" | "signature"), string][] = [];
+      if (shot) jobs.push(["photo", shot]);
+      if (sig) jobs.push(["signature", sig]);
+      if (!jobs.length) return;
+
+      const failed: string[] = [];
+      for (const [kind, dataUrl] of jobs) {
+        const up = await uploadProof(dataUrl, { storeId: sid, day: dayIso, kind });
+        if (!up.ok) { failed.push(up.error); continue; }
+        const rec = await saveDeliveryProof({
+          storeId: sid, day: dayIso, kind, path: up.path, sha256: up.sha256,
+        });
+        if (!rec.ok) failed.push(rec.error);
+      }
+      // One line, not a stack of them. The driver needs to know something did
+      // not keep, not to read a log.
+      setProofNote(failed.length ? failed[0] : null);
+    },
+    [dayIso, live],
+  );
+
   function deliver() {
     const sid = stops.find((s) => s.id === curId)?.sid;
+    // Read the pad before the screen changes and unmounts it. isSigned guards
+    // against storing a blank canvas as somebody's signature.
+    const sig = sigRef.current && sigDrawn.current ? sigRef.current.toDataURL("image/jpeg", 0.9) : null;
     if (sid) {
       const entry = { s: "delivered" as const, at: new Date().toISOString() };
       persist({ ...record, [sid]: entry }, { [sid]: entry });
+      void sendProof(sid, sig, photo);
     }
     setStops((ss) => {
       const updated = ss.map((s) => (s.id === curId ? { ...s, status: "done" as Status } : s));
@@ -278,6 +325,7 @@ export default function DriverApp({
 
   function resetForNextStop() {
     setPhoto(null); setNil(false); setWaste({}); setReason(null);
+    sigDrawn.current = false;
     setScreen("run");
   }
 
@@ -297,7 +345,9 @@ export default function DriverApp({
       return [t.clientX - b.left, t.clientY - b.top] as const;
     };
     const down = (e: MouseEvent | TouchEvent) => { drawing = true; const [x, y] = pos(e); ctx.beginPath(); ctx.moveTo(x, y); e.preventDefault(); };
-    const move = (e: MouseEvent | TouchEvent) => { if (!drawing) return; const [x, y] = pos(e); ctx.lineTo(x, y); ctx.stroke(); e.preventDefault(); };
+    // A blank canvas is not a signature. Without this an untouched pad would be
+    // stored as proof somebody signed, which is worse than storing nothing.
+    const move = (e: MouseEvent | TouchEvent) => { if (!drawing) return; sigDrawn.current = true; const [x, y] = pos(e); ctx.lineTo(x, y); ctx.stroke(); e.preventDefault(); };
     const up = () => { drawing = false; };
     c.addEventListener("mousedown", down); c.addEventListener("mousemove", move);
     c.addEventListener("mouseup", up); c.addEventListener("mouseleave", up);
@@ -314,6 +364,7 @@ export default function DriverApp({
   function clearSig() {
     const c = sigRef.current;
     if (c) c.getContext("2d")!.clearRect(0, 0, c.width, c.height);
+    sigDrawn.current = false;
   }
 
   return (
@@ -321,8 +372,10 @@ export default function DriverApp({
       <div className="livenote" style={{ background: "var(--amber-b)", border: "1px solid var(--amber)", color: "var(--amber-t)", borderRadius: 10, padding: "10px 14px", margin: "0 0 12px", fontSize: 13, fontWeight: 700 }}>
         {saveErr
           ? "\u26A0 That last one did not save. Check your signal and tap it again."
+          : proofNote
+          ? "\u26A0 " + proofNote
           : live
-          ? "Today\u2019s real runs. Deliveries are saved; photos and the signature are not yet."
+          ? "Today\u2019s real runs. Deliveries, photos and signatures are all saved."
           : "\u26A0 No plan for today, so these are sample stops. Nothing you tap is saved yet."}
       </div>
       <div className="cap">Driver app · phone prototype. Live-capture only (no gallery) via the camera — grant access to see your real camera, otherwise it falls back to a simulated capture so the flow always runs.</div>

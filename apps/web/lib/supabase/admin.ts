@@ -10,6 +10,13 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 // every page that happens to import this.
 export const FEED_BUCKET = "feed-uploads";
 
+// Proof of delivery: the shelf photo and the signature, one object each per
+// store per day. A SEPARATE bucket from the feed on purpose -- a retailer report
+// is a working file that can be swept the day after it loads, a signature is
+// evidence and has to outlive the run. One bucket means one lifecycle rule, and
+// the shorter one always wins by accident.
+export const PROOF_BUCKET = "driver-proof";
+
 export function supabaseAdmin(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   // Three names, because the one I first used was never real. It came out of a
