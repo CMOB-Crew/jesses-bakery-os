@@ -2827,6 +2827,12 @@ export type StandingLine = {
   mode: "perm" | "temp" | null;
   starts_on: string | null;
   ends_on: string | null;
+  // What this customer pays for this product, and the Xero item it bills as.
+  // Null price = no price was ever recorded for them, which is NOT the same as
+  // free -- the invoice has to refuse rather than bill zero. Null xero_code
+  // means the same for the code: an invoice cannot guess it.
+  unit_price: number | null;
+  xero_code: string | null;
 };
 export async function getStoreStandingOrder(id: string): Promise<StandingLine[]> {
   try {
@@ -2834,6 +2840,7 @@ export async function getStoreStandingOrder(id: string): Promise<StandingLine[]>
       product_id: string; name: string; category: string; pack_size: number;
       baking_uom: string | null; sent: number; override_qty: number | null;
       mode: string | null; starts_on: Date | null; ends_on: Date | null;
+      unit_price: string | number | null; xero_code: string | null;
     }[]>`
       select p.id::text                     as product_id,
              p.name,
@@ -2844,12 +2851,16 @@ export async function getStoreStandingOrder(id: string): Promise<StandingLine[]>
              o.qty                          as override_qty,
              o.mode::text                   as mode,
              o.starts_on,
-             o.ends_on
+             o.ends_on,
+             pp.unit_price,
+             pp.xero_code
         from products p
         left join store_reco r
                on r.product_id = p.id and r.store_id = ${id}::uuid
         left join store_product_overrides o
                on o.product_id = p.id and o.store_id = ${id}::uuid
+        left join store_product_prices pp
+               on pp.product_id = p.id and pp.store_id = ${id}::uuid
        where p.active
          and (coalesce(r.sent, 0) > 0 or o.qty is not null)
        order by p.category, p.name`;
@@ -2865,6 +2876,8 @@ export async function getStoreStandingOrder(id: string): Promise<StandingLine[]>
       mode: r.mode === "temp" ? "temp" : r.mode === "perm" ? "perm" : null,
       starts_on: iso(r.starts_on),
       ends_on: iso(r.ends_on),
+      unit_price: r.unit_price == null ? null : Number(r.unit_price),
+      xero_code: r.xero_code,
     }));
   } catch {
     return [];

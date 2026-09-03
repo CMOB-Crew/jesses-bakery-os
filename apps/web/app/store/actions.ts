@@ -339,3 +339,51 @@ export async function setStoreServiceLevel(storeId: string, level: string): Prom
     return { ok: false, error: e instanceof Error ? e.message : "Could not save service level." };
   }
 }
+
+// ---------------------------------------------------------------------------
+// What ONE customer pays for ONE product.
+//
+// Per store, not per tier. Measured against the 649 real prices carried over
+// from the old system: price does not track order size (+0.03 correlation with
+// weekly quantity on sourdough across 16 customers) but it does track the
+// account -- every C&M branch pays the same on all 16 of its products, every
+// Jack & Co on all 22, regardless of branch size.
+//
+// Writing here marks the row source='manual', which is what stops a re-run of
+// the legacy import stamping over a correction somebody made by hand.
+// ---------------------------------------------------------------------------
+export type PriceInput = { storeId: string; productId: string; price: string | number; xeroCode?: string | null };
+
+export async function setStorePrice(input: PriceInput): Promise<OverrideResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
+  try {
+    const storeId = (input.storeId ?? "").trim();
+    const productId = (input.productId ?? "").trim();
+    if (!storeId || !productId) return { ok: false, error: "Missing store or product." };
+
+    const price = Number(input.price);
+    if (!Number.isFinite(price) || price < 0) return { ok: false, error: "Price must be zero or more." };
+    // Two decimal places, because this ends up on an invoice. Rounded here
+    // rather than trusted from a text input.
+    const rounded = Math.round(price * 100) / 100;
+
+    const code = (input.xeroCode ?? "").trim() || null;
+
+    await sql`
+      insert into store_product_prices
+        (store_id, product_id, unit_price, xero_code, source, updated_at, updated_by)
+      values (${storeId}::uuid, ${productId}::uuid, ${rounded}, ${code}, 'manual', now(), 'app')
+      on conflict (store_id, product_id) do update set
+        unit_price = excluded.unit_price,
+        -- A blank code must not wipe a good one that came across in the import.
+        xero_code  = coalesce(excluded.xero_code, store_product_prices.xero_code),
+        source     = 'manual',
+        updated_at = now(),
+        updated_by = excluded.updated_by`;
+
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Could not save that price.";
+    return { ok: false, error: msg };
+  }
+}

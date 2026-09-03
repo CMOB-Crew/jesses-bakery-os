@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { setStoreOverride, clearStoreOverride } from "@/app/store/actions";
+import { setStoreOverride, clearStoreOverride, setStorePrice } from "@/app/store/actions";
 import type { StandingLine, ProductPick } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -52,6 +52,10 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
   // the whole list. Keyed by product id; absent means "unchanged".
   const [draft, setDraft] = useState<Record<string, number>>({});
 
+  // Price is edited as text, not a number: a half-typed "5." is a valid thing
+  // to be in the middle of typing and must not be coerced to 5 under the cursor.
+  const [priceDraft, setPriceDraft] = useState<Record<string, string>>({});
+
   const [adding, setAdding] = useState(false);
   const [addPid, setAddPid] = useState("");
   const [addQty, setAddQty] = useState("");
@@ -94,6 +98,36 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
         router.refresh();
       } else {
         setMsg({ ok: false, text: res.error });
+      }
+    });
+  }
+
+  const priceOf = (l: StandingLine) =>
+    priceDraft[l.product_id] ?? (l.unit_price == null ? "" : l.unit_price.toFixed(2));
+  const priceDirty = (l: StandingLine) => {
+    const d = priceDraft[l.product_id];
+    if (d == null) return false;
+    const now = l.unit_price == null ? "" : l.unit_price.toFixed(2);
+    return d.trim() !== now;
+  };
+
+  function savePrice(l: StandingLine) {
+    const raw = (priceDraft[l.product_id] ?? "").trim();
+    const val = Number(raw);
+    if (raw === "" || !Number.isFinite(val) || val < 0) {
+      setMsg({ ok: false, text: "That price is not a number." });
+      return;
+    }
+    setBusy(l.product_id);
+    start(async () => {
+      const r = await setStorePrice({ storeId, productId: l.product_id, price: val });
+      setBusy(null);
+      if (r.ok) {
+        setPriceDraft((d) => { const n = { ...d }; delete n[l.product_id]; return n; });
+        setMsg({ ok: true, text: `${titleCase(l.name)} is now $${val.toFixed(2)} for ${storeName}.` });
+        router.refresh();
+      } else {
+        setMsg({ ok: false, text: r.error ?? "Could not save that price." });
       }
     });
   }
@@ -157,6 +191,11 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
 
   const total = lines.reduce((a, l) => a + effective(l), 0);
   const setCount = lines.filter(isSet).length;
+  // Deliberately only the priced lines. An unpriced line is unknown, not free,
+  // and folding it in as zero would dress this up as a complete weekly figure.
+  const weekValue = lines.reduce(
+    (a, l) => a + (l.unit_price == null ? 0 : l.unit_price * effective(l)), 0);
+  const unpriced = lines.filter((l) => l.unit_price == null && effective(l) > 0).length;
 
   return (
     <div className="sord">
@@ -172,6 +211,15 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
         <div className="tot">
           <b>{total.toLocaleString()}</b>
           <small>units a week{setCount > 0 ? ` · ${setCount} set` : ""}</small>
+          {/* Only counts lines that HAVE a price. A line with no price is not
+              worth zero, it is unknown, and quietly adding it in as zero would
+              make this number look like a real total when it is not. */}
+          {weekValue > 0 && (
+            <small className="val">
+              ${weekValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} a week
+              {unpriced > 0 ? ` · ${unpriced} line${unpriced === 1 ? "" : "s"} unpriced` : ""}
+            </small>
+          )}
         </div>
       </div>
 
@@ -201,6 +249,29 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
                   <button type="button" onClick={() => bump(l, -1)} disabled={working} aria-label="one fewer">−</button>
                   <span className="q">{eff}</span>
                   <button type="button" onClick={() => bump(l, +1)} disabled={working} aria-label="one more">+</button>
+                </div>
+                <div className="prc">
+                  <span className="dollar">$</span>
+                  <input
+                    inputMode="decimal"
+                    value={priceOf(l)}
+                    placeholder="—"
+                    aria-label={`price of ${titleCase(l.name)} for ${storeName}`}
+                    onChange={(e) => setPriceDraft((dd) => ({ ...dd, [l.product_id]: e.target.value }))}
+                    disabled={working}
+                  />
+                  {priceDirty(l) ? (
+                    <button type="button" className="go" onClick={() => savePrice(l)} disabled={working}>
+                      {working ? "…" : "Set"}
+                    </button>
+                  ) : l.unit_price != null ? (
+                    <small className="lineval">${(l.unit_price * eff).toFixed(2)}</small>
+                  ) : (
+                    <small className="noprice">no price</small>
+                  )}
+                  {l.unit_price != null && !l.xero_code && (
+                    <small className="nocode" title="This line has a price but no Xero item code, so it cannot be invoiced yet.">no Xero code</small>
+                  )}
                 </div>
                 <div className="acts">
                   {d && (
@@ -306,6 +377,16 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
         .sord .step button:disabled{opacity:.4;cursor:default}
         .sord .q{min-width:40px;text-align:center;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
         .sord .acts{flex:none;min-width:62px;display:flex;justify-content:flex-end}
+        .sord .prc{flex:none;display:flex;align-items:center;gap:5px;min-width:150px}
+        .sord .prc .dollar{opacity:.5;font-size:12.5px}
+        .sord .prc input{width:60px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;
+          background:var(--card);color:inherit;font:inherit;font-size:13px;text-align:right}
+        .sord .prc input:focus{outline:2px solid var(--accent,#8a6d3b);outline-offset:1px}
+        .sord .lineval{font-size:12px;opacity:.65;font-variant-numeric:tabular-nums}
+        .sord .noprice{font-size:11.5px;opacity:.55;font-style:italic}
+        .sord .nocode{font-size:11px;padding:1px 6px;border-radius:999px;
+          background:rgba(180,83,9,.14);color:#9a3412;white-space:nowrap}
+        .sord .tot .val{display:block;font-variant-numeric:tabular-nums}
         .sord .go{border:none;background:var(--espresso);color:#f7efdd;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
         .sord .clr{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:8px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit}
         .sord .clr:hover{color:var(--red-t);border-color:var(--red)}
@@ -339,6 +420,7 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
           .sord .tot{margin-left:0;text-align:left}
           .sord .line{flex-wrap:wrap}
           .sord .acts{min-width:0}
+          .sord .prc{min-width:0;order:3;width:100%;justify-content:flex-start}
         }
       `}</style>
     </div>
