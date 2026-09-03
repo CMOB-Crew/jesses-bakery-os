@@ -199,15 +199,32 @@ export default function DriverApp({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
       streamRef.current = stream;
+      // The <video> does not exist yet -- it renders only once realCam is true,
+      // and that state has not committed. Attaching here, or in a
+      // requestAnimationFrame, finds videoRef.current still null and the stream
+      // is never attached: the camera light comes on, the preview stays BLACK,
+      // and the shutter falls through to the simulated capture because
+      // v.videoWidth is 0. Which is exactly what happened on a real iPhone on
+      // 4 September. The effect below does it after the commit instead.
       setRealCam(true);
-      // attach after paint
-      requestAnimationFrame(() => {
-        if (videoRef.current) videoRef.current.srcObject = stream;
-      });
     } catch {
       setRealCam(false);
     }
   }
+
+  // Attach the live stream once the <video> is actually in the DOM.
+  //
+  // Keyed on both screen and realCam because the element is conditional on
+  // both. play() is called explicitly: iOS honours autoPlay for a muted inline
+  // video most of the time, and silently does not when the element gains its
+  // source after mount, which is precisely this case.
+  useEffect(() => {
+    const v = videoRef.current;
+    const s = streamRef.current;
+    if (screen !== "cam" || !realCam || !v || !s) return;
+    if (v.srcObject !== s) v.srcObject = s;
+    void v.play().catch(() => { /* a blocked play leaves the fallback visible */ });
+  }, [screen, realCam]);
 
   function closeCam() {
     stopStream();
