@@ -66,6 +66,29 @@ export default function FeedUpload() {
   // 4.4MB, not 4.5, so the multipart envelope around the file cannot push a
   // file that just fits over the edge.
   const PLATFORM_MAX = 4_400_000;
+
+  // THE OTHER CEILING, and until now it was not enforced anywhere and this
+  // screen said 50MB.
+  //
+  // The storage path removed the 4.5 MiB door, so the only stated limit was
+  // the bucket's 50MB. But getting the bytes here is not the same as being
+  // able to READ them: the whole file is parsed in memory inside a Netlify
+  // function, which has 1024MB for everything.
+  //
+  // Measured 3 Sept against the real parser, synthetic Coles-shaped workbooks,
+  // heap capped at 900MB to stand in for the function:
+  //
+  //     500,000 rows   15.7MB   parsed in 13.8s, +488MB rss
+  //   1,000,000 rows   ~31MB    FATAL: JavaScript heap out of memory
+  //
+  // So a 50MB file would upload perfectly and then die on the read -- after
+  // the person had waited through the whole upload. The biggest report that
+  // actually arrives is the Woolworths daily at 4.9MB / 100,501 rows, so 15MB
+  // is three times the real thing and inside what is measured to work.
+  //
+  // Refused BEFORE the upload starts, because a limit discovered afterwards
+  // wastes the wait and teaches nothing.
+  const PARSE_MAX = 15_000_000;
   const mb = (n: number) => `${(n / 1_000_000).toFixed(1)}MB`;
 
   // Said the same way whether we catch it before sending or the platform
@@ -144,6 +167,22 @@ export default function FeedUpload() {
   }
 
   async function send(file: File) {
+    // Too big to READ, whichever way it travels. Said before the upload rather
+    // than after it.
+    if (file.size > PARSE_MAX) {
+      setRes({
+        ok: false,
+        error:
+          `This file is ${mb(file.size)}. We can upload it, but we cannot read ` +
+          `it: the report is opened in memory and anything past about ${mb(PARSE_MAX)} ` +
+          `runs the reader out of room, so it would fail after the upload rather ` +
+          `than before it. Nothing was loaded. If a report has genuinely grown ` +
+          `this big, send it as .csv, or split it by week — and tell us, because ` +
+          `it means the reports have changed shape.`,
+      });
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
     // Over the platform limit the bytes cannot go through Netlify at all, so
     // they take the storage path instead. Under it, nothing changes.
     if (file.size > PLATFORM_MAX) {
@@ -236,7 +275,7 @@ export default function FeedUpload() {
               Drop the {RETAILERS.find((r) => r.id === retailer)?.label}{" "}
               <b>{RETAILERS.find((r) => r.id === retailer)?.report}</b> report here
             </div>
-            <div className="fu-s">or click to choose it · .xlsx or .csv, up to 50MB</div>
+            <div className="fu-s">or click to choose it · .xlsx or .csv, up to 15MB</div>
           </>
         )}
       </div>
