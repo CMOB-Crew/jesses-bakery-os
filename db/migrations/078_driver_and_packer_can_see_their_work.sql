@@ -6,28 +6,50 @@
 -- said nothing about everything the driver page READS on its way to that
 -- save.
 --
--- MEASURED against production, 3 September, before writing a line:
+-- MEASURED against production, 3 September.
 --
---   policies in public that mention 'driver' ... 3, all on daily_run_state
+-- CORRECTION, and it is worth reading because the first version of this comment
+-- was wrong. It said "3 policies mention driver, all on daily_run_state". That
+-- number came from a Supabase results cell that was truncated at the column
+-- edge, and I read the visible half as the whole answer. Re-run unaggregated,
+-- one row per policy, the real figure before this migration was EIGHT:
+--
+--   daily_run_state   driver_run_state_insert / _read / _update   (075)
+--   stores            driver_read_stores            select        (014)
+--   deliveries        driver_read_deliveries        select        (014)
+--   delivery_items    driver_read_delivery_items    select        (014)
+--   delivery_photos   driver_photos_read            select        (014)
+--   delivery_photos   driver_photos_insert          insert        (014)
+--
 --   policies in public that mention 'packer' ... NONE, on any table
 --   total policies in public .................. 57
 --
--- Every table the driver and packing pages read -- stores, products, runs,
--- replenishment_plans, store_reco, store_product_overrides, store_product_days,
--- store_run_overrides, sales_daily -- carries one policy, biz_all (or
--- biz_read_store_reco), and every one of them reads:
+-- So 014 DID think about drivers, and thought about them properly. What it
+-- could not know is where the driver page would get its work from later. The
+-- run list does not come from `deliveries` any more -- it comes from
+-- getPackingRuns, the same query the packing sheet uses, which reads products,
+-- runs, replenishment_plans, store_reco, store_product_overrides,
+-- store_product_days and store_run_overrides. Every one of those carries a
+-- single policy, biz_all (or biz_read_store_reco), and every one reads:
 --
 --   current_app_role() = any (array['admin','manager','office'])
 --
+-- The page moved onto a new query and nobody went back to the policies. That is
+-- the actual bug, and it is a more useful thing to know than "nobody gave the
+-- driver anything", which is what the wrong number implied.
+--
 -- So on the morning after the flip:
 --
---   * A DRIVER signs in and gets an EMPTY RUN. Not an error, not a warning --
---     every select returns zero rows, so the page renders a run with no stops.
---     075 means they could save a delivery; there would be nothing to save it
---     against. Six phones, six blank screens, at 4am.
---   * A PACKER cannot read or write anything at all. The packing sheet is the
---     one screen the floor uses every single morning and the packer role has
---     no policy anywhere in the database.
+--   * A DRIVER signs in and gets an EMPTY RUN. They can read the store list --
+--     014 gave them that -- but not the plan behind it, so getPackingRuns
+--     returns nothing and the page renders a run with no stops. Not an error
+--     and not a warning: just zero rows. 075 means they could save a delivery;
+--     there would be nothing to save it against. Six phones, six blank screens,
+--     at 4am.
+--   * A PACKER cannot read or write anything at all. That one was measured
+--     correctly and re-checked unaggregated after the above: zero policies
+--     mention packer, on any table. The packing sheet is the one screen the
+--     floor uses every single morning.
 --
 -- None of this is visible today, for the same reason 075 was invisible: the app
 -- still connects as the privileged role, so all 57 policies are dormant. The
@@ -68,6 +90,13 @@ begin;
 -- ---------------------------------------------------------------------------
 -- 1. The read set. Nine tables, select only, driver and packer.
 -- ---------------------------------------------------------------------------
+-- stores already has driver_read_stores from 014. floor_read overlaps it for
+-- the driver and adds the packer. Two permissive SELECT policies OR together,
+-- so this widens nothing and breaks nothing -- and 014's policy is left in
+-- place rather than folded in, because it is not this migration's to remove and
+-- deleting somebody else's policy to tidy up a duplicate is how a policy goes
+-- missing. If they are ever merged, merge them deliberately in their own
+-- migration.
 drop policy if exists floor_read on stores;
 create policy floor_read on stores
   for select using ((select public.current_app_role()) in ('driver','packer'));
