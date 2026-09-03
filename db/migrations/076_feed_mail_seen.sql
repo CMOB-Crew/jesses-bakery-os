@@ -1,4 +1,8 @@
--- Migration 072: every email the mailbox poller has looked at, and what came
+-- Migration 076: every email the mailbox poller has looked at, and what came
+--
+-- RENUMBERED from 072, which collided with 072_pita_pack_size.sql. Commit
+-- a76fdc6 calls this "migration 072"; it means this file. Already applied to
+-- production under the old number; nothing needs re-running.
 -- of it.
 --
 -- Two jobs, and the second is the important one.

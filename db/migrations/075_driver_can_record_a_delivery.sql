@@ -1,4 +1,10 @@
--- Migration 071: a driver can record a delivery.
+-- Migration 075: a driver can record a delivery.
+--
+-- RENUMBERED from 071. It was written as 071 without listing the directory
+-- first, and 071_product_pack_size.sql already existed. Commits 6432fca and
+-- earlier call this "migration 071"; they mean this file. Already applied to
+-- production under the old number -- the rename is to the file, not the
+-- database, and nothing needs re-running.
 --
 -- daily_run_state got its RLS in 018, whose biz_all policy admits admin,
 -- manager and office only. When the driver app started writing to that table
