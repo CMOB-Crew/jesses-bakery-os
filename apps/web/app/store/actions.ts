@@ -387,3 +387,60 @@ export async function setStorePrice(input: PriceInput): Promise<OverrideResult> 
     return { ok: false, error: msg };
   }
 }
+
+// ---------------------------------------------------------------------------
+// The day-by-day standing order.
+//
+// Simona, 1 Sept: "can you up Wednesday? can you cancel Wednesday's delivery?
+// on Friday can you send me nine more bags?" A weekly number cannot say any of
+// those things, and cannot say the middle one at all.
+//
+// Writing ANY day for a line hands that line to the grid: migration 074's rule
+// is that the packing sheet then reads only these rows for it. Which is what
+// makes a zero mean something -- otherwise "cancel Wednesday" would be refilled
+// by last week's carry-forward and do nothing at all.
+// ---------------------------------------------------------------------------
+const DOW = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+export type DayInput = { storeId: string; productId: string; dow: string; qty: string | number };
+
+export async function setStoreDay(input: DayInput): Promise<OverrideResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
+  try {
+    const storeId = (input.storeId ?? "").trim();
+    const productId = (input.productId ?? "").trim();
+    const dow = String(input.dow ?? "").trim().toLowerCase();
+    if (!storeId || !productId) return { ok: false, error: "Missing store or product." };
+    if (!DOW.has(dow)) return { ok: false, error: "That is not a day of the week." };
+
+    const qty = Math.round(Number(input.qty));
+    // Zero is allowed and is the point: it means "not that day".
+    if (!Number.isFinite(qty) || qty < 0) return { ok: false, error: "Quantity must be zero or more." };
+
+    await sql`
+      insert into store_product_days (store_id, product_id, dow, qty, updated_at, updated_by)
+      values (${storeId}::uuid, ${productId}::uuid, ${dow}::weekday, ${qty}::int, now(), 'app')
+      on conflict (store_id, product_id, dow) do update set
+        qty = excluded.qty, updated_at = now(), updated_by = excluded.updated_by`;
+
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Could not save that day.";
+    return { ok: false, error: msg };
+  }
+}
+
+/** Hand the line back to the weekly number. Removing every day row is the only
+ *  way out, because a line with any row at all is governed by the grid. */
+export async function clearStoreDays(storeId: string, productId: string): Promise<OverrideResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, readonly: true };
+  try {
+    if (!storeId || !productId) return { ok: false, error: "Missing store or product." };
+    await sql`
+      delete from store_product_days
+       where store_id = ${storeId}::uuid and product_id = ${productId}::uuid`;
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Could not clear those days.";
+    return { ok: false, error: msg };
+  }
+}

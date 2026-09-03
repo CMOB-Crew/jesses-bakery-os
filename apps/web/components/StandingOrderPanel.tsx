@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { setStoreOverride, clearStoreOverride, setStorePrice } from "@/app/store/actions";
+import { setStoreOverride, clearStoreOverride, setStorePrice, setStoreDay, clearStoreDays } from "@/app/store/actions";
 import type { StandingLine, ProductPick } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -32,6 +32,8 @@ type Props = {
   lines: StandingLine[];
   products: ProductPick[];
   today: string; // YYYY-MM-DD, Sydney
+  /** The store's own delivery days, so the grid never offers a day with no van. */
+  deliveryDays?: string[];
 };
 
 const CAT_LABEL: Record<string, string> = {
@@ -42,7 +44,12 @@ const CAT_LABEL: Record<string, string> = {
 const titleCase = (s: string) =>
   s.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
 
-export default function StandingOrderPanel({ storeId, storeName, lines, products, today }: Props) {
+const DOW = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+const DOW_LABEL: Record<string, string> = {
+  mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun",
+};
+
+export default function StandingOrderPanel({ storeId, storeName, lines, products, today, deliveryDays = [] }: Props) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
@@ -55,6 +62,10 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
   // Price is edited as text, not a number: a half-typed "5." is a valid thing
   // to be in the middle of typing and must not be coerced to 5 under the cursor.
   const [priceDraft, setPriceDraft] = useState<Record<string, string>>({});
+  // Which line has its day grid open. One at a time: this is a thing you do
+  // because a customer just rang about one product, not a thing you scan.
+  const [openDays, setOpenDays] = useState<string | null>(null);
+  const [dayDraft, setDayDraft] = useState<Record<string, string>>({});
 
   const [adding, setAdding] = useState(false);
   const [addPid, setAddPid] = useState("");
@@ -128,6 +139,54 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
         router.refresh();
       } else {
         setMsg({ ok: false, text: r.error ?? "Could not save that price." });
+      }
+    });
+  }
+
+  // The store's own delivery days. A number against a day with no van is not a
+  // delivery, so those boxes are not offered at all.
+  const runsOn = (d: string) => deliveryDays.length === 0 || deliveryDays.includes(d);
+  const dayKey = (pid: string, d: string) => pid + ":" + d;
+  const dayValue = (l: StandingLine, d: string) => {
+    const k = dayKey(l.product_id, d);
+    if (dayDraft[k] != null) return dayDraft[k];
+    const v = l.days?.[d];
+    return v == null ? "" : String(v);
+  };
+
+  function saveDay(l: StandingLine, d: string) {
+    const raw = (dayDraft[dayKey(l.product_id, d)] ?? "").trim();
+    const qty = Number(raw);
+    if (raw === "" || !Number.isFinite(qty) || qty < 0) return;
+    setBusy(l.product_id);
+    start(async () => {
+      const r = await setStoreDay({ storeId, productId: l.product_id, dow: d, qty });
+      setBusy(null);
+      if (r.ok) {
+        setDayDraft((x) => { const n = { ...x }; delete n[dayKey(l.product_id, d)]; return n; });
+        setMsg({
+          ok: true,
+          text: qty === 0
+            ? `${titleCase(l.name)} is off on ${DOW_LABEL[d]} for ${storeName}.`
+            : `${titleCase(l.name)} set to ${qty} on ${DOW_LABEL[d]} for ${storeName}.`,
+        });
+        router.refresh();
+      } else {
+        setMsg({ ok: false, text: r.error ?? "Could not save that day." });
+      }
+    });
+  }
+
+  function backToWeekly(l: StandingLine) {
+    setBusy(l.product_id);
+    start(async () => {
+      const r = await clearStoreDays(storeId, l.product_id);
+      setBusy(null);
+      if (r.ok) {
+        setMsg({ ok: true, text: `${titleCase(l.name)} is back on the weekly number.` });
+        router.refresh();
+      } else {
+        setMsg({ ok: false, text: r.error ?? "Could not clear those days." });
       }
     });
   }
@@ -273,6 +332,16 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
                     <small className="nocode" title="This line has a price but no Xero item code, so it cannot be invoiced yet.">no Xero code</small>
                   )}
                 </div>
+                <div className="dayswitch">
+                  <button
+                    type="button"
+                    className={l.days ? "onday" : ""}
+                    onClick={() => setOpenDays(openDays === l.product_id ? null : l.product_id)}
+                    title={l.days ? "This line is set day by day" : "Set this line day by day"}
+                  >
+                    {l.days ? "By day" : "Days"}
+                  </button>
+                </div>
                 <div className="acts">
                   {d && (
                     <button type="button" className="go" onClick={() => save(l)} disabled={working}>
@@ -285,6 +354,40 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
                     </button>
                   )}
                 </div>
+                {openDays === l.product_id && (
+                  <div className="daygrid">
+                    <div className="dgh">
+                      {l.days
+                        ? "Set day by day. A zero means no delivery that day. While this is on, it replaces the weekly number entirely."
+                        : `Set any day and this line moves off its weekly number onto the grid. Only ${storeName}'s delivery days are shown.`}
+                    </div>
+                    <div className="dgrow">
+                      {DOW.filter(runsOn).map((d) => (
+                        <label key={d} className="dgcell">
+                          <span>{DOW_LABEL[d]}</span>
+                          <input
+                            inputMode="numeric"
+                            value={dayValue(l, d)}
+                            placeholder="—"
+                            aria-label={`${titleCase(l.name)} on ${DOW_LABEL[d]}`}
+                            disabled={working}
+                            onChange={(e) =>
+                              setDayDraft((x) => ({ ...x, [dayKey(l.product_id, d)]: e.target.value }))
+                            }
+                            onBlur={() => {
+                              if (dayDraft[dayKey(l.product_id, d)] != null) saveDay(l, d);
+                            }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    {l.days && (
+                      <button type="button" className="dgclr" onClick={() => backToWeekly(l)} disabled={working}>
+                        Back to the weekly number
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -387,6 +490,19 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
         .sord .nocode{font-size:11px;padding:1px 6px;border-radius:999px;
           background:rgba(180,83,9,.14);color:#9a3412;white-space:nowrap}
         .sord .tot .val{display:block;font-variant-numeric:tabular-nums}
+        .sord .dayswitch{flex:none}
+        .sord .dayswitch button{font-size:11.5px;padding:4px 9px;border-radius:999px;
+          border:1px solid var(--line);background:var(--card);color:inherit;cursor:pointer}
+        .sord .dayswitch button.onday{border-color:#8a6d3b;color:#6b5327;font-weight:600}
+        .sord .daygrid{flex-basis:100%;margin:6px 0 10px;padding:10px 12px;border:1px solid var(--line);
+          border-radius:10px;background:var(--surface)}
+        .sord .dgh{font-size:12px;opacity:.7;margin-bottom:8px;line-height:1.45}
+        .sord .dgrow{display:flex;gap:8px;flex-wrap:wrap}
+        .sord .dgcell{display:flex;flex-direction:column;gap:3px;font-size:11px;opacity:.85}
+        .sord .dgcell input{width:52px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;
+          background:var(--card);color:inherit;font:inherit;font-size:13px;text-align:center}
+        .sord .dgclr{margin-top:9px;font-size:11.5px;background:none;border:0;padding:0;
+          color:inherit;opacity:.6;text-decoration:underline;cursor:pointer}
         .sord .go{border:none;background:var(--espresso);color:#f7efdd;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
         .sord .clr{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:8px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit}
         .sord .clr:hover{color:var(--red-t);border-color:var(--red)}

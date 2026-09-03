@@ -2563,6 +2563,24 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
       -- The engine's own number and the human override are kept APART here
       -- rather than coalesced, because they are measured in different units.
       -- rp.recommended_qty is this day's quantity. o.qty is a week's.
+      -- AN EXPLICIT DAY-BY-DAY ORDER WINS OUTRIGHT.
+      --
+      -- It is the most specific thing anyone has said about the line, so if a
+      -- (store, product) has ANY row in store_product_days, that grid defines
+      -- it for every day and all three sources below are suppressed for it.
+      --
+      -- That suppression is the whole mechanism. Without it a 0 on Wednesday
+      -- would simply be refilled by last week's carry-forward, and "cancel
+      -- Wednesday" would silently do nothing -- the exact shape of failure this
+      -- system keeps finding in the old one. A missing row reads as zero
+      -- because the grid is a complete statement of the week.
+      byday as (
+        select spd.store_id, spd.product_id, spd.qty::int as qty
+          from store_product_days spd
+          join wd on spd.dow = wd.w
+         where spd.qty > 0
+      ),
+      hasday as (select distinct store_id, product_id from store_product_days),
       planned as (
         select rp.store_id, rp.product_id,
                rp.recommended_qty::int as day_qty,
@@ -2573,6 +2591,8 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
                  on o.store_id = rp.store_id and o.product_id = rp.product_id
                 and (o.mode = 'perm' or o.ends_on is null or o.ends_on >= current_date)
          where coalesce(o.qty, rp.recommended_qty) > 0
+           and not exists (select 1 from hasday h
+                            where h.store_id = rp.store_id and h.product_id = rp.product_id)
       ),
       standing as (
         select sr.store_id, sr.product_id, sr.sent::int as week_sent
@@ -2581,6 +2601,8 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
            and not exists (
              select 1 from replenishment_plans rp2, d
               where rp2.store_id = sr.store_id and rp2.target_date = d.day)
+           and not exists (select 1 from hasday h
+                            where h.store_id = sr.store_id and h.product_id = sr.product_id)
       ),
       -- An override on a (store, product) the engine has no row for at all.
       -- Deliberately not date-gated for perm: a permanent override with no plan
@@ -2602,6 +2624,8 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
              select 1 from store_reco sr2
               where sr2.store_id = o.store_id and sr2.product_id = o.product_id
                 and sr2.sent > 0)
+           and not exists (select 1 from hasday h
+                            where h.store_id = o.store_id and h.product_id = o.product_id)
       ),
       -- src, not just a boolean, because the two things that boolean was
       -- carrying are not the same question. Plan rows show on any day the
@@ -2614,6 +2638,8 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
       --   planwk   a human override on a planned line. Weekly, so day-shared.
       --   standing carried forward from last week. Weekly. Delivery days only.
       --   extra    an override with no plan behind it. Weekly. Delivery days only.
+      --   day      an explicit day-by-day order. Already this day's quantity,
+      --            so it is NOT day-shared. Delivery days only.
       merged as (
         select store_id, product_id, day_qty as qty, 0 as week_sent, 'plan' as src
           from planned where week_override is null
@@ -2624,6 +2650,8 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
         select store_id, product_id, 0 as qty, week_sent, 'standing' as src from standing
         union all
         select store_id, product_id, 0 as qty, qty as week_sent, 'extra' as src from extra
+        union all
+        select store_id, product_id, qty, 0 as week_sent, 'day' as src from byday
       )
       select coalesce(rn.id::text, '')                       as run_id,
              rn.name                                         as run_name,
@@ -2663,7 +2691,11 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
       // write an override display -- so it gets split across the delivery days
       // by the same helper the Deliveries sheet uses, and the two pages cannot
       // disagree about what Thursday means.
-      const qty = r.src === "plan"
+      // 'plan' is the engine's per-day quantity and 'day' is a person's, so
+      // neither is day-shared. Everything else is a WEEKLY figure -- that is
+      // what both screens that write an override display -- and gets split
+      // across the delivery days by the same helper the Deliveries sheet uses.
+      const qty = r.src === "plan" || r.src === "day"
         ? r.qty
         : dayShare(r.week_sent, r.delivery_days ?? [], dayIdx, mult);
       // A standing order that rounds to nothing on this day is not packed.
@@ -2833,6 +2865,10 @@ export type StandingLine = {
   // means the same for the code: an invoice cannot guess it.
   unit_price: number | null;
   xero_code: string | null;
+  // The day-by-day order, when there is one: { mon: 4, wed: 0, fri: 9 }.
+  // Null means this line has no grid and is still governed by the weekly
+  // number. An explicit 0 is a real instruction -- do not deliver that day.
+  days: Record<string, number> | null;
 };
 export async function getStoreStandingOrder(id: string): Promise<StandingLine[]> {
   try {
@@ -2841,6 +2877,7 @@ export async function getStoreStandingOrder(id: string): Promise<StandingLine[]>
       baking_uom: string | null; sent: number; override_qty: number | null;
       mode: string | null; starts_on: Date | null; ends_on: Date | null;
       unit_price: string | number | null; xero_code: string | null;
+      days: Record<string, number> | null;
     }[]>`
       select p.id::text                     as product_id,
              p.name,
@@ -2853,7 +2890,8 @@ export async function getStoreStandingOrder(id: string): Promise<StandingLine[]>
              o.starts_on,
              o.ends_on,
              pp.unit_price,
-             pp.xero_code
+             pp.xero_code,
+             dd.days
         from products p
         left join store_reco r
                on r.product_id = p.id and r.store_id = ${id}::uuid
@@ -2861,6 +2899,11 @@ export async function getStoreStandingOrder(id: string): Promise<StandingLine[]>
                on o.product_id = p.id and o.store_id = ${id}::uuid
         left join store_product_prices pp
                on pp.product_id = p.id and pp.store_id = ${id}::uuid
+        left join lateral (
+          select jsonb_object_agg(d.dow::text, d.qty) as days
+            from store_product_days d
+           where d.store_id = ${id}::uuid and d.product_id = p.id
+        ) dd on true
        where p.active
          and (coalesce(r.sent, 0) > 0 or o.qty is not null)
        order by p.category, p.name`;
@@ -2878,6 +2921,7 @@ export async function getStoreStandingOrder(id: string): Promise<StandingLine[]>
       ends_on: iso(r.ends_on),
       unit_price: r.unit_price == null ? null : Number(r.unit_price),
       xero_code: r.xero_code,
+      days: r.days ?? null,
     }));
   } catch {
     return [];

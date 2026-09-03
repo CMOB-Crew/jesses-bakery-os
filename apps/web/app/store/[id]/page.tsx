@@ -139,6 +139,7 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
           lines={standingLines}
           products={allProducts}
           today={today}
+          deliveryDays={schedule?.delivery_days ?? []}
         />
       )}
     </>
