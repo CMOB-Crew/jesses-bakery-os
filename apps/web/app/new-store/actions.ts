@@ -70,8 +70,30 @@ export async function createStore(input: CreateStoreInput): Promise<CreateStoreR
     const runId = (input.runId ?? "").trim();
     if (!runId) return { ok: false, error: "Pick a delivery run — a store with no run goes out on no van." };
 
-    const run = await sql<{ id: string; region_id: string }[]>`
-      select id::text as id, region_id::text as region_id from runs where id = ${runId}::uuid`;
+    // THE SECOND THING THIS FORM NEVER WROTE: stores.state.
+    //
+    // Migration 023 added state so NSW and QLD could run as ONE system behind a
+    // state filter, and the dashboard, the production board and the stores list
+    // all scope on it. They also all build their filter options from the
+    // distinct states actually PRESENT — so a store with a null state is not
+    // "unfiltered", it is invisible. Pick NSW and it drops out of the tiles, the
+    // sell-through, the waste and the revenue; pick nothing and it is back. A
+    // store that appears and disappears depending on a filter is exactly the
+    // headline-disagrees-with-the-list bug this system keeps hunting.
+    //
+    // All 336 stores loaded so far have a state, because the Stores Master load
+    // set it. Nothing created through this form does — and Simona has around
+    // thirty landing, fifteen of them sent on 3 September.
+    //
+    // Taken from the run's region rather than asked for again: the run already
+    // decides the region and the region already carries the state, so a second
+    // control that could disagree with the first is a bug waiting to be typed.
+    // runs.region_id is not null (migration 043), so the join always resolves.
+    const run = await sql<{ id: string; region_id: string; state: string | null }[]>`
+      select rn.id::text as id, rn.region_id::text as region_id, rg.state as state
+        from runs rn
+        join regions rg on rg.id = rn.region_id
+       where rn.id = ${runId}::uuid`;
     if (!run.length) return { ok: false, error: "That delivery run no longer exists — reload and try again." };
 
     const days = WEEKDAYS.filter((d) => (input.days ?? []).map((x) => String(x).toLowerCase()).includes(d));
@@ -81,7 +103,7 @@ export async function createStore(input: CreateStoreInput): Promise<CreateStoreR
     const rows = await sql<{ id: string }[]>`
       insert into stores
         (name, retailer, region_id, default_run_id, delivery_days, supplier_code,
-         size_category, shelf_max, active, go_live_at, onboarded_at)
+         size_category, shelf_max, active, go_live_at, onboarded_at, state)
       values (
         ${name},
         ${retailer}::retailer_type,
@@ -94,7 +116,8 @@ export async function createStore(input: CreateStoreInput): Promise<CreateStoreR
         ${cap},
         ${live},
         (case when ${live} then null else ${date}::date end),
-        (case when ${live} then coalesce(${date}::date, (now() at time zone 'Australia/Sydney')::date) else null end)
+        (case when ${live} then coalesce(${date}::date, (now() at time zone 'Australia/Sydney')::date) else null end),
+        ${run[0].state}
       )
       returning id::text as id`;
 
