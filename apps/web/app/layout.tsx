@@ -3,6 +3,7 @@ import "./globals.css";
 import Sidebar from "@/components/Sidebar";
 import { getDisplayUser } from "@/lib/supabase/server";
 import DemoTour from "@/components/DemoTour";
+import RouteFrame from "@/components/RouteFrame";
 
 // Demo build only: the guided pop-up tour. NEXT_PUBLIC_DEMO is unset on the live
 // site, so this is stripped/never mounts there.
@@ -32,7 +33,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         <div className="app">
           <Sidebar user={user} />
-          <main className="main">{children}</main>
+          {/* RouteFrame shows a skeleton while a sidebar navigation is in
+              flight. It is a client wrapper around a server slot, so no page
+              becomes a client component and no Suspense boundary is created --
+              see components/nav-pending.ts for why that last part matters. */}
+          <main className="main"><RouteFrame>{children}</RouteFrame></main>
           {DEMO && <DemoTour />}
         </div>
       </body>
