@@ -1,0 +1,8 @@
+# Jesse's Bakery — accounts to create.
+# role must be one of: admin, manager, office, driver, packer
+# Nothing is emailed to these addresses; see the note in provision-users.mjs
+# if the floor has no real email addresses.
+email,role,name
+dan@jessesbakery.com.au,driver,Dan Kelly
+mike@jessesbakery.com.au,driver,Mike Rowe
+ana@jessesbakery.com.au,packer,Ana Silva
