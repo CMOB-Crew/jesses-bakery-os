@@ -175,6 +175,11 @@ export default function DriverApp({
   // One line, shown in the banner, when a photo or signature did not keep. The
   // delivery itself is saved either way -- this never blocks the run.
   const [proofNote, setProofNote] = useState<string | null>(null);
+  // When the shutter fired, and where the phone said it was at that moment.
+  // Both are shown on the proof screen and both are stored. null fix means the
+  // phone would not give one, which the screen says rather than hiding.
+  const [shotAt, setShotAt] = useState<Date | null>(null);
+  const [fix, setFix] = useState<{ lat: number; lng: number; acc: number } | null>(null);
 
   const cur = stops.find((s) => s.id === curId) ?? null;
   const doneCount = stops.filter((s) => s.status === "done").length;
@@ -256,6 +261,21 @@ export default function DriverApp({
     x.fillStyle = "#fff"; x.font = "500 20px Inter"; x.textAlign = "left";
     x.fillText(`Jesse's Bakery · ${cur?.name ?? ""}`, 18, 778);
     setPhoto(c.toDataURL("image/jpeg", 0.85));
+    setShotAt(new Date());
+    // Ask for the location at the moment of capture, not when the screen
+    // renders -- by the signature screen the van may have moved, and the point
+    // of the stamp is where the photo was taken.
+    //
+    // Fire and forget. A driver in a cool room gets no fix and must not be held
+    // up waiting for one; the screen then says so rather than showing a number.
+    setFix(null);
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (p) => setFix({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
+        () => setFix(null),
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+      );
+    }
     stopStream();
     setScreen("photo");
   }
@@ -312,6 +332,10 @@ export default function DriverApp({
         if (!up.ok) { failed.push(up.error); continue; }
         const rec = await saveDeliveryProof({
           storeId: sid, day: dayIso, kind, path: up.path, sha256: up.sha256,
+          // The fix belongs to the moment the shutter fired, so it is stamped on
+          // both objects for this stop -- the photo and the signature were taken
+          // at the same place, seconds apart.
+          lat: fix?.lat ?? null, lng: fix?.lng ?? null, accuracy: fix?.acc ?? null,
         });
         if (!rec.ok) failed.push(rec.error);
       }
@@ -319,7 +343,7 @@ export default function DriverApp({
       // not keep, not to read a log.
       setProofNote(failed.length ? failed[0] : null);
     },
-    [dayIso, live],
+    [dayIso, live, fix],
   );
 
   function deliver() {
@@ -581,7 +605,20 @@ export default function DriverApp({
             <div className="content">
               {/* eslint-disable-next-line @next/next/no-img-element -- runtime camera data URL, not a static asset */}
               {photo && <img src={photo} className="thumb" alt="delivery" />}
-              <div className="meta"><span>🕑 7:12am</span><span>📍 −33.89, 151.27 · ±8m</span><span>✓ time + GPS stamped</span></div>
+              {/* This line used to read "7:12am · -33.89, 151.27 · ±8m · time +
+                  GPS stamped" and every part of it was hardcoded. It sat under
+                  a real photo claiming to be evidence of when and where the
+                  drop happened, and it was the same three values at every stop
+                  on every run. A stamp that is always the same is not a stamp.
+                  Now it shows what was actually captured, and says plainly when
+                  there is no fix rather than inventing one. */}
+              <div className="meta">
+                <span>🕑 {shotAt ? shotAt.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", timeZone: "Australia/Sydney" }) : "—"}</span>
+                {fix
+                  ? <span>📍 {fix.lat.toFixed(4)}, {fix.lng.toFixed(4)} · ±{Math.round(fix.acc)}m</span>
+                  : <span>📍 No location fix</span>}
+                <span>{fix ? "✓ time + GPS stamped" : "✓ time stamped"}</span>
+              </div>
               <div className="box"><div className="bh">Store signature</div>
                 <canvas ref={sigRef} className="sig" />
                 <div className="sighint">Receiver signs above · <a onClick={clearSig} style={{ color: "var(--crust-deep)", cursor: "pointer" }}>clear</a></div>
