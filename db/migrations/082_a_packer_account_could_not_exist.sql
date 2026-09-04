@@ -28,10 +28,22 @@
 -- ---------------------------------------------------------------------
 -- Migration 078, shipped yesterday, gave the packer role SELECT on nine tables
 -- and its own scoped write on daily_run_state, because the packing sheet is the
--- one screen the floor uses every single morning. Ten policies.
+-- one screen the floor uses every single morning. TWELVE policies.
+--
+-- CORRECTION, and it is worth reading. The first version of this comment said
+-- ten, in three places. Run unaggregated against the database after the fix,
+-- one row per policy, the real figure is twelve: floor_read on nine tables,
+-- plus packer_run_state_read, _insert and _update on daily_run_state. I
+-- collapsed those three into one when counting from the migration text instead
+-- of from the database.
+--
+-- This is the same mistake 078 made and e63a4b5 corrected -- a number taken
+-- from reading rather than from measuring. It changes nothing about what this
+-- migration does; it is corrected because a number in a comment is the thing
+-- the next person will trust.
 --
 -- Every one of them compares against current_app_role(), which returns
--- public.users.role. That column cannot hold 'packer'. So all ten policies were
+-- public.users.role. That column cannot hold 'packer'. So all twelve policies were
 -- unreachable from the day they shipped -- correct SQL guarding a value the
 -- database refuses to store. 078's own closing note said the round trip was
 -- untested until real accounts existed. This is what that test found.
@@ -149,7 +161,7 @@ commit;
 --    group by 1
 --    order by 2 desc;
 --
--- 3. The ten policies 078 wrote for the packer are now reachable. This does not
+-- 3. The twelve policies 078 wrote for the packer are now reachable. This does not
 --    prove a packer can work -- that needs a real account -- but it proves the
 --    value the policies compare against is now storable:
 --
@@ -159,7 +171,8 @@ commit;
 --      and coalesce(qual,'') || coalesce(with_check,'') ilike '%packer%'
 --    order by tablename, policyname;
 --
---   -- expect 10 rows across 10 tables. Read the row count at the bottom of the
+--   -- expect 12 rows across 10 tables: floor_read on nine, and three
+--   -- packer_run_state_* on daily_run_state. Read the row count at the bottom of the
 --   -- grid, not the visible rows -- a truncated results cell is how migration
 --   -- 078 got its own numbers wrong in the first place.
 -- ---------------------------------------------------------------------------
