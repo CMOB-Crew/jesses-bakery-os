@@ -1,0 +1,165 @@
+-- =====================================================================
+-- Migration 082: a packer account could not be created at all.
+--
+-- ---------------------------------------------------------------------
+-- FOUND BY A PRE-FLIGHT, NOT BY A FAILURE
+-- ---------------------------------------------------------------------
+-- The RLS flip (DATABASE_URL -> jbo_app) turns on every policy in the schema at
+-- once, on a morning when the floor is trying to work. So each role was given a
+-- real account in a scratch Postgres carrying this schema, and made to read
+-- what its screens read.
+--
+-- Four of the five roles behaved. The fifth could not be created.
+--
+--     insert into public.users (id, email, role, is_active)
+--     values (..., 'packer@test', 'packer', true);
+--
+--     ERROR:  new row for relation "users" violates check constraint
+--             "users_role_check"
+--
+-- Migration 012 defined the column as:
+--
+--     role text check (role is null or role in ('admin','manager','office','driver'))
+--
+-- and no migration since has touched it. There is no 'packer'.
+--
+-- ---------------------------------------------------------------------
+-- WHY THIS MATTERED MORE THAN IT LOOKS
+-- ---------------------------------------------------------------------
+-- Migration 078, shipped yesterday, gave the packer role SELECT on nine tables
+-- and its own scoped write on daily_run_state, because the packing sheet is the
+-- one screen the floor uses every single morning. Ten policies.
+--
+-- Every one of them compares against current_app_role(), which returns
+-- public.users.role. That column cannot hold 'packer'. So all ten policies were
+-- unreachable from the day they shipped -- correct SQL guarding a value the
+-- database refuses to store. 078's own closing note said the round trip was
+-- untested until real accounts existed. This is what that test found.
+--
+-- The confusion has a source. There are TWO role vocabularies in this schema:
+--
+--     001  app_users.role   app_role enum  admin, ops, baker, packer, driver
+--     012  users.role       text check     admin, manager, office, driver
+--
+-- app_users is a staff directory from the original build. public.users is the
+-- auth identity, keyed to auth.uid(), and is the only one any policy reads.
+-- 'packer' exists in the vocabulary nothing enforces and is missing from the one
+-- that decides access.
+--
+-- ---------------------------------------------------------------------
+-- WHAT WOULD HAVE HAPPENED ON GO-LIVE MORNING
+-- ---------------------------------------------------------------------
+-- Simona sends the packer names. Whoever creates the accounts gets a constraint
+-- violation, at 4am, with no role-setting screen in the app to fall back on --
+-- roles are set by hand in the Supabase dashboard, there is no UI for it.
+--
+-- The obvious way out is to give the packers 'office', and that is the part
+-- worth being loud about. Measured in the same scratch database: an 'office'
+-- account can UPDATE stores. Not read -- write. A packer given 'office' to get
+-- them through the door can edit shelf caps, ranging and prices across all 336
+-- stores, and nothing in the app would stop them or record that it was a
+-- workaround.
+--
+-- The alternative -- leave the role null and sort it later -- is default deny,
+-- which does work correctly: a null role reads 0 rows from every table. It just
+-- means the packer cannot open the packing sheet.
+--
+-- So the choice on the morning would have been full write access or no access.
+--
+-- ---------------------------------------------------------------------
+-- THE WHOLE PRE-FLIGHT, MEASURED
+-- ---------------------------------------------------------------------
+-- Scratch Postgres 16 carrying this schema, one real account per role, RLS
+-- actually in force (connected as jbo_app, not as a superuser -- a superuser
+-- bypasses RLS even with FORCE set, so testing as one measures nothing).
+--
+--   admin / manager / office     read every table their screens read
+--   driver                       reads all nine tables 078 opened up -- that
+--                                migration is confirmed working
+--   role NULL (a new signup)     0 rows from every table. Default deny is real.
+--   packer                       COULD NOT BE CREATED
+--
+-- After this migration, the same packer account:
+--
+--   reads stores, products, runs, replenishment_plans, store_reco,
+--     store_product_days, sales_daily .......................... all OK
+--   inserts daily_run_state where surface = 'packing' ........... OK
+--   inserts daily_run_state where surface = 'deliveries' ........ REFUSED
+--       ERROR: new row violates row-level security policy
+--   deletes its own packing row ................................. REFUSED
+--       row still present afterwards -- a packing record is evidence of what
+--       was sent, and the floor cannot remove one
+--
+-- So 078's scoping was right; the value it scoped on just could not exist.
+--
+-- WHAT THIS TEST DOES NOT COVER. It was run against a scratch database, so it
+-- proves the POLICIES and the constraint, which are schema and identical to
+-- production. It says nothing about GRANTS: migration 018 could not be applied
+-- in the scratch database, so jbo_app was granted table privileges by hand
+-- there to isolate the policy layer. Whether jbo_app holds the right grants in
+-- production is a separate question and is not answered here.
+--
+-- ---------------------------------------------------------------------
+-- WHAT THIS DOES
+-- ---------------------------------------------------------------------
+-- Adds 'packer' to the constraint. Nothing else.
+--
+-- Deliberately NOT adding 'ops' or 'baker' from the 001 enum. Nothing in any
+-- policy mentions them, so an account carrying one would read nothing and look
+-- broken -- exactly the failure this migration exists to remove. A role belongs
+-- in this list when a policy grants it something, and not before.
+--
+-- No existing row changes. The constraint only widens what is permitted, so
+-- every account that works today keeps working.
+--
+-- Additive and idempotent.
+-- =====================================================================
+
+begin;
+
+alter table public.users drop constraint if exists users_role_check;
+
+alter table public.users add constraint users_role_check
+  check (role is null or role in ('admin','manager','office','driver','packer'));
+
+comment on table public.users is
+  'Application identity + role, keyed on auth.uid(). role NULL = no access (default deny); an admin grants a real role. Roles: admin, manager, office (business read/write), driver and packer (read their own day, write only their own daily_run_state -- see migrations 075 and 078). Read by security-definer helpers, never trusted from the token. NOTE: app_users.role is a different, older vocabulary and is not read by any policy.';
+
+commit;
+
+-- ---------------------------------------------------------------------------
+-- VERIFY. Run all three and read every row.
+-- ---------------------------------------------------------------------------
+--
+-- 1. The constraint now admits packer:
+--
+--   select pg_get_constraintdef(oid) as users_role_check
+--     from pg_constraint
+--    where conrelid = 'public.users'::regclass and conname = 'users_role_check';
+--
+--   -- expect the list to contain 'packer'.
+--
+-- 2. Nothing that exists today was broken by widening it -- every current
+--    account still satisfies the constraint. One row per role, not aggregated
+--    into a cell:
+--
+--   select coalesce(role,'(no role - cannot sign in)') as role,
+--          count(*) as accounts
+--     from public.users
+--    group by 1
+--    order by 2 desc;
+--
+-- 3. The ten policies 078 wrote for the packer are now reachable. This does not
+--    prove a packer can work -- that needs a real account -- but it proves the
+--    value the policies compare against is now storable:
+--
+--   select tablename, policyname
+--     from pg_policies
+--    where schemaname = 'public'
+--      and coalesce(qual,'') || coalesce(with_check,'') ilike '%packer%'
+--    order by tablename, policyname;
+--
+--   -- expect 10 rows across 10 tables. Read the row count at the bottom of the
+--   -- grid, not the visible rows -- a truncated results cell is how migration
+--   -- 078 got its own numbers wrong in the first place.
+-- ---------------------------------------------------------------------------
