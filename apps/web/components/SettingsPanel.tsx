@@ -19,6 +19,44 @@ const nf = (n: number) => n.toLocaleString("en-AU");
 // of throwing on undefined.split() and failing the whole build.
 const firstWord = (s?: string | null) => (s ? String(s).split(" ")[0] : "");
 
+/* ------------------------------------------------------------------ *
+ * WHAT ON THIS PAGE ACTUALLY REACHES THE PLAN. Measured 4 September by
+ * grepping every reader of every app_settings key across the repo -- SQL,
+ * TypeScript and Python -- not by reading this file's own copy.
+ *
+ *   service_level ....... REACHES THE ENGINE. Migration 033 joins
+ *                         app_settings.service_level to engine_service_levels
+ *                         and that z goes into the nightly plan.
+ *   waste_thresholds .... read by app/page.tsx to colour the overview bands.
+ *                         Changes what the dashboard flags, not what is baked.
+ *   product_minimums .... NOBODY READS IT. The engine's floor is
+ *                         products.min_on_shelf (033, `raw_rec < min_on_shelf`).
+ *   size_baskets ........ NOBODY READS IT. A new store's shelf_max comes from
+ *                         the New store screen's own CAP_DEFAULT.
+ *   shelf_lead .......... NOBODY READS IT. The engine uses
+ *                         products.shelf_life_days and products.lead_time_days,
+ *                         which are per product, not one number for everything.
+ *   seasonality_factors . NOBODY READS IT. Uplift comes from the `events`
+ *                         table, which the Seasonality calendar writes.
+ *
+ * So four of the six config groups here were write-only, and the panel told
+ * Simona in bold that "every change here saves to the plan's config". It does
+ * save. It does not arrive. She could set every minimum to 4, get a green
+ * "saved" toast on each one, and the plan would send exactly what it sent
+ * yesterday.
+ *
+ * Nothing was rewired to fix this, five days out from go-live: making these
+ * levers live changes what gets baked, and that is a decision for Simona to
+ * make deliberately, not a side effect of an audit. What changed is that each
+ * section now says where it lands, and the two numbers that were quietly wrong
+ * were corrected (see SIZES0 below).
+ * ------------------------------------------------------------------ */
+
+// Where a config group lands. Rendered next to the section heading so the
+// answer is on the screen rather than in this comment.
+const IN_PLAN = "in tonight's plan";
+const SAVED_ONLY = "saved, not in the plan yet";
+
 const CORE_BASKET = [
   "Sourdough – White", "Sourdough – Wholemeal", "Sourdough – Soy & Linseed", "Sourdough – Spelt", "Sourdough – Rye",
   "Dark Rye", "Bagel – Plain", "Bagel – Sesame", "Bagel – Mixed Seeds", "Bagel – Poppy Seed",
@@ -26,10 +64,16 @@ const CORE_BASKET = [
 ];
 
 type Size = { key: "S" | "M" | "L"; label: string; cap: number; fill: number };
+// CORRECTED 4 September. These were 45/80/120 capacity and 30/55/85 fill, which
+// are not the numbers a new store gets. The New store screen writes shelf_max
+// from its own CAP_DEFAULT of 60/90/140, and seeds Simona's 14 Aug bundle at
+// 52/70/118 units. Two screens Simona clicks between, three of the six numbers
+// different, and the one labelled "New-store starter fill" was the wrong one.
+// These now match what the New store screen does. They still do not drive it.
 const SIZES0: Size[] = [
-  { key: "S", label: "Small", cap: 45, fill: 30 },
-  { key: "M", label: "Medium", cap: 80, fill: 55 },
-  { key: "L", label: "Large", cap: 120, fill: 85 },
+  { key: "S", label: "Small", cap: 60, fill: 52 },
+  { key: "M", label: "Medium", cap: 90, fill: 70 },
+  { key: "L", label: "Large", cap: 140, fill: 118 },
 ];
 
 type Factor = { key: string; name: string; note: string; weight: string; on: boolean };
@@ -124,11 +168,14 @@ export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: 
   return (
     <section className="setp">
       <div className="lead-panel">
-        The plan is not a black box — every number here is a lever you control. This is exactly how it decides what to bake and send. Nothing is guessed; defaults come from Jesse&apos;s and Simona&apos;s calls, and change the moment you say so. <b>Every change here saves to the plan&apos;s config.</b>
+        The plan is not a black box. Defaults come from Jesse&apos;s and Simona&apos;s calls, and every change here is saved.
+        <b> Two of these groups reach the nightly plan today: the service level, and the waste thresholds that colour the overview.</b>{" "}
+        The rest are saved and waiting to be connected — each one is marked, and the note under it says where that number
+        actually comes from in the meantime. Nothing here is guessed, and nothing here pretends to be doing more than it is.
       </div>
 
       {/* SERVICE LEVEL */}
-      <div className="sec"><span className="tick" />Service level</div>
+      <div className="sec"><span className="tick" />Service level <span className="reach live">{IN_PLAN}</span></div>
       <div className="card">
         <div className="row-top">
           <div className="desc">
@@ -164,7 +211,7 @@ export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: 
       </div>
 
       {/* MINIMUM PER PRODUCT */}
-      <div className="sec"><span className="tick" />Minimum per product <span className="secnote">the floor a store carrying a line never drops below — 2 across the core lines by default, editable here</span></div>
+      <div className="sec"><span className="tick" />Minimum per product <span className="reach">{SAVED_ONLY}</span> <span className="secnote">the floor a store carrying a line never drops below</span></div>
       <div className="card">
         <div className="minsgrid">
           {CORE_BASKET.map((p) => (
@@ -178,11 +225,11 @@ export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: 
             </div>
           ))}
         </div>
-        <div className="hint">A store carrying a line never gets sent below its minimum — keeps the shelf looking stocked. 15 core products; specials sit outside the minimum.</div>
+        <div className="hint">A store carrying a line never gets sent below its minimum — keeps the shelf looking stocked. 15 core products; specials sit outside the minimum. <b>Where the floor comes from today:</b> the plan reads a minimum held against each product itself, not this list, so changing a number here is remembered but does not yet change what is sent. Say the word and these become the ones the plan uses.</div>
       </div>
 
       {/* SIZE BASKETS */}
-      <div className="sec"><span className="tick" />Store size baskets <span className="secnote">S / M / L shelf capacity and starter fill for a new store</span></div>
+      <div className="sec"><span className="tick" />Store size baskets <span className="reach">{SAVED_ONLY}</span> <span className="secnote">S / M / L shelf capacity and starter fill for a new store</span></div>
       <div className="sizes">
         {sizes.map((s) => (
           <div className="sizecard" key={s.key}>
@@ -198,20 +245,20 @@ export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: 
           </div>
         ))}
       </div>
-      <div className="hint" style={{ margin: "10px 2px 0" }}>Three store types (standard, sourdough-led, bagel-led) sit on top of these sizes — nine baskets in all, already in the data. A new store: set its size once, seed the fill, it self-fulfils from there.</div>
+      <div className="hint" style={{ margin: "10px 2px 0" }}>Three store types (standard, sourdough-led, bagel-led) sit on top of these sizes — nine baskets in all, worked out on the New store screen from Simona&apos;s 14 August bundle. A new store: set its size once, seed the fill, it self-fulfils from there. <b>These are the numbers that screen uses</b>, shown here so both screens agree; setting a new one here is remembered but the New store screen still starts from its own. It only ever affects a store being added, never a store already running.</div>
 
       {/* SHELF LIFE & LEAD TIME */}
-      <div className="sec"><span className="tick" />Waste thresholds by store size</div>
+      <div className="sec"><span className="tick" />Waste thresholds by store size <span className="reach live">live on the overview</span></div>
       <div className="card">
         <div className="fldgrid">
           <label className="fld2">Small store (% waste)<input value={wtSmall} inputMode="numeric" onChange={(e) => setWtSmall(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistWaste} /></label>
           <label className="fld2">Medium store (% waste)<input value={wtMedium} inputMode="numeric" onChange={(e) => setWtMedium(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistWaste} /></label>
           <label className="fld2">Large store (% waste)<input value={wtLarge} inputMode="numeric" onChange={(e) => setWtLarge(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistWaste} /></label>
         </div>
-        <div className="hint">The waste % that flags a store as running hot, set per size — a small store sending 50 hits its limit at a lower % than a large store sending 120. These colour the size bands on the overview. Defaults are a starting point until you confirm your own.</div>
+        <div className="hint">The waste % that flags a store as running hot, set per size — a small store sending 50 hits its limit at a lower % than a large store sending 120. These colour the size bands on the overview and take effect the moment you save. They change <b>what gets flagged, not what gets baked</b> — the dial that changes what gets baked is the service level at the top. Defaults are a starting point until you confirm your own.</div>
       </div>
 
-      <div className="sec"><span className="tick" />Shelf life &amp; lead time</div>
+      <div className="sec"><span className="tick" />Shelf life &amp; lead time <span className="reach">{SAVED_ONLY}</span></div>
       <div className="card">
         <div className="fldgrid">
           <label className="fld2">Total shelf life (days)<input value={shelfDays} inputMode="numeric" onChange={(e) => setShelfDays(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistShelfLead} /></label>
@@ -219,11 +266,16 @@ export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: 
           <label className="fld2">Sourdough lead time (days)<input value={sdLead} inputMode="numeric" onChange={(e) => setSdLead(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistShelfLead} /></label>
           <label className="fld2">Everything-else lead time (days)<input value={otherLead} inputMode="numeric" onChange={(e) => setOtherLead(parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0)} onBlur={persistShelfLead} /></label>
         </div>
-        <div className="hint">Day 1 is the day it leaves the bakery, so {shelfDays} total = {Math.max(0, shelfDays - 1)} sellable days on shelf. Daily-delivery stores pull stock with ≤{pullDays} days left; every-second-day stores pull the whole previous drop.</div>
+        <div className="hint">Day 1 is the day it leaves the bakery, so {shelfDays} total = {Math.max(0, shelfDays - 1)} sellable days on shelf. Daily-delivery stores pull stock with ≤{pullDays} days left; every-second-day stores pull the whole previous drop. <b>Where shelf life comes from today:</b> the plan holds it against each product separately — sourdough, bagels, challah and pita do not keep for the same number of days, and one figure for all of them would be wrong for most. These four are saved as your intent; connecting them properly means setting them per line, which is worth doing after go-live rather than the week of it.</div>
       </div>
 
       {/* SEASONALITY */}
-      <div className="sec"><span className="tick" />Seasonality factors <span className="secnote">what shifts demand beyond the weekly average</span></div>
+      <div className="sec"><span className="tick" />Seasonality factors <span className="reach">{SAVED_ONLY}</span> <span className="secnote">what shifts demand beyond the weekly average</span></div>
+      <div className="hint" style={{ margin: "0 2px 10px" }}>
+        These switches record which effects you want counted. <b>The dates that actually move the plan live on the Seasonality
+        calendar</b> — that is where Rosh Hashanah, the school holidays and Christmas are set, and the plan reads them from
+        there every night. Turning one off here does not turn its dates off there yet.
+      </div>
       <div className="card" style={{ padding: 0 }}>
         {factors.map((f, i) => (
           <div className={`factor ${f.on ? "" : "off"}`} key={f.key} style={{ borderTop: i ? "1px solid var(--line2)" : undefined }}>
@@ -267,6 +319,10 @@ export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: 
       .setp .lead-panel b{color:var(--ink);font-weight:600}
       .setp .sec{font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);font-weight:700;display:flex;align-items:center;gap:9px;margin:24px 2px 10px;flex-wrap:wrap}
       .setp .secnote{text-transform:none;letter-spacing:0;font-weight:400;color:var(--faint);font-size:12px}
+      /* Where a group lands. Amber by default rather than red: "saved, not in
+         the plan yet" is an honest state, not a fault. */
+      .setp .reach{text-transform:none;letter-spacing:0;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:999px;color:#8a6320;background:#f6ecd6;border:1px solid #e6d4ae;white-space:nowrap}
+      .setp .reach.live{color:var(--green-t);background:var(--green-b);border-color:transparent}
       .setp .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:18px 20px}
       .setp .row-top{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}
       .setp .desc{flex:1;min-width:260px;font-size:14px;color:var(--ink2);line-height:1.6}

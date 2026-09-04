@@ -24,7 +24,7 @@ export default async function SettingsPage() {
     <>
       <div className="head">
         <h1>Settings</h1>
-        <div className="meta">How the plan sizes every order — every number is a lever</div>
+        <div className="meta">How the plan sizes every order — each group says whether it reaches tonight&apos;s plan</div>
       </div>
       <SettingsPanel scenarios={scenarios} settings={settings} feeds={feeds} />
     </>
