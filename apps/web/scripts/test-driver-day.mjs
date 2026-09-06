@@ -117,6 +117,27 @@ is("packing rest-day heading is the calm one",
 is("packing rest-day is not alarming",
    /fault|do not pack|tell Simona/i.test(packingDayNote("rest-day", "Sunday")), false);
 
+// --- never assert a cause we cannot distinguish -----------------------------
+// planRows === 0 means EITHER the engine planned nothing OR this connection
+// cannot read replenishment_plans. Measured as jbo_app on a scratch Postgres:
+// dropping floor_read from replenishment_plans while leaving it on stores gives
+// total=264, due=144, plan=0 -- byte-identical to a night the engine never ran.
+// So no copy anywhere may claim the plan "was never built".
+for (const m of ["plan-missing", "not-reaching", "no-access", "unreadable", "rest-day", "demo"]) {
+  for (const [where, text] of [["driver note", driverDayNote(m, "Monday")],
+                               ["driver banner", driverDayBanner(m, "Monday")],
+                               ["packing note", packingDayNote(m, "Monday")],
+                               ["packing heading", packingDayHeading(m, "Monday")]]) {
+    is(`${where} ${m} never claims the plan was not built`,
+       /(never built|not been built|was not built|has not been built)/i.test(text ?? ""), false);
+  }
+}
+// plan-missing still has to stop them, on both screens.
+is("driver plan-missing still says do not guess",
+   /do not guess/i.test(driverDayNote("plan-missing", "Monday")), true);
+is("packing plan-missing still says do not pack from memory",
+   /do not pack from memory/i.test(packingDayNote("plan-missing", "Monday")), true);
+
 // --- report -----------------------------------------------------------------
 if (fails.length) {
   console.error(`\n  ${fails.length} FAILED, ${pass} passed:\n`);

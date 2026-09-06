@@ -55,7 +55,7 @@ export type DriverDayMode =
   | "unreadable"    // the check itself failed
   | "no-access"     // signed in, but cannot read the store list
   | "rest-day"      // no store takes a delivery today
-  | "plan-missing"  // stores are due, the engine planned nothing
+  | "plan-missing"  // stores are due, and no plan for today is on this screen
   | "not-reaching"; // the plan exists and none of it reached this phone
 
 /**
@@ -80,6 +80,17 @@ export function driverDayMode(
   if (!counts || counts.unreadable) return "unreadable";
   if (counts.totalStores === 0) return "no-access";
   if (counts.storesDue === 0) return "rest-day";
+  // planRows === 0 has TWO causes and this cannot tell them apart: the engine
+  // planned nothing, or this connection cannot read replenishment_plans.
+  //
+  // Measured on a scratch Postgres carrying these policies, connected as
+  // jbo_app: dropping floor_read from replenishment_plans while leaving it on
+  // stores returns total=264, due=144, plan=0 -- identical to a night the
+  // engine never ran. So the copy for this mode says only what is observable,
+  // "there is no plan on this screen", and never "it was never built". The
+  // ACTION is the same either way -- stop, and tell somebody -- but the cause
+  // decides whether they go and look at the engine or at the policies, and
+  // sending them to the wrong one costs the morning.
   if (counts.planRows === 0) return "plan-missing";
   return "not-reaching";
 }
@@ -97,7 +108,7 @@ export function driverDayBanner(mode: DriverDayMode, dayLabel: string): string |
     case "live":         return null;
     case "demo":         return "Sample stops. Nothing you tap is saved.";
     case "rest-day":     return `No deliveries scheduled for ${dayLabel}.`;
-    case "plan-missing": return `${dayLabel}'s run has not been built yet.`;
+    case "plan-missing": return `No run on this phone for ${dayLabel}.`;
     case "not-reaching": return `${dayLabel}'s run is not reaching this phone.`;
     case "no-access":    return "This account cannot see any stores.";
     case "unreadable":   return "Could not load today's run.";
@@ -119,7 +130,7 @@ export function driverDayNote(mode: DriverDayMode, dayLabel: string): string | n
     case "rest-day":
       return `No deliveries scheduled for ${dayLabel}. Nothing to run today — if that looks wrong, call the bakery.`;
     case "plan-missing":
-      return `Stores are due today but ${dayLabel}'s run has not been built yet. Call the bakery before you set off — do not guess the quantities.`;
+      return `Stores are due a delivery today, but there is no run on this phone for ${dayLabel}. Call the bakery before you set off — do not guess the quantities.`;
     case "not-reaching":
       return `${dayLabel}'s run exists but none of it has reached this phone. This is a fault, not an empty day. Call the bakery and tell them the driver app is showing no stops.`;
     case "no-access":
@@ -169,7 +180,7 @@ export function packingDayNote(mode: DriverDayMode, dayLabel: string): string {
     case "rest-day":
       return `No run delivers on ${dayLabel}. Pick another day above to see its sheet.`;
     case "plan-missing":
-      return "Stores are due a delivery today, but tonight's plan was never built. Do not pack from memory or from yesterday's sheet — tell Simona or Jesse before anything goes in a tray.";
+      return "Stores are due a delivery today, but there is no plan on this screen for it. Do not pack from memory or from yesterday's sheet — tell Simona or Jesse before anything goes in a tray.";
     case "not-reaching":
       return "Stores are due today and the plan exists, but none of it is reaching this screen. This is a fault, not a quiet day. Tell Simona or Jesse now — do not start packing from another source.";
     case "no-access":
