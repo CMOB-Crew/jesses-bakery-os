@@ -1,5 +1,6 @@
 import "server-only";
 import { q as sql } from "./db";
+import type { DriverDayCounts } from "./driver-day";
 import { dayShare, dowMultipliers, dayIndexFromISO } from "./dayshare";
 import { stripPack } from "./bake";
 
@@ -2727,6 +2728,49 @@ export async function getPackingRuns(day: string, shape?: WeekdayShape | null): 
     return [...byRun.values()].sort((a, b) => b.units - a.units);
   } catch {
     return [];
+  }
+}
+
+// ---------------------------------------------------------------------
+// Why is the driver's run empty?
+//
+// Only called when getPackingRuns() came back with nothing, so it costs a
+// normal morning nothing at all. See lib/driver-day.ts for what the counts
+// mean and why guessing is not good enough.
+//
+// Every count is read inside the driver's own permissions, on purpose. A
+// privileged read would answer "is there a plan" while the question that
+// actually matters is "can THIS PHONE see the plan", and those two come apart
+// in exactly the case worth catching.
+//
+// totalStores is unfiltered for the same reason. Migration 078 grants a driver
+// SELECT on stores, so zero rows there is not a fact about the bakery, it is
+// this connection telling us it can see nothing -- and once that is true, no
+// other number on the screen means anything.
+// ---------------------------------------------------------------------
+export async function getDriverDayCounts(day: string): Promise<DriverDayCounts> {
+  try {
+    const rows = await sql<{ total_stores: number; stores_due: number; plan_rows: number }[]>`
+      with d  as (select ${day}::date as day),
+           wd as (select lower(to_char(day, 'Dy'))::weekday as w from d)
+      select (select count(*)::int from stores where active)                as total_stores,
+             (select count(*)::int from stores, wd
+               where stores.active and wd.w = any (stores.delivery_days))   as stores_due,
+             (select count(*)::int from replenishment_plans, d
+               where replenishment_plans.target_date = d.day)               as plan_rows
+    `;
+    const r = rows[0];
+    if (!r) return { totalStores: 0, storesDue: 0, planRows: 0, unreadable: true };
+    return {
+      totalStores: Number(r.total_stores) || 0,
+      storesDue: Number(r.stores_due) || 0,
+      planRows: Number(r.plan_rows) || 0,
+      unreadable: false,
+    };
+  } catch {
+    // unreadable, NOT three zeroes. Three zeroes would be read as "no stores
+    // exist", which is a much more confident claim than "the query failed".
+    return { totalStores: 0, storesDue: 0, planRows: 0, unreadable: true };
   }
 }
 

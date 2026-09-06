@@ -5,6 +5,7 @@ import type { PackRun, DriverState } from "@/lib/queries";
 import { setDriverState } from "@/app/run-state-actions";
 import { saveDeliveryProof } from "@/app/driver-proof-actions";
 import { uploadProof } from "@/lib/driver-proof";
+import { driverDayMode, driverDayNote, driverDayBanner, showsSampleStops, type DriverDayCounts } from "@/lib/driver-day";
 
 // Driver app — phone prototype. The build that matters for drivers: dead simple,
 // big taps, live-capture only (no gallery), works down the run stop by stop.
@@ -38,6 +39,7 @@ export default function DriverApp({
   dayIso = "",
   driver = null,
   initialState = {},
+  counts = null,
 }: {
   runs?: PackRun[];
   addresses?: Record<string, string>;
@@ -45,13 +47,26 @@ export default function DriverApp({
   dayIso?: string;
   driver?: string | null;
   initialState?: DriverState;
+  counts?: DriverDayCounts | null;
 }) {
-  // Live when the engine has planned today. Otherwise the sample run stands in,
-  // so the flow can still be walked through rather than showing an empty phone.
+  // Live when the engine has planned today. Everything that WRITES still hangs
+  // off this, unchanged.
   const live = runs.length > 0;
+
+  // Why the run is empty, when it is. Measured on the server, not guessed --
+  // see lib/driver-day.ts. This used to be a single line reading "No plan for
+  // today", which is one of four possible reasons and, after the RLS flip, the
+  // least likely one.
+  const mode = driverDayMode(live, Boolean(driver), counts);
+  // Sample stops now appear in one situation only: a walkthrough with nobody
+  // signed in. A signed-in driver on a live system is never shown a fabricated
+  // run -- it is a convincing list of real stores they could drive to, and
+  // nothing they tap on it is saved.
+  const sample = showsSampleStops(mode);
+
   const [screen, setScreen] = useState<Screen>("licence");
   const [runName, setRunName] = useState<string | null>(null);
-  const [stops, setStops] = useState<Stop[]>(INITIAL);
+  const [stops, setStops] = useState<Stop[]>(sample ? INITIAL : []);
   // What has already been recorded today, so reopening the phone mid-run does
   // not start the driver from the top of the list again.
   const [record, setRecord] = useState<DriverState>(initialState);
@@ -417,7 +432,11 @@ export default function DriverApp({
           ? "\u26A0 " + proofNote
           : live
           ? "Today\u2019s real runs. Deliveries, photos and signatures are all saved."
-          : "\u26A0 No plan for today, so these are sample stops. Nothing you tap is saved yet."}
+          : // A rest day and a demo are not faults, so they do not get the
+            // warning glyph. Everything else is something somebody has to act
+            // on, and looks like it.
+            (mode === "rest-day" || mode === "demo" ? "" : "\u26A0 ") +
+            (driverDayBanner(mode, day || "today") ?? "")}
       </div>
       <div className="cap">Driver app · phone prototype. Live-capture only (no gallery) via the camera — grant access to see your real camera, otherwise it falls back to a simulated capture so the flow always runs.</div>
       <div className="phone">
@@ -426,7 +445,7 @@ export default function DriverApp({
         {/* START OF SHIFT — LICENCE CAPTURE */}
         {screen === "licence" && (
           <div className="screen">
-            <div className="bar"><div><h1>Start your shift</h1><div className="sub">{live ? day : "Sample run"}</div></div></div>
+            <div className="bar"><div><h1>Start your shift</h1><div className="sub">{live ? day : sample ? "Sample run" : day || "Today"}</div></div></div>
             <div className="content">
               {driver ? (
                 <div className="drv">
@@ -488,7 +507,9 @@ export default function DriverApp({
 
         {screen === "run" && (
           <div className="screen">
-            <div className="bar"><div><h1>Your run</h1><div className="sub">{runName ?? "Sample run"}{live && day ? " · " + day : " · Monday"}</div></div></div>
+            {/* "Sample run · Monday" was hardcoded, so a real driver with an
+                empty day was shown a fabricated run name AND the wrong weekday. */}
+            <div className="bar"><div><h1>Your run</h1><div className="sub">{runName ?? (sample ? "Sample run" : "No run")}{day ? " · " + day : ""}</div></div></div>
             <div className="content">
               {driver ? (
                 <div className="drv">
@@ -496,7 +517,22 @@ export default function DriverApp({
                   <div><div className="rn">{driver}</div><small>On shift</small></div>
                 </div>
               ) : null}
-              <div className="prog"><div className="track"><div className="fill" style={{ width: `${(100 * doneCount) / stops.length}%` }} /></div><div className="lbl">{doneCount} / {stops.length}</div></div>
+              {/* No stops, no progress bar. "0 / 0" against an empty track is
+                  not information, it is furniture, and it makes an empty day
+                  look like a list that has not loaded yet.
+                  stops.length is also a divisor -- that used to be impossible to
+                  hit because the sample run always stood in, and 0/0 would set
+                  the width to NaN%. */}
+              {stops.length > 0 && (
+                <div className="prog"><div className="track"><div className="fill" style={{ width: `${(100 * doneCount) / stops.length}%` }} /></div><div className="lbl">{doneCount} / {stops.length}</div></div>
+              )}
+              {stops.length === 0 && (
+                <div className="nostops">
+                  <div className="nsi">{mode === "rest-day" ? "○" : "⚠"}</div>
+                  <div className="nsh">{mode === "rest-day" ? "Nothing to run today" : "No stops on this phone"}</div>
+                  <div className="nsb">{driverDayNote(mode, day || "today")}</div>
+                </div>
+              )}
               {stops.map((s) => {
                 const cls = s.status === "done" ? "done" : s.status === "next" ? "next" : s.status === "circle" ? "circle" : "";
                 const ic = s.status === "done" ? "✓" : s.status === "circle" ? "⟲" : s.id + 1;
@@ -658,6 +694,13 @@ export default function DriverApp({
       .drvwrap .prog .track{flex:1;height:8px;background:#e7ddca;border-radius:6px;overflow:hidden}
       .drvwrap .prog .fill{height:100%;background:var(--crust);border-radius:6px;transition:width .3s}
       .drvwrap .prog .lbl{font-size:12.5px;color:var(--ink2);font-weight:600;font-variant-numeric:tabular-nums}
+      /* The honest empty state. Deliberately plain and roomy: it is read once,
+         in a hurry, and it has to be obvious that this is the whole screen and
+         not a list that has yet to load. */
+      .drvwrap .nostops{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:28px 22px;text-align:center}
+      .drvwrap .nostops .nsi{font-size:30px;line-height:1;margin-bottom:12px;color:var(--ink2)}
+      .drvwrap .nostops .nsh{font-size:17px;font-weight:800;margin-bottom:8px}
+      .drvwrap .nostops .nsb{font-size:14px;line-height:1.55;color:var(--ink2);max-width:34ch;margin:0 auto}
       .drvwrap .stop{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:15px 16px;margin-bottom:11px;box-shadow:0 1px 2px rgba(60,45,30,.05);display:flex;align-items:center;gap:13px;cursor:pointer;transition:.15s}
       .drvwrap .stop:active{transform:scale(.99)}
       .drvwrap .stop.done{opacity:.6;cursor:default}

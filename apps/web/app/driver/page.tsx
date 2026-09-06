@@ -1,7 +1,8 @@
 import { withUser } from "@/lib/db";
 import DriverApp from "@/components/DriverApp";
-import { getPackingRuns, getStoreAddresses, getDriverState } from "@/lib/queries";
+import { getPackingRuns, getStoreAddresses, getDriverState, getDriverDayCounts } from "@/lib/queries";
 import { getSessionClaims } from "@/lib/supabase/server";
+import type { DriverDayCounts } from "@/lib/driver-day";
 
 export const metadata = { title: "Driver · Jesse's Bakery OS" };
 // Was statically rendered, which is why it could only ever show sample stops.
@@ -21,6 +22,18 @@ export default async function DriverPage() {
   // shift screen is worse than showing no name at all.
   const claims = await getSessionClaims().catch(() => null);
   const driver = claims?.email ? String(claims.email).split("@")[0] : null;
+  // ONLY when the run came back empty. A normal morning has stops and never
+  // reaches this, so the usual path stays exactly one round trip -- and this
+  // page already sits behind Netlify's 60s ceiling with a Pacific crossing on
+  // every query (see the note in lib/db.ts).
+  //
+  // Same withUser context as the reads above, deliberately: the question is not
+  // "does a plan exist" but "can THIS PHONE see one", and a privileged read
+  // would answer the wrong one.
+  let counts: DriverDayCounts | null = null;
+  if (runs.length === 0) {
+    counts = await withUser(() => getDriverDayCounts(today)).catch(() => null);
+  }
   const pretty = new Intl.DateTimeFormat("en-AU", {
     timeZone: "Australia/Sydney", weekday: "long", day: "numeric", month: "long",
   }).format(new Date());
@@ -28,7 +41,7 @@ export default async function DriverPage() {
     <>
       <div className="head drvhead"><h1>Driver app</h1><div className="meta">Today&apos;s runs, stop by stop</div></div>
       <style>{".drvhead{display:block}@media(max-width:760px){.drvhead{display:none}}"}</style>
-      <DriverApp runs={runs} addresses={addresses} day={pretty} dayIso={today} driver={driver} initialState={state} />
+      <DriverApp runs={runs} addresses={addresses} day={pretty} dayIso={today} driver={driver} initialState={state} counts={counts} />
     </>
   );
 }
