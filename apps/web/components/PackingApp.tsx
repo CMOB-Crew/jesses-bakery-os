@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PackRun, PackState } from "@/lib/queries";
 import { setPackingState } from "@/app/run-state-actions";
+import { driverDayMode, packingDayHeading, packingDayNote, type DriverDayCounts } from "@/lib/driver-day";
 
 // Packing app — the iPad view AND the printed packing slip, on live data.
 //
@@ -95,6 +96,8 @@ export default function PackingApp({
   days,
   who,
   initial = {},
+  counts = null,
+  signedIn = false,
 }: {
   runs: PackRun[];
   day: string;
@@ -102,6 +105,8 @@ export default function PackingApp({
   days: { value: string; label: string }[];
   who: string;
   initial?: PackState;
+  counts?: DriverDayCounts | null;
+  signedIn?: boolean;
 }) {
   const router = useRouter();
   // Keyed by day so switching days starts a clean sheet rather than carrying
@@ -225,15 +230,29 @@ export default function PackingApp({
     setFlagOpen((f) => ({ ...f, [key(si)]: false }));
   }
 
-  // Nothing is planned for this day. Real state, not an error — Sundays run a
-  // short sheet and a day past the plan's last date has none at all.
+  // Nothing is planned for this day.
+  //
+  // Usually that is real state and not an error -- Sundays run a short sheet
+  // and a day past the plan's last date has none at all. But this panel used to
+  // assert exactly that, offering two reasons which were both benign, and it
+  // never considered the one that matters: the plan is there and this screen
+  // cannot read it. A packer reading "nothing to pack" at 4am while 144 stores
+  // are due goes home, and then the bakery does not bake.
+  //
+  // So the reason is measured now. See lib/driver-day.ts -- the driver app hit
+  // the identical problem and it is the identical decision tree, because it is
+  // the identical failure.
   if (!run) {
+    const mode = driverDayMode(false, signedIn, counts);
+    const fault = mode === "plan-missing" || mode === "not-reaching" || mode === "no-access" || mode === "unreadable";
     return (
       <div className="packwrap">
-        <div className="panel" style={{ maxWidth: 620 }}>
-          <div style={{ fontFamily: "var(--serif)", fontSize: 18, marginBottom: 8 }}>Nothing to pack on {dayLabel}</div>
+        <div className="panel" style={{ maxWidth: 620, borderColor: fault ? "var(--amber)" : undefined }}>
+          <div style={{ fontFamily: "var(--serif)", fontSize: 18, marginBottom: 8 }}>
+            {fault ? "\u26A0 " : ""}{packingDayHeading(mode, dayLabel)}
+          </div>
           <div style={{ color: "var(--ink2)", lineHeight: 1.6, marginBottom: 14 }}>
-            No run delivers on this day, or the plan does not reach it yet. The engine plans twelve days ahead and rewrites them nightly.
+            {packingDayNote(mode, dayLabel)}
           </div>
           <DayPicker day={day} days={days} onPick={(d) => router.push(`/packing?day=${d}`)} />
         </div>

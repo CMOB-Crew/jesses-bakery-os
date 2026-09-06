@@ -1,7 +1,8 @@
 import { withUser } from "@/lib/db";
-import { getPackingDays, getPackingRuns, getWeekdayShape, getPackingState } from "@/lib/queries";
+import { getPackingDays, getPackingRuns, getWeekdayShape, getPackingState, getDriverDayCounts } from "@/lib/queries";
 import { getDisplayUser } from "@/lib/supabase/server";
 import PackingApp from "@/components/PackingApp";
+import type { DriverDayCounts } from "@/lib/driver-day";
 
 export const metadata = { title: "Packing · Jesse's Bakery OS" };
 // Was the one page in the app that was not force-dynamic, because it had no
@@ -62,6 +63,22 @@ export default async function PackingPage({
   );
   const who = user?.email ? user.email.split("@")[0] : "Packing";
 
+  // ONLY when the sheet came back empty, so a normal morning costs nothing.
+  //
+  // The panel that shows on an empty sheet used to offer two reasons, both of
+  // them benign: no run delivers today, or the plan does not reach this far. It
+  // never considered the third -- the plan is there and this screen cannot read
+  // it -- which is one policy away and is exactly what the RLS flip risks. A
+  // packer reading "nothing to pack" at 4am while 144 stores are due goes home,
+  // and then the bakery does not bake.
+  //
+  // Read inside the same withUser context as everything above, deliberately:
+  // the question is whether THIS SCREEN can see a plan, not whether one exists.
+  let counts: DriverDayCounts | null = null;
+  if (runs.length === 0) {
+    counts = await withUser(() => getDriverDayCounts(day)).catch(() => null);
+  }
+
   return (
     <>
       <div className="head">
@@ -79,6 +96,8 @@ export default async function PackingPage({
         dayLabel={dayLabel(day)}
         days={days.map((d) => ({ value: d, label: dayLabel(d) }))}
         who={who}
+        counts={counts}
+        signedIn={Boolean(user)}
       />
     </>
   );

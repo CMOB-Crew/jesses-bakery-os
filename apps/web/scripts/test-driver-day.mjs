@@ -7,7 +7,8 @@
  * the real module through tsx so a change to the source is a change to what is
  * tested. See the npx line at the bottom of ship-driver-empty-state.sh.
  */
-import { driverDayMode, driverDayNote, driverDayBanner, showsSampleStops } from "../lib/driver-day.ts";
+import { driverDayMode, driverDayNote, driverDayBanner, showsSampleStops,
+         packingDayHeading, packingDayNote } from "../lib/driver-day.ts";
 
 let pass = 0;
 const fails = [];
@@ -87,6 +88,34 @@ for (const m of ["demo", "rest-day", "plan-missing", "not-reaching", "no-access"
   is(`${m} banner avoids our jargon`,
      /\b(RLS|row-level|policy|policies|engine|replenishment|current_app_role)\b/i.test(ban), false);
 }
+
+// --- the packing sheet: same tree, different room -------------------------
+// A packer IS at the bakery, so "call the bakery" is nonsense to them, and
+// there is no van to be held up.
+for (const m of ["rest-day", "plan-missing", "not-reaching", "no-access", "unreadable"]) {
+  const note = packingDayNote(m, "Monday 7 September");
+  const head = packingDayHeading(m, "Monday 7 September");
+  is(`packing ${m} has a note`, note.length > 20, true);
+  is(`packing ${m} never says call the bakery`, /call the bakery/i.test(note), false);
+  is(`packing ${m} avoids our jargon`,
+     /\b(RLS|row-level|policy|policies|engine plans twelve|current_app_role)\b/i.test(note.replace(/The engine plans twelve days ahead[^.]*\./, "")), false);
+  is(`packing ${m} heading is non-empty`, head.length > 5, true);
+}
+// The three faults must name a person and must forbid packing from elsewhere.
+for (const m of ["plan-missing", "not-reaching", "no-access"]) {
+  is(`packing ${m} names who to tell`, /Simona or Jesse/.test(packingDayNote(m, "Monday")), true);
+  is(`packing ${m} heading says it should not be empty`,
+     /should not be/.test(packingDayHeading(m, "Monday")), true);
+}
+is("packing plan-missing forbids packing from memory",
+   /do not pack from memory/i.test(packingDayNote("plan-missing", "Monday")), true);
+is("packing not-reaching says outright it is a fault",
+   /this is a fault/i.test(packingDayNote("not-reaching", "Monday")), true);
+// A rest day stays calm and keeps the old, correct wording.
+is("packing rest-day heading is the calm one",
+   packingDayHeading("rest-day", "Sunday"), "Nothing to pack on Sunday");
+is("packing rest-day is not alarming",
+   /fault|do not pack|tell Simona/i.test(packingDayNote("rest-day", "Sunday")), false);
 
 // --- report -----------------------------------------------------------------
 if (fails.length) {

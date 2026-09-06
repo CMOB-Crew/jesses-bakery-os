@@ -128,3 +128,58 @@ export function driverDayNote(mode: DriverDayMode, dayLabel: string): string | n
       return "Could not load today's run. Check your signal and pull down to refresh. If it stays empty, call the bakery.";
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * THE PACKING SHEET USES THE SAME DECISION TREE, BECAUSE IT IS THE SAME FAILURE.
+ *
+ * The sheet already refuses to invent data -- it has always shown an honest
+ * "Nothing to pack on Monday" panel rather than sample stores. But it offered
+ * two reasons and both were benign:
+ *
+ *     "No run delivers on this day, or the plan does not reach it yet."
+ *
+ * Neither is the one that matters. A packer standing at the bench at 4am on
+ * go-live morning, reading that while 144 stores are due, goes home. Then the
+ * bakery does not bake. That is the most expensive single failure in this
+ * system, and it is one row-level security policy away.
+ *
+ * Migration 078 grants a packer SELECT on stores and replenishment_plans, the
+ * same as a driver, so the same three counts answer it.
+ *
+ * Only the words change, because the room is different: a packer IS at the
+ * bakery, so "call the bakery" is nonsense to them, and there is no van to be
+ * held up. What they need is permission to stop and a name to raise.
+ * --------------------------------------------------------------------------- */
+
+/** The heading on the packing sheet's empty panel. */
+export function packingDayHeading(mode: DriverDayMode, dayLabel: string): string {
+  switch (mode) {
+    case "rest-day":
+      return `Nothing to pack on ${dayLabel}`;
+    case "live":
+    case "demo":
+      return `Nothing to pack on ${dayLabel}`;
+    default:
+      return `The sheet for ${dayLabel} is empty, and it should not be`;
+  }
+}
+
+export function packingDayNote(mode: DriverDayMode, dayLabel: string): string {
+  switch (mode) {
+    case "rest-day":
+      return `No run delivers on ${dayLabel}. Pick another day above to see its sheet.`;
+    case "plan-missing":
+      return "Stores are due a delivery today, but tonight's plan was never built. Do not pack from memory or from yesterday's sheet — tell Simona or Jesse before anything goes in a tray.";
+    case "not-reaching":
+      return "Stores are due today and the plan exists, but none of it is reaching this screen. This is a fault, not a quiet day. Tell Simona or Jesse now — do not start packing from another source.";
+    case "no-access":
+      return "This account cannot see any stores, so an empty sheet proves nothing. Tell Simona or Jesse that the packing screen has no access.";
+    case "unreadable":
+      return "The sheet could not be loaded. Refresh once; if it is still empty, tell Simona or Jesse rather than packing from another source.";
+    // Reached when nothing is planned and there is nothing to diagnose -- the
+    // plan legitimately does not extend this far. The engine plans twelve days
+    // ahead and rewrites them nightly.
+    default:
+      return "No run delivers on this day, or the plan does not reach it yet. The engine plans twelve days ahead and rewrites them nightly.";
+  }
+}
