@@ -4,6 +4,8 @@ import Sidebar from "@/components/Sidebar";
 import { getDisplayUser } from "@/lib/supabase/server";
 import DemoTour from "@/components/DemoTour";
 import RouteFrame from "@/components/RouteFrame";
+import RouteGuard from "@/components/RouteGuard";
+import { getAppRole } from "@/lib/app-role";
 
 // Demo build only: the guided pop-up tour. NEXT_PUBLIC_DEMO is unset on the live
 // site, so this is stripped/never mounts there.
@@ -27,12 +29,22 @@ export const metadata: Metadata = {
 //
 // This reads the cookie locally. It gates nothing; it puts a name in a corner.
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const user = await getDisplayUser().catch(() => null);
+  // Both are per-request memoised, and getAppRole only queries when auth is
+  // enforced. In parallel: neither depends on the other, and this layout runs
+  // in front of every page on every route.
+  const [user, appRole] = await Promise.all([
+    getDisplayUser().catch(() => null),
+    getAppRole().catch(() => null),
+  ]);
   return (
     <html lang="en-AU">
       <body>
         <div className="app">
-          <Sidebar user={user} />
+          <Sidebar user={user} appRole={appRole} />
+          {/* Not a security control -- RLS is. This stops a driver following an
+              old bookmark into a page that renders empty and reads as broken.
+              See components/RouteGuard.tsx. */}
+          <RouteGuard role={appRole} />
           {/* RouteFrame shows a skeleton while a sidebar navigation is in
               flight. It is a client wrapper around a server slot, so no page
               becomes a client component and no Suspense boundary is created --
