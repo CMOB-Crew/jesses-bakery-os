@@ -133,7 +133,19 @@ export default function PackingApp({
     }
     void (async () => {
       const res = await setPackingState(day, next);
-      if (!res.ok) setToast(`Could not save: ${res.error}`);
+      // showToast, not setToast. setToast puts a message on screen and never
+      // takes it off again -- the 3.6s timer lives in showToast -- so one failed
+      // save left "Could not save" sitting over the sheet for the rest of the
+      // shift, long after the next tick had saved fine. A packer reading that
+      // has no way to tell a stale warning from a live one, and the honest
+      // reading is the pessimistic one: stop, and phone someone.
+      //
+      // It was also a use-before-declare on a const: setToast is declared about
+      // twenty lines BELOW this effect. It happens to work, because an effect
+      // body runs after the whole component function has finished, but it stops
+      // being true the moment this block moves. showToast is a hoisted function
+      // declaration, so it has neither problem.
+      if (!res.ok) showToast(`Could not save: ${res.error}`);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runs]);

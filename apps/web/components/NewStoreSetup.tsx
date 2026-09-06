@@ -128,7 +128,11 @@ function seed(size: Size, type: SType, excluded: Set<string> = new Set()): Recor
   return out;
 }
 
-const titleCaseRegion = (s: string) => (s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+// titleCaseRegion lived here and tidied the region dropdown's labels. The
+// dropdown went when the region started coming from the picked store instead of
+// being chosen by hand, and the helper stayed behind, unreferenced. Removed so
+// the tree lints clean -- the point of zero warnings is that the next real one
+// gets noticed.
 
 export default function NewStoreSetup({ regions = [], runs = [] }: { regions?: string[]; runs?: RunOption[] }) {
   // Real regions from the DB when available; otherwise the built-in fallback.
