@@ -39,3 +39,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Staff accounts for scripts/provision-users.mjs.
+#
+# THIS REPOSITORY IS PUBLIC. That file holds real people's names and email
+# addresses, and the script's own usage line -- "node scripts/provision-users.mjs
+# people.csv" -- reads as an instruction to create it right here, next to the
+# script. It was not ignored, so the natural thing to do was also the thing that
+# published the bakery's staff list.
+#
+# The committed template is people.example.csv, which is fictional on purpose.
+people.csv
+people-*.csv
+*.people.csv
