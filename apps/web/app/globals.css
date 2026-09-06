@@ -309,3 +309,42 @@ tr.clk:hover td{background:#faf6ee}
 .rbadge.tile .rb-i{width:auto;height:auto;background:none}
 .rbadge.tile.sm{width:19px;height:19px;border-radius:5px}
 .rbadge.tile.sm svg{width:14px;height:14px}
+
+/* ---------------------------------------------------------------------------
+   iOS zooms into any form field smaller than 16px, and never zooms back out.
+
+   Measured on a real phone, 7 September: signing in as a packer left the whole
+   app zoomed and pannable sideways, and it looked identical on the driver side
+   -- because it is the same login page, and the zoom survives the redirect. It
+   reads as a broken layout. It is not: every page measures zero horizontal
+   overflow at 393px. It is Safari doing exactly what it is documented to do,
+   because the email and password inputs are 14px.
+
+   The rule is 16px on TOUCH devices only, so the desktop design is untouched.
+   It has to be >= 16px; 15.9 zooms.
+
+   Deliberately global rather than a fix to the login form: the same trap is
+   waiting on every other field in the app -- the assistant's ask box is 14px
+   today -- and a packer or driver who hits it mid-shift has no idea what
+   happened or how to undo it.
+
+   Not fixed with maximum-scale=1 / user-scalable=no, which is the other common
+   answer. That does stop the zoom, and it also stops somebody pinching to read
+   a store name in a dim van at 4am. Taking zoom away from the people this app
+   is for, to fix our own font size, is the wrong trade.
+   --------------------------------------------------------------------------- */
+@media (pointer: coarse) {
+  /* !important, deliberately, and it is load-bearing.
+
+     Component rules here are class-scoped -- .loginform input, .nstore input,
+     .plist select -- and a media query adds NO specificity, so a bare `input`
+     selector loses to every one of them. The first version of this fix was
+     written without !important, measured, and changed nothing at all.
+
+     Safe as a floor because it only ever raises: every input rule in the
+     codebase is 16px or smaller, the largest being .packwrap .flagpanel input,
+     which is already 16px inside a mobile query -- somebody hit this exact trap
+     once, fixed that one field, and never generalised it. If a field is ever
+     deliberately larger than 16px, this needs a max() and a second look. */
+  input, select, textarea { font-size: 16px !important; }
+}
