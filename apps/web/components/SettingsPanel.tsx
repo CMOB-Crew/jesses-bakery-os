@@ -120,6 +120,25 @@ export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: 
 
   const eng = engines.find((e) => e.scenario === sel) ?? engines.find((e) => e.scenario === "balanced") ?? engines[0];
 
+  // The scope tabs used to change one line of hint text and nothing else. The
+  // dial underneath went on writing app_settings.service_level -- the NETWORK
+  // number, and one of only two settings on this page that reaches tonight's
+  // plan -- no matter which tab was lit. So selecting "Per product", reading
+  // "set a single product tighter or looser everywhere", clicking Lean and
+  // getting a green "saved" toast re-levelled all 214 stores. The label said
+  // one product; the write said the network.
+  //
+  // And "Per product" pointed at nothing. There is no per-product service
+  // level: plan_write.sql carries one z per store (081 made store_settings
+  // .service_level reach the engine; before that it was one z for everything),
+  // and the only per-product number the engine reads is products.min_on_shelf,
+  // which no screen edits.
+  //
+  // The dial is now writable on the Network tab only. On the other two it
+  // stays visible, read-only, showing the network default, with a note saying
+  // where the real lever is -- or, for products, that there isn't one.
+  const dialLive = scope === "network";
+
   function ping(msg: string) {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -198,16 +217,25 @@ export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: 
             ))}
           </div>
         </div>
-        <div className="dial">
+        {!dialLive && (
+          <div className="locknote">
+            {scope === "store" ? (
+              <>The dial below is the <b>network</b> default and is read-only while this tab is selected. One store&apos;s level is set on that store&apos;s own profile — it overrides the network for that store and it does reach the nightly plan. <a href="/stores">Open a store</a>.</>
+            ) : (
+              <>There is <b>no per-product service level</b> — not on this page and nowhere else in the app. The plan works out one level per store and applies it to every line that store carries, so a single product cannot be run leaner across the network. The dial below is the network default, read-only. To change one product at one store, use the quantity override on that store&apos;s profile.</>
+            )}
+          </div>
+        )}
+        <div className={dialLive ? "dial" : "dial locked"}>
           {engines.map((e) => (
-            <button key={e.scenario} type="button" className={`dbtn ${e.scenario === sel ? "on" : ""}`} onClick={() => { setSel(e.scenario); persist("service_level", { level: e.scenario }, `Service level set to ${firstWord(e.label)}`); }}>
+            <button key={e.scenario} type="button" disabled={!dialLive} className={`dbtn ${e.scenario === sel ? "on" : ""}`} onClick={() => { if (!dialLive) return; setSel(e.scenario); persist("service_level", { level: e.scenario }, `Service level set to ${firstWord(e.label)}`); }}>
               <span className="dl">{firstWord(e.label)}{e.scenario === "balanced" && <small>default</small>}</span>
               <span className="dv">{e.waste_pct}% <i>waste</i></span>
               <span className="dv2">{e.lost_sales_pct ?? "—"}% lost · {nf(Number(e.units_saved_wk) || 0)}/wk</span>
             </button>
           ))}
         </div>
-        <div className="hint">{scope === "network" ? "Applies to every store. Override per store or per product from a store profile." : scope === "store" ? "Pick this store's level on its profile — overrides the network default." : "Set a single product tighter or looser everywhere (e.g. run challah leaner)."}</div>
+        {dialLive && <div className="hint">Applies to every store. A single store can be set tighter or looser on its own profile, which overrides this one.</div>}
       </div>
 
       {/* MINIMUM PER PRODUCT */}
@@ -330,7 +358,18 @@ export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: 
       .setp .scope{display:flex;background:#ece3d1;border-radius:10px;padding:3px;gap:3px}
       .setp .scope button{border:none;background:transparent;font-family:inherit;font-size:12.5px;font-weight:600;color:var(--muted);padding:7px 12px;border-radius:8px;cursor:pointer}
       .setp .scope button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(60,45,30,.16)}
+      /* Scope tabs other than Network: the dial is a read-only view of the
+         network default, so it must not look pressable. */
+      .setp .locknote{font-size:12.5px;color:var(--ink2);line-height:1.6;background:#f6ecd6;border:1px solid #e6d4ae;border-radius:10px;padding:11px 14px;margin-bottom:14px}
+      .setp .locknote b{color:var(--ink);font-weight:600}
+      .setp .locknote a{color:var(--crust-deep);font-weight:600}
       .setp .dial{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+      .setp .dial.locked .dbtn{opacity:.6;cursor:default}
+      /* :not(.on) matters. Without it, hovering the selected tile while the
+         dial is locked strips the ring off the one thing the tab is there to
+         show you -- which level the network is actually on. */
+      .setp .dial.locked .dbtn:not(.on):hover{border-color:var(--line)}
+      .setp .dial.locked .dbtn.on{background:var(--surface);box-shadow:none}
       @media(max-width:640px){.setp .dial{grid-template-columns:1fr}}
       .setp .dbtn{text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:13px 15px;cursor:pointer;font-family:inherit;transition:.14s;display:flex;flex-direction:column;gap:5px}
       .setp .dbtn:hover{border-color:var(--crust)}
