@@ -358,8 +358,8 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
                   <div className="daygrid">
                     <div className="dgh">
                       {l.days
-                        ? "Set day by day. A zero means no delivery that day. While this is on, it replaces the weekly number entirely."
-                        : `Set any day and this line moves off its weekly number onto the grid. Only ${storeName}'s delivery days are shown.`}
+                        ? "Set day by day. A zero means no delivery that day, and a blank box is a zero — these boxes are the whole week now, not the weekly number."
+                        : `Change one day and the rest fill in with what they already get, so only the day you change, changes. Only ${storeName}'s delivery days are shown.`}
                     </div>
                     <div className="dgrow">
                       {DOW.filter(runsOn).map((d) => (

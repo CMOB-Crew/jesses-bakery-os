@@ -9,6 +9,12 @@
 // explicit router.refresh().
 
 import { q as sql } from "@/lib/db";
+// The packing sheet's own weekday-split rule. Imported, never re-implemented:
+// setStoreDay seeds a line's untouched days with what they are already being
+// packed at, and a second copy of the rule would make "seeding changes nothing"
+// false the first time the two drifted.
+import { dayShare, dowMultipliers, WD_ORDER } from "@/lib/dayshare";
+import { getWeekdayShape } from "@/lib/queries";
 
 // Write-back layer, slice 1: persist the per-product overrides Simona sets on the
 // store profile. Before this, an adjustment lived only in the browser and reset
@@ -415,6 +421,85 @@ export async function setStoreDay(input: DayInput): Promise<OverrideResult> {
     const qty = Math.round(Number(input.qty));
     // Zero is allowed and is the point: it means "not that day".
     if (!Number.isFinite(qty) || qty < 0) return { ok: false, error: "Quantity must be zero or more." };
+
+    // ---------------------------------------------------------------------
+    // SEED THE REST OF THE WEEK, the first time a line joins the grid.
+    //
+    // Measured 7 September against the packing sheet's own query. A line with
+    // no grid rows was carried forward from store_reco and appeared on every
+    // one of the store's delivery days. Writing ONE day handed the whole line
+    // to the grid -- 074's rule, and the rule that makes a zero mean something
+    // -- so the days nobody had typed into went to nothing:
+    //
+    //   Bagel - Plain, delivered Tue/Wed/Fri, set Tue = 137
+    //     Tue  137     Wed  LINE GONE     Fri  LINE GONE
+    //
+    // Simona's stated reason for wanting this screen is "can you up Wednesday?"
+    // -- which is exactly the action that silently cancelled the other two
+    // days. The header warned that the grid "replaces the weekly number
+    // entirely", but three blank boxes beside one filled box read as untouched,
+    // not as zero.
+    //
+    // So the first write now fills every delivery day with the number that day
+    // was ALREADY getting, and the typed day overwrites its own seed below.
+    // The share comes from dayShare() -- the same function the packing sheet
+    // uses, not a second copy of the rule -- so seeding a line changes nothing
+    // about what is packed. Only the day the user typed in moves.
+    //
+    // Only ever when the line has NO rows at all. A line already on the grid is
+    // a complete statement someone made on purpose, and back-filling a day they
+    // deliberately left at nothing would put a delivery back on the van.
+    // ---------------------------------------------------------------------
+    const onGrid = await sql<{ n: number }[]>`
+      select count(*)::int as n from store_product_days
+       where store_id = ${storeId}::uuid and product_id = ${productId}::uuid`;
+
+    if ((onGrid[0]?.n ?? 0) === 0) {
+      // The weekly number this line is on right now, and the days it runs.
+      // The override is date-gated the same way the packing sheet gates it, so
+      // an expired temp order does not get baked into the seed.
+      const ctx = await sql<{ days: string[] | null; weekly: number }[]>`
+        select coalesce(s.delivery_days::text[], '{}'::text[]) as days,
+               coalesce(o.qty, r.sent, 0)::int                 as weekly
+          from stores s
+          left join store_reco r
+                 on r.store_id = s.id and r.product_id = ${productId}::uuid
+          left join store_product_overrides o
+                 on o.store_id = s.id and o.product_id = ${productId}::uuid
+                and o.qty > 0
+                and (o.mode = 'perm' or o.ends_on   is null or o.ends_on   >= current_date)
+                and (o.mode = 'perm' or o.starts_on is null or o.starts_on <= current_date)
+         where s.id = ${storeId}::uuid`;
+
+      const days = ctx[0]?.days ?? [];
+      const weekly = Number(ctx[0]?.weekly ?? 0);
+
+      // No delivery days means we do not know when this store is served, and
+      // dayShare returns 0 for every day. Seeding zeros there would invent a
+      // decision. No weekly number means there is nothing to carry forward --
+      // a line being added from scratch. Either way, write only what was typed.
+      if (days.length > 0 && weekly > 0) {
+        // Same shape the packing sheet asks for. When there is no measured
+        // shape yet both fall back to SEED_DOWMULT, so they still agree. The
+        // one case they could differ is a transient failure here that /packing
+        // does not hit -- and then the seeded numbers are simply visible in the
+        // boxes for Simona to correct, rather than silently applied.
+        const mult = dowMultipliers(await getWeekdayShape());
+        const seedDows = days.filter((d) => WD_ORDER.includes(d));
+        const seedQtys = seedDows.map((d) => dayShare(weekly, days, WD_ORDER.indexOf(d), mult));
+
+        // One statement, and `do nothing` on conflict, so this can never
+        // overwrite a day somebody else set between the check above and here.
+        // If this succeeds and the write below fails, the line is left holding
+        // exactly the numbers it was already being packed at -- a no-op, which
+        // is the right way for a half-finished write to fail.
+        await sql`
+          insert into store_product_days (store_id, product_id, dow, qty, updated_at, updated_by)
+          select ${storeId}::uuid, ${productId}::uuid, t.d::weekday, t.q::int, now(), 'app-seed'
+            from unnest(${seedDows}::text[], ${seedQtys}::int[]) as t(d, q)
+          on conflict (store_id, product_id, dow) do nothing`;
+      }
+    }
 
     await sql`
       insert into store_product_days (store_id, product_id, dow, qty, updated_at, updated_by)
