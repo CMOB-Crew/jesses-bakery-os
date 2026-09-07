@@ -1,0 +1,144 @@
+-- =====================================================================
+-- Migration 086: the app's clock was made of a table nothing writes.
+--
+-- ---------------------------------------------------------------------
+-- THE FAULT, MEASURED ON PRODUCTION 7 SEPTEMBER
+-- ---------------------------------------------------------------------
+--   store_actuals   251 rows, oldest as_of 2026-08-08, newest 2026-08-22
+--   sales_daily     newest sale_date 2026-09-01
+--   v_asof says     2026-08-22
+--   today           2026-09-07
+--
+-- v_asof -- and therefore jb_asof(), which wraps it and is read at 25 call
+-- sites plus a dozen views -- is anchored to store_actuals. That table is one
+-- of the two migration 033 records as "created by hand, outside the migration
+-- set". NOTHING IN THIS CODEBASE WRITES IT. It stopped on 22 August.
+--
+-- The sales data did not stop then. sales_daily runs to 1 September.
+--
+-- So the app holds ten days of data it refuses to look at, and every page that
+-- measures anything is describing 16-22 August while presenting it as current:
+--
+--   * "95 stores that report sales" is has_sales_feed over the wrong week
+--   * v_store_week's waste, sell-through and status badges describe that week
+--   * getWeekdayShape() takes the 91 days ending at as_of, so the weekday curve
+--     that splits every standing order discards 23 Aug - 1 Sept
+--   * the Overview reads "As of Sat, 22 Aug" and is telling the truth about the
+--     wrong thing
+--
+-- The ENGINE is unaffected -- it reads sales_daily directly. That is the
+-- insidious half: the plan is right and every number describing it is stale.
+--
+-- ---------------------------------------------------------------------
+-- WHY THIS TOOK THREE ATTEMPTS TO FIND
+-- ---------------------------------------------------------------------
+-- why-is-asof-stale.sh, written in an earlier session, had the symptom exactly:
+-- /feeds reading "Last sales Mon, 31 Aug" while / read "As of Sat, 22 Aug",
+-- same deploy, seconds apart. It then ruled out the correct answer:
+--
+--     "v_asof is defined exactly once, in migration 002, as
+--      coalesce(max(sale_date), current_date) from sales_daily. Migration 066's
+--      comment claims it reads store_actuals. It does not. That comment is
+--      stale and I did not build on it."
+--
+-- 066's comment was right. The migration file was wrong. Production had drifted
+-- from db/migrations and nobody had asked the database.
+--
+-- That is the second time in one day. Migration 085 was the first: v_asof's
+-- security_invoker setting and its FROM clause both differed from the files.
+--
+--   THE RULE: for anything that behaves oddly, read pg_get_viewdef and
+--   pg_class.reloptions. The migration set records intent, not production.
+--
+-- ---------------------------------------------------------------------
+-- WHAT THIS CHANGES, AND WHY THAT IS THE POINT
+-- ---------------------------------------------------------------------
+-- as_of moves from 2026-08-22 to 2026-09-01. Numbers will move with it: the
+-- Overview's as-of date, the count of stores with a live feed, waste and
+-- sell-through, and the standing-order quantities on the packing sheet.
+--
+-- That is a correction, not a risk. They are wrong now. But it does change what
+-- gets baked, so it was put to Javonte before being applied rather than shipped
+-- quietly.
+--
+-- ---------------------------------------------------------------------
+-- WHAT THIS DELIBERATELY DOES NOT DO
+-- ---------------------------------------------------------------------
+-- It does not remove migration 085's floor_read policy on store_actuals. After
+-- this migration nothing reads that table at all, so the policy is vestigial --
+-- but a policy that grants read on a table nobody reads is harmless, and
+-- removing it is churn two days before go-live. Left deliberately.
+--
+-- It keeps the COALESCE. 085 recorded the hazard: a security-invoker view with
+-- a COALESCE default over a table the caller cannot read silently returns the
+-- default. That hazard is smaller here -- sales_daily is readable by every role
+-- that matters, including the floor since 078 -- and an empty sales_daily on a
+-- fresh database genuinely should fall back to today, which is what 002
+-- intended. Named, not hidden.
+--
+-- security_invoker is re-asserted explicitly after the replace rather than
+-- assumed to survive it. Migration 079 exists because three views were missing
+-- it and read straight past every policy; that is not a thing to leave to a
+-- default.
+--
+-- Additive and idempotent. One view. No data changes, no schema changes.
+-- =====================================================================
+
+begin;
+
+create or replace view v_asof as
+  select coalesce(max(sale_date), current_date) as as_of from sales_daily;
+
+-- Not assumed to survive CREATE OR REPLACE. See the note above.
+alter view v_asof set (security_invoker = on);
+
+comment on view v_asof is
+  'The as-of date: the freshest sale date the system holds. Read through jb_asof() at 25 call sites and by a dozen views, and it is the clock for the seven-day ranging window. Anchored to sales_daily, NOT store_actuals -- store_actuals is hand-created, written by nothing in this codebase, and had been frozen since 22 August while sales_daily ran to 1 September, so every measurement in the app was describing a fortnight ago. Migration 086, 7 September.';
+
+commit;
+
+-- ---------------------------------------------------------------------------
+-- VERIFY. Run each and read the output.
+-- ---------------------------------------------------------------------------
+--
+-- 1. The clock now follows the data. Expect as_of == newest_sale, and both
+--    LATER than store_actuals' frozen date:
+--
+--   select (select as_of from v_asof)                as as_of_now,
+--          (select max(sale_date) from sales_daily)  as newest_sale,
+--          (select max(as_of)     from store_actuals) as store_actuals_frozen_at,
+--          (now() at time zone 'Australia/Sydney')::date as today_sydney;
+--
+-- 2. security_invoker survived. Expect {security_invoker=on}:
+--
+--   select relname, reloptions from pg_class where relname = 'v_asof';
+--
+-- 3. It reads sales_daily now, not store_actuals:
+--
+--   select pg_get_viewdef('v_asof'::regclass, true);
+--
+-- 4. The floor gets the same answer as postgres -- this is the check migration
+--    085 existed for, and it must still hold. Both must return the SAME date:
+--
+--   select 'postgres' as who, (select as_of from v_asof)::text as as_of;
+--
+--   begin;
+--   select set_config('request.jwt.claims',
+--            (select json_build_object('sub', id, 'role','authenticated')::text
+--               from public.users where email = 'packer1@jessesbakery.com.au'), true);
+--   set local role jbo_app;
+--   select 'jbo_app + packer' as who, (select as_of from v_asof)::text as as_of;
+--   rollback;
+--
+--   A driver and a packer can read sales_daily -- migration 078 granted it --
+--   so this works without any new policy. If it ever returns today's date
+--   instead, that is the COALESCE hazard firing and sales_daily has become
+--   unreadable to the floor.
+--
+-- 5. On screen, before and after. Write these down first:
+--      Overview   the "As of" date, and "N stores that report sales"
+--      Packing    a run's total units, and one standing-order store's lines
+--    The as-of date must move to the newest sale date. The other numbers will
+--    move too -- that is the correction landing, not a fault. If NOTHING moves,
+--    the view did not take.
+-- ---------------------------------------------------------------------------
