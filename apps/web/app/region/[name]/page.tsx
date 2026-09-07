@@ -2,6 +2,7 @@ import Link from "next/link";
 import NotFoundPanel from "@/components/NotFoundPanel";
 import { getRegionStores } from "@/lib/queries";
 import StoresList from "@/components/StoresList";
+import { scoreStore, isMeasured } from "@/lib/store-scoring";
 
 // Render per request, consistent with the other data pages and off the
 // build-time prerender path.
@@ -29,13 +30,18 @@ export default async function RegionPage({ params }: { params: Promise<{ name: s
     );
   }
 
-  // A store is only scored where we can actually see its sales — otherwise it is
-  // awaiting feed, not "on track". Identical rule to the Overview and the Stores
-  // list, and it has to stay identical: a sent-or-sold test alone lets a dark
-  // store through, because it is still being delivered to, and with a NULL waste
-  // (migration 027) jb_status has nothing to fail it on and returns green.
+  // A store is only scored where we can actually measure it — otherwise it is
+  // awaiting something, not "on track". The rule is shared with the Overview,
+  // the Stores list, the map and the store profile, and it is now one function
+  // rather than five copies asking each other to stay identical. A sent-or-sold
+  // test alone lets two kinds of store through: a dark one that is still being
+  // delivered to, and one whose sales arrive with no delivery record. Both give
+  // a NULL waste, and jb_status returns green for a NULL.
   const hasData = (s: (typeof stores)[number]) =>
-    s.has_sales_feed !== false && (Number(s.total_sent) > 0 || Number(s.total_sold) > 0);
+    isMeasured(scoreStore({
+      retailer: s.retailer, has_sales_feed: s.has_sales_feed,
+      sent: s.total_sent, sold: s.total_sold, status: s.status,
+    }));
   const red = stores.filter((s) => hasData(s) && s.status === "red").length;
   const amber = stores.filter((s) => hasData(s) && s.status === "amber").length;
   const green = stores.filter((s) => hasData(s) && s.status === "green").length;

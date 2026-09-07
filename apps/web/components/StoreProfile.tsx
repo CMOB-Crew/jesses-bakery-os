@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import RetailerBadge from "@/components/RetailerBadge";
 import type { StoreWeek, StoreReco, StoreOverride, StoreDay, StoreSellout, StoreSchedule, RunPick } from "@/lib/queries";
 import { isCapStale, effectiveCap } from "@/lib/shelfcap";
+import { scoreStore, isMeasured } from "@/lib/store-scoring";
 import { setStoreOverride, clearStoreOverride, setStoreRanging, setStoreServiceLevel, setStoreLastVisit, setStorePhoto, setStoreShelfCap } from "@/app/store/actions";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
@@ -97,7 +98,15 @@ export default function StoreProfile({
   // page scored every one of them "High performer — waste beats 100% of medium
   // retail stores" next to 0% sell-through. The stores list called the same shop
   // "No data" on the previous screen.
-  const hasData = store.has_sales_feed !== false && (sentWk > 0 || soldWk > 0);
+  //
+  // That is why the rule lives in lib/store-scoring.ts now rather than being
+  // written out here for the fifth time. It also closes the other half of the
+  // same hole: sentWk === 0 with sales arriving is a NULL waste, and jb_status
+  // returns green for a NULL.
+  const hasData = isMeasured(scoreStore({
+    retailer: store.retailer, has_sales_feed: store.has_sales_feed,
+    sent: sentWk, sold: soldWk, status: store.status,
+  }));
   const score = hasData ? SCORE[store.status] : SCORE.nodata;
 
   const rows: Row[] = useMemo(

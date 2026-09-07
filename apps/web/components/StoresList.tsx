@@ -7,6 +7,7 @@ import StatusTag from "@/components/StatusTag";
 import RetailerBadge from "@/components/RetailerBadge";
 import type { StoreWeek, Status } from "@/lib/queries";
 import { isCapStale, effectiveCap, type ShelfCapOverride } from "@/lib/shelfcap";
+import { scoreStore, isMeasured } from "@/lib/store-scoring";
 
 /* ------------------------------------------------------------------ *
  * Stores directory — the searchable, filterable list of every active
@@ -19,17 +20,24 @@ import { isCapStale, effectiveCap, type ShelfCapOverride } from "@/lib/shelfcap"
 const nf = (n: number) => (Number(n) || 0).toLocaleString("en-AU");
 const num = (v: unknown) => Number(v) || 0;
 
-// Two ways a store has no assessable data, and both must read "No data" rather
-// than green or red:
-//   1. nothing delivered and nothing sold — no feed loaded yet.
-//   2. no sales feed at all — an invoice customer. Jesse delivers and invoices
-//      them; they never report a scan sale. Their waste isn't 0% or 100%, it's
-//      unknowable. Without this they'd show as delivered-everything-sold-nothing,
-//      i.e. 100% waste, flagged red (migration 027).
-const hasData = (s: StoreWeek) =>
-  s.has_sales_feed !== false && (Number(s.total_sent) > 0 || Number(s.total_sold) > 0);
+// Three ways a store has no assessable data, and all of them must read "No
+// data" rather than green or red. The rule is in lib/store-scoring.ts now,
+// because it used to be written out here and in four other files, each asking
+// the others to stay identical, and it drifted twice anyway.
+//
+// The list keeps its own two-value vocabulary — measured, or "No data" — so the
+// filters and sort order are untouched. The Overview separates "awaiting feed"
+// from "no delivery recorded" because it has room to; both land here as No
+// data, and the counts still reconcile between the two pages, which is the
+// thing that must never break.
 type Eff = Status | "nodata";
-const effOf = (s: StoreWeek): Eff => (hasData(s) ? s.status : "nodata");
+const effOf = (s: StoreWeek): Eff => {
+  const v = scoreStore({
+    retailer: s.retailer, has_sales_feed: s.has_sales_feed,
+    sent: s.total_sent, sold: s.total_sold, status: s.status,
+  });
+  return isMeasured(v) ? v : "nodata";
+};
 const EFF_ORDER: Record<Eff, number> = { red: 0, amber: 1, green: 2, nodata: 3 };
 const EFF_LABEL: Record<Eff, string> = { red: "Needs attention", amber: "Watch", green: "On track", nodata: "No data" };
 

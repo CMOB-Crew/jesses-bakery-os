@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { MapStore } from "@/lib/queries";
+import { scoreStore, isMeasured } from "@/lib/store-scoring";
 
 /* ------------------------------------------------------------------ *
  * Network map — the whole active network at a glance. A readable region
@@ -17,22 +18,28 @@ const COLOR: Record<Kind, string> = { green: "var(--green)", amber: "var(--amber
 const STLABEL: Record<Kind, string> = { green: "On track", amber: "Watch", red: "Needs attention", nodata: "No data", invoice: "Invoice customer" };
 
 // Neutral grey, never green, for a store whose sales we can't actually see.
-// The sent-or-sold test alone is NOT enough, and this is the third page it has
-// caught out: a Coles store is still being delivered to, so sent > 0, and with
-// a NULL waste (migration 027) jb_status has nothing to fail it on and hands
-// back green. The feed flag is the only honest test. Same rule as the Overview,
-// the Stores list and the region pages — it has to stay identical across all of
-// them or the counts stop reconciling, and Simona is the one who notices.
-const hasData = (s: MapStore) =>
-  s.has_sales_feed !== false && (Number(s.sent) > 0 || Number(s.sold) > 0);
-// Invoice first, and it wins outright. An invoice customer tells Jesse what
-// they want; nothing about them is forecast, so they can never be green, amber
-// or red. Before this they fell through to "nodata" and sat in the same grey
-// as a Coles store whose feed had gone dark -- which reads as "chase this
-// feed" when there is no feed to chase and never will be. Simona noticed on
-// 1 Sept: "how come grey is invoices... the schools are in grey".
-const effOf = (s: MapStore): Kind =>
-  s.retailer === "invoice" ? "invoice" : hasData(s) ? (s.status as Kind) : "nodata";
+// The rule is in lib/store-scoring.ts now. It used to be written out here and
+// in four other files, each carrying a comment asking the others to stay
+// identical, and it drifted twice regardless.
+//
+// The comment this replaces said "the feed flag is the only honest test". That
+// was half of it. `sent > 0 || sold > 0` also lets through a store with sales
+// and NO delivery record, where waste has no denominator, waste_pct is NULL,
+// and jb_status's CASE falls past every comparison to green. Invoice still
+// wins outright — Simona, 1 Sept: "how come grey is invoices... the schools
+// are in grey".
+const effOf = (s: MapStore): Kind => {
+  const v = scoreStore({
+    retailer: s.retailer, has_sales_feed: s.has_sales_feed,
+    sent: s.sent, sold: s.sold, status: s.status,
+  });
+  if (v === "invoice") return "invoice";
+  return isMeasured(v) ? v : "nodata";
+};
+const hasData = (s: MapStore) => {
+  const k = effOf(s);
+  return k === "red" || k === "amber" || k === "green";
+};
 
 export default function NetworkMap({ stores }: { stores: MapStore[] }) {
   const router = useRouter();

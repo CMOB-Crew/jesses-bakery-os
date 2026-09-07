@@ -2,6 +2,7 @@ import { withUser } from "@/lib/db";
 import Link from "next/link";
 import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek, getAppSettings, getStoreStates, getShelfCapOverrides, getPeakDaySold, getEngineHealth } from "@/lib/queries";
 import type { StoreWeek } from "@/lib/queries";
+import { scoreStore, isMeasured, overviewHeadline, type Scored } from "@/lib/store-scoring";
 import StatusTag from "@/components/StatusTag";
 import RecCard from "@/components/RecCard";
 import AskBar from "@/components/AskBar";
@@ -124,24 +125,42 @@ export default async function Overview() {
   // green. The Overview read "154 On track" while the Stores list read "Green 1
   // · No data 170" — the same 265 stores, 153 of them called healthy on one page
   // and unmeasurable on the other. The Stores list was right.
-  const hasData = (s: StoreWeek) =>
-    s.has_sales_feed !== false && (Number(s.total_sent) > 0 || Number(s.total_sold) > 0);
-  const eff: Record<"red" | "amber" | "green" | "nodata" | "invoice", number> =
-    { red: 0, amber: 0, green: 0, nodata: 0, invoice: 0 };
+  //
+  // The rule itself now lives in lib/store-scoring.ts. It had been copy-pasted
+  // into five files, each carrying a comment asking the others to stay
+  // identical, and it drifted twice anyway. It also had a hole: `sent > 0 ||
+  // sold > 0` let through a store with sales and NO delivery record, and
+  // jb_status hands back green off a NULL waste. On 7 September that was all
+  // 201 stores this page was calling "On track". See the module header.
+  const scored = new Map<string, Scored>();
+  for (const s of stores) {
+    scored.set(s.store_id, scoreStore({
+      retailer: s.retailer, has_sales_feed: s.has_sales_feed,
+      sent: s.total_sent, sold: s.total_sold, status: s.status,
+    }));
+  }
+  const hasData = (s: StoreWeek) => isMeasured(scored.get(s.store_id) ?? "no-delivery");
+  const eff: Record<"red" | "amber" | "green" | "nodata" | "nodelivery" | "invoice", number> =
+    { red: 0, amber: 0, green: 0, nodata: 0, nodelivery: 0, invoice: 0 };
   const ndByRegion = new Map<string, number>();
   for (const s of stores) {
     if (hasData(s)) { eff[s.status] += 1; continue; }
-    // Not scored. But there are two reasons a store lands here and they are
-    // opposites, so they no longer share a tile:
+    // Not scored. Three reasons a store lands here, and they go to three
+    // different people, so they do not share a tile:
     //
-    //   invoice  the customer tells Jesse what they want. There is no feed and
-    //            there never will be. Nothing to chase.
-    //   nodata   the feed has gone dark. Temporary, and worth chasing.
+    //   invoice      the customer tells Jesse what they want. There is no feed
+    //                and there never will be. Nothing to chase.
+    //   nodata       the retailer's feed has gone dark. Chase the report.
+    //   nodelivery   the feed is FINE and the sales are arriving -- what is
+    //                missing is our own delivery record. Chasing Coles for a
+    //                file that already landed is the same class of mistake as
+    //                painting invoice customers grey.
     //
-    // Calling the first one "awaiting feed" sends someone looking for a report
-    // that does not exist. Simona spotted the same thing on the map on 1 Sept:
-    // "how come grey is invoices... the schools are in grey."
-    if (s.retailer === "invoice") eff.invoice += 1;
+    // Simona spotted the first one on the map on 1 Sept: "how come grey is
+    // invoices... the schools are in grey."
+    const sc = scored.get(s.store_id);
+    if (sc === "invoice") eff.invoice += 1;
+    else if (sc === "no-delivery") eff.nodelivery += 1;
     else eff.nodata += 1;
     // BOTH still count here. ndByRegion is not the tile — it feeds
     // `green = Math.max(0, r.green - nd)` on every delivery run tile below, and
@@ -151,6 +170,15 @@ export default async function Overview() {
     const k = s.region ?? "";
     ndByRegion.set(k, (ndByRegion.get(k) ?? 0) + 1);
   }
+
+  // The sentence and the rule that justifies it live in the same module, so they
+  // cannot drift apart. The old version branched only on eff.red, so it printed
+  // "Everything's on track today" whenever nothing was red -- including over 201
+  // stores that had not been measured at all.
+  const headline = overviewHeadline({
+    red: eff.red, amber: eff.amber, green: eff.green,
+    noFeed: eff.nodata, noDelivery: eff.nodelivery,
+  });
 
   return (
     <>
@@ -235,22 +263,22 @@ export default async function Overview() {
 
       <div className="hero">
         <div className="line">
-          {eff.red ? <><b>{eff.red} stores</b> need you today.</> : <>Everything&apos;s on track today.</>}{" "}
-          {/* "The rest are running themselves" is only true when the rest are
-              actually green. With the Coles feed down, 170 of 265 stores have no
-              sales reaching us at all — saying they're running themselves is the
-              most reassuring possible reading of the least information. */}
-          <span className="dim">
-            {eff.nodata > eff.green
-              ? <>{eff.nodata} more aren&apos;t reporting sales, so we can&apos;t tell you either way.</>
-              : <>The rest are running themselves.</>}
-          </span>
+          {/* Both halves come from overviewHeadline. "The rest are running
+              themselves" is only true when the rest are actually green, and
+              "Everything's on track" is only true when something was measured —
+              neither of which the old inline ternaries could tell. */}
+          {headline.line}{" "}
+          {headline.sub && <span className="dim">{headline.sub}</span>}
         </div>
         <div className="hstats">
           <Stat dot="var(--red)" n={eff.red} l="Need attention" />
           <Stat dot="var(--amber)" n={eff.amber} l="To watch" />
           <Stat dot="var(--green)" n={eff.green} l="On track" />
           {eff.nodata > 0 && <Stat dot="var(--muted)" n={eff.nodata} l="Awaiting feed" />}
+          {/* Its own tile, not folded into "Awaiting feed". The feed is fine for
+              these stores — the sales are arriving. What is missing is our own
+              delivery record, and that is a different person's job. */}
+          {eff.nodelivery > 0 && <Stat dot="var(--muted)" n={eff.nodelivery} l="No delivery recorded" />}
           {/* Same colour and the same population as the map's legend, so the
               two pages reconcile at a glance. */}
           {eff.invoice > 0 && <Stat dot="var(--violet)" n={eff.invoice} l="Invoice customers" />}
@@ -304,7 +332,8 @@ export default async function Overview() {
       <div className="foot">
         Live data · {net.stores} stores across {regions.length} regions. Waste is inferred from the on-hand ledger
         (retailers report only what sold). Exception-first: {eff.green} stores on track are running themselves
-        {eff.nodata ? `; ${eff.nodata} are awaiting their retailer feed (Coles / Harris Farm) and aren't scored yet` : ""}.
+        {eff.nodata ? `; ${eff.nodata} are awaiting a retailer feed and aren't scored yet` : ""}
+        {eff.nodelivery ? `; ${eff.nodelivery} have sales arriving but no delivery recorded, so there is nothing to measure them against` : ""}.
       </div>
     </>
   );
