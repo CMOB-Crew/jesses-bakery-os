@@ -50,17 +50,30 @@ a{color:inherit;text-decoration:none}
 
 /* ---- app shell ---- */
 .app{display:grid;grid-template-columns:236px 1fr;min-height:100vh;position:relative;z-index:1}
-.side{background:var(--side);border-right:1px solid var(--line);padding:20px 16px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
-.logo{display:flex;align-items:center;gap:9px;font-family:var(--serif);font-weight:600;font-size:19px;letter-spacing:-.3px;padding:6px 8px 18px}
+/* The sidebar is a sticky full-height column: logo, nav, footer chip. It had
+   height:100vh and no overflow rule anywhere, so anything past the bottom of
+   the window was not merely off-screen, it was UNREACHABLE -- the page scrolls,
+   the sidebar cannot, because sticky pins it to the viewport.
+   On a laptop with the browser chrome and the dock, an admin's nav ran out at
+   Accuracy. Benchmarks, Settings, Driver app and Packing app were all below the
+   fold with no way to get to them. Simona is a manager, and Settings is the
+   screen her role exists for: she could not open it at all.
+   The nav scrolls now; the logo and the footer chip stay put.
+   min-height:0 is the load-bearing half. A flex item defaults to
+   min-height:auto, which refuses to shrink below its content, so overflow-y on
+   its own would have changed nothing. The negative right margin puts the
+   scrollbar inside the sidebar's own padding rather than over the labels. */
+.side{background:var(--side);border-right:1px solid var(--line);padding:20px 16px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:hidden}
+.logo{flex:none;display:flex;align-items:center;gap:9px;font-family:var(--serif);font-weight:600;font-size:19px;letter-spacing:-.3px;padding:6px 8px 18px}
 .logo .mk{color:var(--crust)}
-.nav{display:flex;flex-direction:column;gap:2px}
+.nav{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;margin-right:-10px;padding-right:10px;padding-bottom:8px}
 .nav a{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:9px;color:var(--ink2);font-weight:500;font-size:14px;cursor:pointer;transition:background .15s}
 .nav a:hover{background:#f3ecdd}
 .nav a.on{background:#efe6d3;color:var(--ink);font-weight:600}
 .nav a svg{width:17px;height:17px;stroke:currentColor;stroke-width:1.7;fill:none;opacity:.85}
 .nav a.on svg{stroke:var(--crust-deep);opacity:1}
 .nav .grp{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:16px 10px 6px}
-.side-foot{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px;border-top:1px solid var(--line)}
+.side-foot{flex:none;margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px;border-top:1px solid var(--line)}
 .avatar{width:30px;height:30px;border-radius:50%;background:var(--espresso);color:#f0e6d2;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-size:14px;font-weight:600}
 .side-foot .who{font-size:13px;font-weight:600;line-height:1.2}
 .side-foot .who small{display:block;color:var(--muted);font-weight:400;font-size:11.5px}
