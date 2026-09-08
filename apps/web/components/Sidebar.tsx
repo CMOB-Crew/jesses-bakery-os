@@ -22,13 +22,17 @@ const NAV: { href: string; label: string; icon: ReactNode }[] = [
   { href: "/feeds", label: "Sales feeds", icon: <><path d="M12 16V4" /><path d="M7 9l5-5 5 5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></> },
 ];
 
+// Jesse's own logo, not the loaf that stood in for it. One file,
+// public/brand/jesses-bakery.png, used here, on all three sign-in screens, in
+// the packing app header and on the printed packing slip -- so there is one
+// place to change if the mark ever changes.
+//
+// alt="" and not a description: the words "Jesse's Bakery" sit right next to it
+// in the markup, so a screen reader announcing the image as well would say it
+// twice.
 const EMBLEM = (
-  <svg className="emblem" viewBox="0 0 40 40" aria-hidden="true">
-    <defs><linearGradient id="jbLogo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#c98a34" /><stop offset="1" stopColor="#9a6414" /></linearGradient></defs>
-    <circle cx="20" cy="20" r="19" fill="url(#jbLogo)" />
-    <path d="M10 25c0-6 4.5-9 10-9s10 3 10 9c0 2.2-1.6 3.4-3.4 3.4H13.4C11.6 28.4 10 27.2 10 25z" fill="#fbf0d8" />
-    <path d="M16 21l-2 4.5M20 20l-2 5.5M24 21l-2 4.5" stroke="#b0741c" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-  </svg>
+  // eslint-disable-next-line @next/next/no-img-element -- a 256px static mark rendered at 78px or smaller. next/image would put a build-time optimiser in front of the one screen nobody can work around if it fails, to save a few KB on an internal app
+  <img className="emblem" src="/brand/jesses-bakery.png" alt="" width={256} height={256} />
 );
 
 // The footer chip used to be the literal string "Simona / Operations",
@@ -150,7 +154,7 @@ export default function Sidebar({ user = null, appRole = null }: { user?: Sideba
         </div>
       )}
       <style>{`
-        .side .logo .emblem{width:27px;height:27px;flex:none;filter:drop-shadow(0 2px 4px rgba(120,80,20,.22))}
+        .side .logo .emblem{width:34px;height:34px;flex:none;display:block;border-radius:50%;box-shadow:0 1px 3px rgba(60,45,30,.13)}
         .side .logo .logotext{font-family:var(--serif)}
         .side .side-foot .signout{margin-left:auto;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;color:var(--muted);flex:none}
         .side .side-foot .signout:hover{background:var(--line);color:var(--espresso)}

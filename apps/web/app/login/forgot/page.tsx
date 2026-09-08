@@ -25,8 +25,13 @@ export default async function ForgotPage({
     <div className="loginwrap">
       <div className="logincard">
         <div className="loginbrand">
-          <span className="dot" />
-          Jesse&apos;s Bakery
+          {/* The real logo, not an amber square with the name in a serif beside
+              it. This is the first screen a driver or a packer ever sees, often
+              at 4am on a phone, and it should look like Jesse's rather than
+              like any other sign-in box. The wordmark is inside the logo, so
+              the text next to it went with the square. */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- a 256px static mark rendered at 78px or smaller. next/image would put a build-time optimiser in front of the one screen nobody can work around if it fails, to save a few KB on an internal app */}
+          <img src="/brand/jesses-bakery.png" alt="Jesse's Bakery" width={256} height={256} />
         </div>
 
         {sent ? (
@@ -77,9 +82,8 @@ export default async function ForgotPage({
         .logincard{width:100%;max-width:380px;background:var(--card,#fff);
           border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh-pop);
           padding:34px 32px}
-        .loginbrand{display:flex;align-items:center;gap:9px;font-family:var(--serif);
-          font-size:17px;font-weight:600;color:var(--ink);margin-bottom:22px}
-        .loginbrand .dot{width:11px;height:11px;border-radius:3px;background:var(--amber)}
+        .loginbrand{display:flex;align-items:center;margin-bottom:20px}
+        .loginbrand img{width:78px;height:78px;display:block}
         .logincard h1{font-family:var(--serif);font-size:24px;font-weight:600;
           letter-spacing:-.3px;color:var(--ink);margin:0 0 4px}
         .logincard .sub{font-size:13.5px;color:var(--muted);margin:0 0 20px}

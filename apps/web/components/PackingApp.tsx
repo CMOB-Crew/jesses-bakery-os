@@ -280,7 +280,8 @@ export default function PackingApp({
       </div>
       <div className="pad"><div className="app">
         <div className="top">
-          <span className="logo"><span className="mk">✦</span> Jesse&apos;s Bakery</span><h1>Packing</h1>
+          {/* eslint-disable-next-line @next/next/no-img-element -- a 256px static mark rendered at 78px or smaller. next/image would put a build-time optimiser in front of the one screen nobody can work around if it fails, to save a few KB on an internal app */}
+          <span className="logo"><img className="mk" src="/brand/jesses-bakery.png" alt="" /> Jesse&apos;s Bakery</span><h1>Packing</h1>
           <DayPicker day={day} days={days} onPick={(d) => router.push(`/packing?day=${d}`)} />
           <button className="pexport no-print" onClick={() => window.print()} title={`Print the ${run.name} run as a packing slip`}>⤓ Export PDF</button>
           <span className="who"><span className="av">{who.trim().charAt(0).toUpperCase() || "?"}</span>{who}</span>
@@ -393,7 +394,8 @@ export default function PackingApp({
           on paper. Real stores and real quantities since 28 Aug. */}
       <div className="pack-slip" aria-hidden="true">
         <div className="ps-head">
-          <div className="ps-brand"><span className="mk">✦</span> Jesse&apos;s Bakery — Packing Slip</div>
+          {/* eslint-disable-next-line @next/next/no-img-element -- a 256px static mark rendered at 78px or smaller. next/image would put a build-time optimiser in front of the one screen nobody can work around if it fails, to save a few KB on an internal app */}
+          <div className="ps-brand"><img className="mk" src="/brand/jesses-bakery.png" alt="" /> Jesse&apos;s Bakery — Packing Slip</div>
           <div className="ps-meta">{run.name} · {dayLabel} · {plural(run.stores.length, "store")} · {run.units.toLocaleString("en-AU")} units</div>
           <div className="ps-date">Packer: __________________   Checked by: __________________</div>
         </div>
@@ -419,8 +421,8 @@ export default function PackingApp({
       .packwrap .pad{width:1120px;max-width:100%;height:760px;background:#151009;border-radius:30px;padding:14px;box-shadow:0 30px 70px -22px rgba(40,25,10,.5)}
       .packwrap .app{background:var(--paper);border-radius:18px;height:100%;overflow:hidden;display:flex;flex-direction:column}
       .packwrap .top{padding:16px 22px;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--line)}
-      .packwrap .top .logo{font-family:var(--serif);font-weight:600;font-size:18px}
-      .packwrap .top .logo .mk{color:var(--crust)}
+      .packwrap .top .logo{display:flex;align-items:center;gap:9px;font-family:var(--serif);font-weight:600;font-size:18px}
+      .packwrap .top .logo .mk{width:34px;height:34px;flex:none;display:block;border-radius:50%}
       .packwrap .top h1{font-family:var(--serif);font-size:20px;font-weight:600;margin-left:6px}
       .packwrap .daypick{font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 10px;cursor:pointer}
       .packwrap .daypick:focus{outline:none;border-color:var(--crust);box-shadow:0 0 0 3px rgba(176,116,28,.13)}
@@ -539,8 +541,11 @@ export default function PackingApp({
         /* The wordmark is decoration; on a phone it costs the day picker its
            room. The mark stays so the header still reads as ours. */
         .packwrap .top{padding:10px 12px;gap:8px}
-        .packwrap .top .logo{font-size:0}
-        .packwrap .top .logo .mk{font-size:19px}
+        /* Narrow screens drop the wordmark and keep the mark. font-size:0
+           collapses the text node; it does nothing to an image, which is why
+           this still works now that the mark is one. */
+        .packwrap .top .logo{font-size:0;gap:0}
+        .packwrap .top .logo .mk{width:28px;height:28px}
         .packwrap .top h1{font-size:17px;margin-left:0}
         .packwrap .daypick{padding:9px 8px;font-size:12.5px;min-width:0;flex:1}
         /* Avatar only. The name is already on every action in the audit trail;
@@ -781,8 +786,8 @@ export default function PackingApp({
         .packwrap .cap, .packwrap .livenote{display:none !important}
         .packwrap .pack-slip{display:block;color:#000}
         .packwrap .ps-head{border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:14px}
-        .packwrap .ps-brand{font-family:var(--serif);font-size:22px;font-weight:700}
-        .packwrap .ps-brand .mk{color:#000}
+        .packwrap .ps-brand{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-size:22px;font-weight:700}
+        .packwrap .ps-brand .mk{width:40px;height:40px;flex:none;display:block}
         .packwrap .ps-meta{font-size:14px;font-weight:600;margin-top:4px}
         .packwrap .ps-date{font-size:12.5px;margin-top:8px;color:#333}
         .packwrap .ps-store{break-inside:avoid;margin-bottom:14px}
