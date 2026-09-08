@@ -39,7 +39,12 @@ export default function EnginePanel({ scenarios, feedStores = null }: { scenario
       <div className="engine">
         <div className="eng-top">
           <span className="dot" />
-          <h2>Waste this week — today vs. the plan</h2>
+          {/* "today vs. the plan" was left standing when the labels
+              underneath it stopped saying today. A heading that says one thing
+              directly above a label that says another is worse than either
+              alone -- and neither the baseline nor the plan figure is about
+              today. This now matches the two labels word for word. */}
+          <h2>Waste — the baseline vs. the plan</h2>
           {/* This panel and the tiles below the fold are computed on different
               bases and will not agree. The panel measures the store-product
               lines the engine actually planned; the view measures everything
