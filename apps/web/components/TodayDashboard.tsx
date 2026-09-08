@@ -244,8 +244,17 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
   return (
     <section className="today">
       <div className="t-head">
-        <span className="t-lbl">Today</span>
-        <span className="t-date">{asOf}</span>
+        {/* This said "Today" with asOf printed beside it, and both halves were
+            wrong at once. asOf is the freshest sale date we hold, so on a
+            Tuesday morning it is Monday. And the numbers underneath are not one
+            day at all: `stores` and `net` are v_store_week and v_network_week,
+            which are the SEVEN DAYS ending at asOf. So a heading that said
+            "Today" was showing a week, ending yesterday, to a person who reads
+            the word literally -- and the very next panel on this same page
+            already calls this window "this week". Two labels for one window,
+            and the wrong one was in the bigger type. */}
+        <span className="t-lbl">Last 7 days</span>
+        <span className="t-date">to {asOf}</span>
         <span className="t-note">date picker &amp; live $ next phase</span>
       </div>
 
