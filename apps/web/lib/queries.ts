@@ -128,6 +128,12 @@ export type EngineScenario = {
   units_saved_wk: number;
   delivered: number | null;
   channel: string;
+  // When these figures were last computed. Migration 087. NULL means unknown:
+  // the rows predate the column and were written by hand outside the migration
+  // set, so there is no date to backfill and inventing one would be worse than
+  // saying so. Optional on the type as well, because the column does not exist
+  // until 087 is applied and this panel must not break in between.
+  computed_at?: string | null;
 };
 export async function getEngineProjection(): Promise<EngineScenario[]> {
   try {

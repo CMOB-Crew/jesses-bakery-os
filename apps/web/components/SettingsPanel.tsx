@@ -201,7 +201,14 @@ export default function SettingsPanel({ scenarios, settings = {}, feeds = [] }: 
             The one dial that trades waste against selling out.
             {eng ? (
               <>
-                {" "}Today the stores we can measure run <b>{current?.waste_pct ?? "—"}%</b> waste.
+                {/* Was "Today the stores we can measure run X% waste". It is
+                    not today's. engine_projection is written by nothing in this
+                    codebase -- see the note in EnginePanel.tsx and migration
+                    087 -- so this is a baseline someone measured once. The
+                    Overview says the same thing in the same words now; two
+                    screens quoting one number should not describe it
+                    differently. */}
+                {" "}Across the stores we can measure, the baseline is <b>{current?.waste_pct ?? "—"}%</b> waste.
                 At <b>{firstWord(eng.label)}</b> the plan <b>would</b> bring that to <b>{eng.waste_pct}%</b>,
                 for <b>{eng.lost_sales_pct ?? "—"}%</b> lost sales, saving <b>{nf(Number(eng.units_saved_wk) || 0)}</b> loaves a week.
               </>

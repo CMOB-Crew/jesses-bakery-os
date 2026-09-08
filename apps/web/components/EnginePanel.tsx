@@ -20,6 +20,12 @@ export default function EnginePanel({ scenarios, feedStores = null }: { scenario
   if (!current || engines.length === 0) return null;
 
   const eng = engines.find((e) => e.scenario === "balanced") ?? engines[0];
+  // Formatted in Sydney, explicitly. This renders on the server, which runs in
+  // UTC, and "3 Sep" versus "2 Sep" on the front page is exactly the kind of
+  // one-day slip nobody would ever think to question.
+  const computedAt = current.computed_at
+    ? new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", year: "numeric" }).format(new Date(current.computed_at))
+    : null;
   const curPct = Number(current.waste_pct) || 0;
   const engPct = Number(eng.waste_pct) || 0;
   const drop = Math.round((curPct - engPct) * 10) / 10;
@@ -34,22 +40,40 @@ export default function EnginePanel({ scenarios, feedStores = null }: { scenario
         <div className="eng-top">
           <span className="dot" />
           <h2>Waste this week — today vs. the plan</h2>
-          {/* The tiles below the fold read 34.5% from the live view; this panel
-              reads 34.3% from the last engine run, because the engine measured
-              the 1,189 store-product lines it actually planned (19,408 units)
-              while the view measures everything those same reporting stores received
-              (19,491). Same stores, same week, 83 units apart. Saying which is
-              which beats two unexplained numbers on one screen — and the
-              scenarios below are all computed on the engine's basis, so this
-              number has to stay on it too. */}
-          <span className="src">{feedStores == null ? "Stores that report sales" : `${nf(feedStores)} stores that report sales`} · this week · at the last engine run</span>
+          {/* This panel and the tiles below the fold are computed on different
+              bases and will not agree. The panel measures the store-product
+              lines the engine actually planned; the view measures everything
+              those same reporting stores received. Same stores, same week, a
+              few dozen units apart. Saying which is which beats two unexplained
+              numbers on one screen, and the scenarios below are all on the
+              engine's basis, so this one has to stay on it too.
+
+              WHAT THE CAPTION USED TO SAY, AND WHY IT WAS WRONG. It read
+              "this week · at the last engine run". Neither half was true. The
+              only write to engine_projection anywhere in the repository is
+              migration 005's seed, and production no longer matches that seed
+              -- so the rows were updated by hand, outside the migration set,
+              at a date nobody recorded. jb_run_engine() does not touch this
+              table; 033 reads it once to seed engine_service_levels and never
+              writes it back. The nightly engine has never produced these
+              figures.
+
+              The numbers are not wrong. They were measured off the real
+              ledger. What was wrong was a screen calling them current when
+              nothing keeps them current -- and this is the number Simona will
+              read out to Jesse. Migration 087 adds computed_at so the date can
+              be shown once something records it; until then the caption says
+              plainly that it does not know. */}
+          <span className="src">{feedStores == null ? "Stores that report sales" : `${nf(feedStores)} stores that report sales`} · {computedAt ? `baseline measured ${computedAt}, not recalculated since` : "a measured baseline, not recalculated since — date not recorded"}</span>
         </div>
 
         <div className="eng-grid">
           <div>
             <div className="ba">
               <div className="cell now">
-                <div className="k">Right now</div>
+                {/* "Right now" was the load-bearing untruth. Nothing
+                    recalculates this. */}
+                <div className="k">Before the plan</div>
                 <div className="big">{curPct}<span className="u">%</span></div>
               </div>
               <div className="arrow"><svg viewBox="0 0 34 20"><path d="M2 10h28M22 3l8 7-8 7" /></svg></div>
@@ -64,7 +88,7 @@ export default function EnginePanel({ scenarios, feedStores = null }: { scenario
                 <i style={{ width: "100%", background: "var(--red-b)" }} />
                 <i style={{ width: `${planWidth}%`, background: "var(--green)" }} />
               </div>
-              <div className="row"><span className="lab">Today</span><span>{curPct}% wasted</span><span className="v" /></div>
+              <div className="row"><span className="lab">Baseline</span><span>{curPct}% wasted</span><span className="v" /></div>
               <div className="row"><span className="lab">The plan</span><span>{engPct}% wasted</span><span className="v">−{nf(savedWk)}</span></div>
             </div>
           </div>
