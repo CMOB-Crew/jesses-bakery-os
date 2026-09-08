@@ -11,9 +11,28 @@ import { getAppRole } from "@/lib/app-role";
 // site, so this is stripped/never mounts there.
 const DEMO = process.env.NEXT_PUBLIC_DEMO === "1";
 
+// appleWebApp is what makes "Add to Home Screen" produce an APP rather than a
+// bookmark. Without `capable`, iOS opens the shortcut inside the browser with
+// the address bar and toolbar still there -- which is what the floor would have
+// got, on a screen where the toolbar is exactly what covers the Complete
+// button. app/manifest.ts carries the same intent for Android; iOS still keys
+// off this meta tag, so both are needed and neither is redundant.
+//
+// `title` is the label under the icon on the home screen, so it is the short
+// name, not the product name.
+//
+// The icons themselves are the app/icon.png and app/apple-icon.png file
+// conventions -- Next emits the <link> tags from the files existing, so there
+// is nothing to declare here and nothing to keep in step by hand.
 export const metadata: Metadata = {
   title: "Jesse's Bakery OS",
   description: "Waste, forecasting and distribution — Jesse's Bakery operating system.",
+  applicationName: "Jesse's Bakery OS",
+  appleWebApp: {
+    capable: true,
+    title: "Jesse's Bakery",
+    statusBarStyle: "default",
+  },
 };
 
 // Async so the sidebar can name whoever is actually signed in instead of
