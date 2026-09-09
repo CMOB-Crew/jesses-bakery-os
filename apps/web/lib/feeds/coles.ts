@@ -86,9 +86,13 @@ const FIELDS: { key: keyof ColesRow | "storeDesc" | "productDesc" | "state"; nam
   // sales onto a single Monday. It gets its own message below instead.
   { key: "saleDate", names: ["day", "date", "transactiondate", "saledate", "calendarday"], required: true },
   { key: "state", names: ["state"], required: false },
-  { key: "location", names: ["location", "locationcode", "site", "siteno", "store", "storenumber"], required: true },
+  // `storeno` and `itemno` are Harris Farm PartnerHub's spellings. They are the
+  // only two headers that file uses which nothing else does; everything else it
+  // sends already matched. Added here rather than in a Harris-Farm-only parser,
+  // because a second parser is a second place for a retailer's rename to hide.
+  { key: "location", names: ["location", "locationcode", "site", "siteno", "storeno", "store", "storenumber"], required: true },
   { key: "storeDesc", names: ["locationdescription", "storename", "sitename", "sitedescription", "description"], required: false },
-  { key: "sellItem", names: ["sellitem", "item", "itemcode", "article", "articleno", "productcode"], required: true },
+  { key: "sellItem", names: ["sellitem", "item", "itemcode", "itemno", "article", "articleno", "productcode"], required: true },
   { key: "productDesc", names: ["sellitemdescription", "itemdescription", "productdescription", "articledescription", "product"], required: false },
   // The RCTI repeats (Unit Cost, Quantity Settled, Extended Cost) FOUR times.
   // Only the first triplet is the sale; the other three are adjustment columns
@@ -277,6 +281,124 @@ async function loadSheetsThatHaveRows(wb: ExcelJS.Workbook, bytes: Uint8Array): 
 
 const MAX_HEADER_SCAN = 25;
 
+/* ---------------------------------------------------------------- *
+ * WIDE reports, unpivoted before anything else looks at them.
+ *
+ * Harris Farm's PartnerHub export has no date column at all. The dates
+ * live in the HEADERS, a pair per day across the selected week:
+ *
+ *   StoreNo | Store Name | ItemNo | Item Description
+ *     | 2026-09-07 Qty | 2026-09-07 Sales | 2026-09-08 Qty | ... | Total
+ *
+ * Until now that meant a person exported the CSV, ran a Python script to
+ * flip it, and uploaded the result. Simona has no way to run a Python
+ * script, so Harris Farm was the one feed she could not do at all. The
+ * flip belongs in here.
+ *
+ * The rewrite happens on the workbook, BEFORE the header scan, so every
+ * rule downstream -- header binding, code normalising, the Total-row
+ * filter, the reject reasons -- applies to it unchanged. There is no
+ * second parser and no retailer branch.
+ *
+ * It only fires on a sheet carrying two or more `YYYY-MM-DD Qty` columns.
+ * No Coles or Woolworths report has ever had one, so every file that
+ * loads today loads identically after this.
+ * ---------------------------------------------------------------- */
+const WIDE_QTY = /^(\d{4})(\d{2})(\d{2})qty$/;
+const WIDE_SALES = /^(\d{4})(\d{2})(\d{2})sales$/;
+
+/** Today in Sydney, YYYY-MM-DD. en-CA formats as ISO, and the timeZone does
+ *  the daylight-saving arithmetic so we don't. */
+export function sydneyToday(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(now);
+}
+
+/**
+ * Rewrites any wide sheet in place as a tall one. Returns true if it did.
+ *
+ * TWO RULES, both deliberate and both carried over from the script this
+ * replaces:
+ *
+ * 1. A BLANK IS NOT A ZERO. PartnerHub leaves the cell empty when a store
+ *    sold none of something that day. Emitting a 0 row would tell the
+ *    forecaster "we know this sold nothing", which is a different claim
+ *    from "no sale was recorded" and quietly drags that line's average
+ *    towards zero. Blank cells produce no row at all.
+ *
+ * 2. TODAY IS STILL TRADING. The export always includes the current day,
+ *    and in the morning that is a few hours of trade. Those rows ARE
+ *    emitted here, and rejected with a reason in the main loop below, so
+ *    the page says why rather than the day silently vanishing.
+ */
+function unpivotWideDaily(wb: ExcelJS.Workbook): boolean {
+  type Plan = { id: number; name: string; rows: unknown[][] };
+  const plans: Plan[] = [];
+
+  wb.eachSheet((sheet) => {
+    const limit = Math.min(sheet.rowCount, MAX_HEADER_SCAN);
+    for (let r = 1; r <= limit; r++) {
+      const headers: string[] = [];
+      sheet.getRow(r).eachCell({ includeEmpty: true }, (c, i) => { headers[i] = norm(cell(c.value)); });
+
+      const qtyCol = new Map<string, number>();
+      const salesCol = new Map<string, number>();
+      const dated = new Set<number>();
+      headers.forEach((h, i) => {
+        if (!h) return;
+        let m = WIDE_QTY.exec(h);
+        if (m) { qtyCol.set(`${m[1]}-${m[2]}-${m[3]}`, i); dated.add(i); return; }
+        m = WIDE_SALES.exec(h);
+        if (m) { salesCol.set(`${m[1]}-${m[2]}-${m[3]}`, i); dated.add(i); }
+      });
+      if (qtyCol.size < 2) continue; // not a wide daily sheet
+
+      // Everything that isn't half of a date pair is an identity column and is
+      // carried across under its ORIGINAL header, so the matcher binds it
+      // exactly as it would in a tall file. `Total` is a row summary, not an
+      // identity, and is dropped rather than travelling as a stray column.
+      const keep: number[] = [];
+      const hdrRow = sheet.getRow(r);
+      headers.forEach((h, i) => {
+        if (!h || dated.has(i) || h === "total" || h === "grandtotal") return;
+        keep.push(i);
+      });
+
+      const out: unknown[][] = [];
+      out.push([
+        ...keep.map((i) => String(cell(hdrRow.getCell(i).value) ?? "").trim()),
+        "Date", "Sales Qty", "Invoice Cost",
+      ]);
+
+      const days = [...qtyCol.keys()].sort();
+      for (let s = r + 1; s <= sheet.rowCount; s++) {
+        const src = sheet.getRow(s);
+        const identity = keep.map((i) => cell(src.getCell(i).value));
+        if (identity.every((v) => v == null || v === "")) continue;
+        if (isTotalRow({ sellItem: identity[0], productDesc: identity[identity.length - 1] })) continue;
+        for (const d of days) {
+          const q = cell(src.getCell(qtyCol.get(d)!).value);
+          if (q == null || String(q).trim() === "") continue; // rule 1
+          const si = salesCol.get(d);
+          out.push([...identity, d, q, si == null ? null : cell(src.getCell(si).value)]);
+        }
+      }
+
+      if (out.length > 1) plans.push({ id: sheet.id, name: sheet.name, rows: out });
+      break; // one header row per sheet is enough
+    }
+  });
+
+  if (!plans.length) return false;
+  for (const p of plans) {
+    wb.removeWorksheet(p.id);
+    const ws = wb.addWorksheet(p.name);
+    for (const row of p.rows) ws.addRow(row);
+  }
+  return true;
+}
+
 export async function parseColesWorkbook(buf: ArrayBuffer | Buffer): Promise<ColesParse> {
   const wb = new ExcelJS.Workbook();
 
@@ -294,6 +416,11 @@ export async function parseColesWorkbook(buf: ArrayBuffer | Buffer): Promise<Col
     const ws = wb.addWorksheet("csv");
     for (const line of splitCsv(text)) ws.addRow(line);
   }
+
+  // Flip a wide report to tall before the header scan runs. No-op on every
+  // report that already loads.
+  unpivotWideDaily(wb);
+  const today = sydneyToday();
 
   // Find the sheet AND the header row together: the best-scoring header row
   // across every sheet wins. Their tab was renamed from "Daily Bakery Supplier
@@ -353,8 +480,8 @@ export async function parseColesWorkbook(buf: ArrayBuffer | Buffer): Promise<Col
     const missing = FIELDS.filter((f) => f.required).map((f) => f.names[0]).join(", ");
     throw new Error(
       `Couldn't find a header row in this workbook. Every sheet was checked for its column names; ` +
-      `we need at least: ${missing}. If Coles have renamed a column, tell us what it's called now — ` +
-      `nothing has been loaded.`,
+      `we need at least: ${missing}. If the retailer has renamed a column, tell us what it's called ` +
+      `now — nothing has been loaded.`,
     );
   }
 
@@ -401,6 +528,29 @@ export async function parseColesWorkbook(buf: ArrayBuffer | Buffer): Promise<Col
     if (salesQty == null) why.push(`sales quantity "${String(raw.salesQty ?? "")}" is not a number`);
 
     if (why.length) { rejects.push({ rowNo: r, reason: why.join("; "), raw }); continue; }
+
+    // A PART DAY IS NOT A DAY.
+    //
+    // sales_daily upserts on (store, product, date), so tomorrow's file would
+    // correct today's few hours of trade -- but tonight's 2am engine reads it
+    // FIRST, and a half day drags that store's weekday average down for weeks.
+    // Held back with a reason on screen rather than dropped quietly.
+    //
+    // This was briefly gated to wide files only, on the reasoning that Coles
+    // and Woolworths send yesterday's data and never contain today. The gate
+    // was wrong twice over: if Harris Farm's API answers in the TALL shape the
+    // guard silently stops applying to the one feed it was written for, and if
+    // a retailer ever does send a same-day file the right answer is to hold it
+    // back, not to load a part day because of which shape it arrived in.
+    // The rule is about the date, so it is applied to the date.
+    if (saleDate! >= today) {
+      rejects.push({
+        rowNo: r,
+        reason: `${saleDate} is still trading — a part day would pull this store's average down. It loads tomorrow.`,
+        raw,
+      });
+      continue;
+    }
 
     if (!dateFrom || saleDate! < dateFrom) dateFrom = saleDate!;
     if (!dateTo || saleDate! > dateTo) dateTo = saleDate!;

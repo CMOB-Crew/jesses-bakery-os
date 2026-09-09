@@ -284,9 +284,10 @@ export default function FeedUpload() {
         We read the columns by their <b>names</b>, not their positions — so if a retailer moves a
         column or renames the tab, this keeps working. Any row we can&apos;t match to a
         store and a product is listed back to you rather than quietly skipped.
-        {retailer !== "coles" && (
-          <> Only Coles reports have been through this parser so far; if this one is
-          shaped differently it will be refused with a reason, never half-loaded.</>
+        {retailer === "harris_farm" && (
+          <> The PartnerHub export carries a column per day instead of a row per day —
+          drop it in as it downloads and we do the rest. Today is held back until it
+          has finished trading, and the reason is listed with it.</>
         )}
       </p>
 
