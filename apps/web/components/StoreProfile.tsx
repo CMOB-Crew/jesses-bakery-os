@@ -423,7 +423,8 @@ export default function StoreProfile({
           <div className="nm">{store.name}</div>
           <div className="sub">
             {store.size_category ? <span className="chip">{store.size_category}</span> : null}
-            {noLimit ? <span className="chip">no shelf limit</span>
+            {isInvoice ? null
+              : noLimit ? <span className="chip">no shelf limit</span>
               : cap == null ? <span className="chip soft">cap not set</span>
               : capStale ? <span className="chip capstale">shelf cap {nf(cap)} · check</span>
               : <span className="chip">shelf cap {nf(cap)}{capOver != null ? " · set" : ""}</span>}
@@ -556,7 +557,9 @@ export default function StoreProfile({
         <div className="mlocked">
           <span className="lk">No priced sales for this store this week</span>
           <span className="lknote">
-            {store.retailer === "coles"
+            {isInvoice
+              ? "An invoice customer is billed for what it orders, so nothing is scanned back to us. The week's value is on the standing order below."
+              : store.retailer === "coles"
               ? "Coles has sent nothing since 8 August, so there is nothing to value."
               : "Dollars appear here as soon as this store reports a sale."}
           </span>
@@ -657,7 +660,7 @@ export default function StoreProfile({
       <div className="ph">
         <div className="ph-t">Products &amp; ranging <span className="cnt">{rangedCount}/{rows.length} ranged</span></div>
         <div className="ph-cap">
-          {noLimit ? (
+          {isInvoice ? null : noLimit ? (
             <span className="ok">{nf(capTotal)} units · no fixed limit</span>
           ) : cap == null ? (
             <span className="soft">shelf cap not set for this store</span>
@@ -756,13 +759,17 @@ export default function StoreProfile({
         </div>
       ) : (
         <div className="empty">
-          <div className="e-t">Per-product plan is warming up for this store</div>
-          <div className="e-b">The plan writes line-by-line ranging and orders for stores on a live sales feed (Woolworths today). This store&apos;s totals are above; its product rows light up as its retailer feed fills the ledger.</div>
+          <div className="e-t">{isInvoice ? "Nothing to range on an invoice customer" : "Per-product plan is warming up for this store"}</div>
+          <div className="e-b">{isInvoice
+            ? "An invoice customer is not forecast — it orders and is billed for what it orders. Set what it gets on the standing order below."
+            : <>The plan writes line-by-line ranging and orders for stores on a live sales feed (Woolworths today). This store&apos;s totals are above; its product rows light up as its retailer feed fills the ledger.</>}</div>
         </div>
       )}
 
       <div className="foot">
-        This profile is the single source of truth — ranging, service level and adjustments set here shape the plan, with the shelf cap enforced and a warning on anything over it. <b>Adjustments, ranging and service level all save to the store record</b> now and are here when you come back.
+        {isInvoice
+          ? <>This profile is the single source of truth for an invoice customer — the <b>standing order</b> below is what it gets, and the price beside each line is what it is billed. Both save to the store record and are here when you come back.</>
+          : <>This profile is the single source of truth — ranging, service level and adjustments set here shape the plan, with the shelf cap enforced and a warning on anything over it. <b>Adjustments, ranging and service level all save to the store record</b> now and are here when you come back.</>}
       </div>
 
       {toast && <div className="toast">{toast}</div>}
