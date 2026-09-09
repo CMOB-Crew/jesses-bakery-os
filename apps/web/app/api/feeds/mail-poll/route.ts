@@ -31,6 +31,31 @@ export const maxDuration = 60;
 // same report loading twice, not a tight window.
 const DEFAULT_LOOKBACK_HOURS = 36;
 
+// HOW LONG A RUN GIVES ITSELF, and why it is not the 60 seconds above.
+//
+// 10 September: two backfill runs were killed by the platform while still
+// working. Both had done real work -- the first loaded nineteen reports and
+// 37,600 rows -- and both returned an empty body, which curl reported as a
+// failure with nothing in it to read.
+//
+// Being killed is not the expensive part. The expensive part is being killed
+// BETWEEN claiming a message and finishing it, which used to strand that
+// message forever. So the run now stops itself with time to spare and says
+// what is left, and the caller runs it again. Checked between messages, never
+// during one, because abandoning a half-ingested workbook would be worse than
+// running long.
+const BUDGET_MS = 35_000;
+
+// WHEN A CLAIM GOES STALE.
+//
+// A row sitting on 'running' with nothing finishing it means the run that held
+// it is gone. Ten minutes is far longer than any real message takes -- the
+// slowest observed is the 4.9MB Woolworths workbook at about 20 seconds -- and
+// short enough that the next scheduled pull recovers it without anyone
+// noticing. Below this, a second run overlapping a first must NOT steal its
+// work, which is the whole point of the claim.
+const STALE_CLAIM = "10 minutes";
+
 type SeenStatus = "loaded" | "failed" | "skipped";
 
 /** Constant-time-ish compare, so the secret cannot be guessed a character at a
@@ -115,6 +140,9 @@ async function run(req: NextRequest) {
     status: SeenStatus; note: string; rowsLoaded?: number; rowsRejected?: number;
   }> = [];
 
+  const startedAt = Date.now();
+  let ranOutOfTime = false;
+
   try {
     const token = await graphToken(cfg);
     const page = await listMessages(cfg, token, sinceIso);
@@ -125,15 +153,43 @@ async function run(req: NextRequest) {
       if (!rule) continue;                       // ordinary mail; not ours to touch
       if (only && rule.retailer !== only) continue;
 
-      // CLAIM IT FIRST. The insert is the lock: if another run (or a retry
-      // after a timeout) already has this message, the conflict does nothing
-      // and we move on, so the same report can never load twice.
+      // Checked HERE, before the claim, so the run never owns a message it has
+      // no time to finish. Between messages only: a workbook part-way through
+      // ingest is finished, however long it takes.
+      if (Date.now() - startedAt > BUDGET_MS) {
+        ranOutOfTime = true;
+        break;
+      }
+
+      // CLAIM IT FIRST. The insert is the lock, so the same report can never
+      // load twice -- and the conflict clause is what decides whether a claim
+      // somebody else already holds can be taken over.
+      //
+      // The `where` is the entire safety property. It fires ONLY on a row that
+      // is still 'running' and has been for longer than STALE_CLAIM:
+      //
+      //   loaded / failed / skipped   never matched, so a finished report is
+      //                               never re-ingested, whatever else happens
+      //   running, recent             never matched, so a run in flight keeps
+      //                               its work and two runs cannot collide
+      //   running, older than 10 min  taken over, because whoever held it is
+      //                               not coming back
+      //
+      // When the update does not fire, the statement returns no rows, this
+      // reads as "not claimed", and the message is left alone -- the same
+      // behaviour `do nothing` had, for every case except the stranded one.
       const claimed = await db(async (sql) => {
         const rows = await sql<{ message_id: string }[]>`
           insert into feed_mail_seen (message_id, retailer, subject, received_at, status, note)
           values (${msg.id}, ${rule.retailer}::retailer_type, ${msg.subject},
                   ${msg.receivedAt || null}, 'running', '')
-          on conflict (message_id) do nothing
+          on conflict (message_id) do update
+             set status      = 'running',
+                 note        = '',
+                 started_at  = now(),
+                 finished_at = null
+           where feed_mail_seen.status = 'running'
+             and feed_mail_seen.started_at < now() - ${STALE_CLAIM}::interval
           returning message_id`;
         return rows.length > 0;
       });
@@ -186,14 +242,29 @@ async function run(req: NextRequest) {
     // the same from the outside -- both say "nothing to do". They are not the
     // same, and on a backfill the difference is the entire point, so the
     // truncated one says so in a sentence rather than in a flag nobody reads.
-    const warning = page.capped
-      ? `Stopped after reading ${page.scanned} messages over ${page.pages} pages, ` +
+    const warnings: string[] = [];
+
+    if (page.capped) {
+      warnings.push(
+        `Stopped after reading ${page.scanned} messages over ${page.pages} pages, ` +
         `and there is still older mail in the last ${lookback} hours we did not ` +
         `reach. A smaller hours= will NOT help -- it moves the start date forward, ` +
         `away from the mail being looked for. Either narrow the window to a period ` +
         `that holds fewer than a thousand emails, or ask for that day's report to ` +
-        `be sent again and load it from the Feeds screen.`
-      : null;
+        `be sent again and load it from the Feeds screen.`,
+      );
+    }
+
+    if (ranOutOfTime) {
+      warnings.push(
+        `Stopped at the ${Math.round(BUDGET_MS / 1000)} second budget with reports ` +
+        `still to load, so this run finished cleanly instead of being killed ` +
+        `part-way through one. Nothing is stuck. Run it again with the same hours ` +
+        `and it will carry on from here.`,
+      );
+    }
+
+    const warning = warnings.length ? warnings.join(" ") : null;
 
     return NextResponse.json({
       ok: true,
@@ -204,6 +275,8 @@ async function run(req: NextRequest) {
       pages: page.pages,
       looked: messages.length,
       handled: results.length,
+      more: ranOutOfTime,
+      took_ms: Date.now() - startedAt,
       ...(warning ? { warning } : {}),
       results,
     });
