@@ -1,5 +1,5 @@
 import { withUser } from "@/lib/db";
-import { getPackingDays, getPackingRuns, getWeekdayShape, getPackingState, getDriverDayCounts } from "@/lib/queries";
+import { getPackingDays, getPackingRuns, getWeekdayShape, getPackingState, getPackingFinalised, getDriverDayCounts } from "@/lib/queries";
 import { getDisplayUser } from "@/lib/supabase/server";
 import PackingApp from "@/components/PackingApp";
 import type { DriverDayCounts } from "@/lib/driver-day";
@@ -58,8 +58,8 @@ export default async function PackingPage({
   // else falls back to today, then to the first planned day.
   const day = days.includes(asked) ? asked : days.includes(today) ? today : (days[0] ?? today);
 
-  const [runs, packState] = await withUser(() =>
-    Promise.all([getPackingRuns(day, shape), getPackingState(day)]),
+  const [runs, packState, packFinal] = await withUser(() =>
+    Promise.all([getPackingRuns(day, shape), getPackingState(day), getPackingFinalised(day)]),
   );
   const who = user?.email ? user.email.split("@")[0] : "Packing";
 
@@ -92,6 +92,7 @@ export default async function PackingPage({
         key={day}
         runs={runs}
         initial={packState}
+        initialFinal={packFinal}
         day={day}
         dayLabel={dayLabel(day)}
         days={days.map((d) => ({ value: d, label: dayLabel(d) }))}

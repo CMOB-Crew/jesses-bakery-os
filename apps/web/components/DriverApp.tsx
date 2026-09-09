@@ -1,11 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
-import type { PackRun, DriverState } from "@/lib/queries";
+import type { PackRun, DriverState, PackFinal } from "@/lib/queries";
 import { setDriverState } from "@/app/run-state-actions";
 import { saveDeliveryProof } from "@/app/driver-proof-actions";
 import { uploadProof } from "@/lib/driver-proof";
 import { driverDayMode, driverDayNote, driverDayBanner, showsSampleStops, type DriverDayCounts } from "@/lib/driver-day";
+
+// Sydney, named. This carries a TIME, so the no-time exemption in
+// scripts/dates-name-their-timezone-check.ts does not apply -- and the server
+// runs in UTC, which is how /feeds once showed a 2:01pm pull as 4:01am.
+const finTime = (iso: string) => {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "an unknown time";
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit",
+  }).format(new Date(t));
+};
 
 // Driver app — phone prototype. The build that matters for drivers: dead simple,
 // big taps, live-capture only (no gallery), works down the run stop by stop.
@@ -39,6 +50,7 @@ export default function DriverApp({
   dayIso = "",
   driver = null,
   initialState = {},
+  finalised = {},
   counts = null,
 }: {
   runs?: PackRun[];
@@ -47,6 +59,7 @@ export default function DriverApp({
   dayIso?: string;
   driver?: string | null;
   initialState?: DriverState;
+  finalised?: PackFinal;
   counts?: DriverDayCounts | null;
 }) {
   // Live when the engine has planned today. Everything that WRITES still hangs
@@ -66,6 +79,7 @@ export default function DriverApp({
 
   const [screen, setScreen] = useState<Screen>("licence");
   const [runName, setRunName] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const [stops, setStops] = useState<Stop[]>(sample ? INITIAL : []);
   // What has already been recorded today, so reopening the phone mid-run does
   // not start the driver from the top of the list again.
@@ -99,6 +113,7 @@ export default function DriverApp({
   // worse than admitting it.
   function chooseRun(r: PackRun) {
     setRunName(r.name);
+    setRunId(r.run_id || null);
     const mapped: Stop[] = r.stores.map((st, i) => {
       const done = record[st.store_id];
       return {
@@ -510,6 +525,18 @@ export default function DriverApp({
             {/* "Sample run · Monday" was hardcoded, so a real driver with an
                 empty day was shown a fabricated run name AND the wrong weekday. */}
             <div className="bar"><div><h1>Your run</h1><div className="sub">{runName ?? (sample ? "Sample run" : "No run")}{day ? " · " + day : ""}</div></div></div>
+            {/* Whether the floor has finished with this run. Not a gate: a
+                driver is never blocked from a run that has not been finalised,
+                because being stuck in a yard at 5am with a full van is worse
+                than loading a sheet that is still being ticked. It is a fact
+                on the screen, which is what was missing. */}
+            {runId ? (
+              <div className={`packstate ${finalised[runId] ? "ready" : "packing"}`}>
+                {finalised[runId]
+                  ? `Packed and ready · finalised ${finTime(finalised[runId].at)} by ${finalised[runId].by}`
+                  : "Still being packed · this list can still change"}
+              </div>
+            ) : null}
             <div className="content">
               {driver ? (
                 <div className="drv">
@@ -685,6 +712,12 @@ export default function DriverApp({
       .drvwrap .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:130px;height:26px;background:#1c1610;border-radius:0 0 16px 16px;z-index:50}
       .drvwrap .screen{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--paper)}
       .drvwrap .bar{padding:34px 18px 12px;display:flex;align-items:center;gap:12px;background:var(--paper)}
+      /* Readable in a van, in daylight, at a glance. Colour carries it and the
+         words carry it too -- a driver squinting at a phone through a
+         windscreen should not have to know what green means. */
+      .drvwrap .packstate{margin:0 18px 10px;padding:10px 12px;border-radius:8px;font-size:14px;font-weight:600;line-height:1.35}
+      .drvwrap .packstate.ready{background:#e7f4ec;color:#12603a;border:1px solid #b9dfc9}
+      .drvwrap .packstate.packing{background:#fdf3df;color:#6b4c00;border:1px solid #ecd7a4}
       .drvwrap .bar .back{width:34px;height:34px;border-radius:50%;background:var(--card);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;color:var(--ink2);flex:none}
       .drvwrap .bar h1{font-family:var(--serif);font-size:19px;font-weight:600;letter-spacing:-.3px}
       .drvwrap .bar .sub{font-size:12px;color:var(--muted)}

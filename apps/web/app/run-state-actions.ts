@@ -159,6 +159,50 @@ export async function setPackingState(day: string, state: PackStateWrite): Promi
 }
 
 // ---------------------------------------------------------------------------
+// Mark ONE run packed and ready for the road.
+//
+// Until now the Finalise button raised a toast reading "Not saved and not sent
+// to drivers yet -- that is the next phase" and did nothing else. The floor's
+// handoff to the road was a person calling out that a run was done.
+//
+// mergeRunState, not writeRunState. Six runs go out across a morning and each
+// finalise must ADD its key without erasing the others -- the same reason the
+// driver surface merges rather than replaces.
+//
+// The timestamp is taken on the SERVER and handed back, so the screen shows the
+// stamp that was actually stored rather than a second one from the tablet's own
+// clock. A driver reads this time to decide whether what they are looking at is
+// this morning's work, so the two must not be able to disagree.
+//
+// It does NOT lock the sheet. Locking sounds safer and is wrong here: there is
+// no unlock anywhere in this app, so one early tap at 4am would strand a run
+// with no way back except SQL. Finalising again simply stamps a later time,
+// which is what actually happens on a morning where something goes back on the
+// truck.
+// ---------------------------------------------------------------------------
+export type FinaliseResult = { ok: true; at: string; by: string } | { ok: false; error: string };
+
+export async function setPackingFinalised(day: string, runId: string): Promise<FinaliseResult> {
+  const at = new Date().toISOString();
+  if (process.env.DEMO_READONLY === "1") return { ok: true, at, by: "demo" };
+  try {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(day)) return { ok: false, error: "Bad day." };
+    // A run with no id is a store sitting on no run at all. getPackingRuns
+    // coalesces that to an empty string, and an empty key would be written into
+    // the day's record as a run nobody can look up.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(runId)) {
+      return { ok: false, error: "That run has no id, so it cannot be marked finalised." };
+    }
+    const who = await getDisplayUser().catch(() => null);
+    const by = (who?.email ?? "app").split("@")[0];
+    await mergeRunState("packing_final", day, { [runId]: { at, by } }, who?.email ?? "app");
+    return { ok: true, at, by };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not mark the run finalised." };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // What the driver actually did, per store, for one day.
 //
 // Same table and same shape as the packing sheet: daily_run_state is a generic

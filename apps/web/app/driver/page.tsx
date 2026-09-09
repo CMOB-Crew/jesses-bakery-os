@@ -1,6 +1,6 @@
 import { withUser } from "@/lib/db";
 import DriverApp from "@/components/DriverApp";
-import { getPackingRuns, getStoreAddresses, getDriverState, getDriverDayCounts } from "@/lib/queries";
+import { getPackingRuns, getStoreAddresses, getDriverState, getPackingFinalised, getDriverDayCounts } from "@/lib/queries";
 import { getSessionClaims } from "@/lib/supabase/server";
 import type { DriverDayCounts } from "@/lib/driver-day";
 
@@ -14,8 +14,11 @@ export default async function DriverPage() {
   // the entire bakery working morning -- and the driver would be shown the
   // wrong day's run.
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(new Date());
-  const [runs, addresses, state] = await withUser(() =>
-    Promise.all([getPackingRuns(today), getStoreAddresses(), getDriverState(today)]),
+  // finalised rides along in the SAME round trip. This page already sits
+  // behind Netlify's 60s ceiling with a Pacific crossing on every query, so a
+  // fourth serial read would be the wrong way to answer one question.
+  const [runs, addresses, state, finalised] = await withUser(() =>
+    Promise.all([getPackingRuns(today), getStoreAddresses(), getDriverState(today), getPackingFinalised(today)]),
   );
   // Whoever is actually signed in. The screen used to say "Ankit / Van 3" to
   // everyone -- showing a real driver a different driver's name on their own
@@ -41,7 +44,7 @@ export default async function DriverPage() {
     <>
       <div className="head drvhead"><h1>Driver app</h1><div className="meta">Today&apos;s runs, stop by stop</div></div>
       <style>{".drvhead{display:block}@media(max-width:760px){.drvhead{display:none}}"}</style>
-      <DriverApp runs={runs} addresses={addresses} day={pretty} dayIso={today} driver={driver} initialState={state} counts={counts} />
+      <DriverApp runs={runs} addresses={addresses} day={pretty} dayIso={today} driver={driver} initialState={state} finalised={finalised} counts={counts} />
     </>
   );
 }

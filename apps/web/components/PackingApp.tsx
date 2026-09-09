@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { PackRun, PackState } from "@/lib/queries";
-import { setPackingState } from "@/app/run-state-actions";
+import type { PackRun, PackState, PackFinal } from "@/lib/queries";
+import { setPackingState, setPackingFinalised } from "@/app/run-state-actions";
 import { driverDayMode, packingDayHeading, packingDayNote, type DriverDayCounts } from "@/lib/driver-day";
 
 // Packing app — the iPad view AND the printed packing slip, on live data.
@@ -53,6 +53,17 @@ const CHIP_LABEL: Record<string, string> = { "Short on the order": "Short", "Ite
 
 const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
 
+// Sydney, named. This one carries a TIME, so the exemption in
+// scripts/dates-name-their-timezone-check.ts does not apply to it -- and the
+// server runs in UTC, which is how /feeds showed a 2:01pm pull as 4:01am.
+const finTime = (iso: string) => {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "an unknown time";
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit",
+  }).format(new Date(t));
+};
+
 function toUI(runs: PackRun[], saved: PackState = {}): UIRun[] {
   return runs.map((r) => ({
     run_id: r.run_id,
@@ -96,6 +107,7 @@ export default function PackingApp({
   days,
   who,
   initial = {},
+  initialFinal = {},
   counts = null,
   signedIn = false,
 }: {
@@ -105,6 +117,7 @@ export default function PackingApp({
   days: { value: string; label: string }[];
   who: string;
   initial?: PackState;
+  initialFinal?: PackFinal;
   counts?: DriverDayCounts | null;
   signedIn?: boolean;
 }) {
@@ -112,6 +125,10 @@ export default function PackingApp({
   // Keyed by day so switching days starts a clean sheet rather than carrying
   // yesterday's ticks onto today's stores.
   const [runs, setRuns] = useState<UIRun[]>(() => toUI(runsIn, initial));
+  // Which runs are already marked packed, from the server on load and updated
+  // in place as they are finalised.
+  const [finalised, setFinalised] = useState<PackFinal>(initialFinal);
+  const [finalising, setFinalising] = useState<string | null>(null);
   // Save the sheet whenever it changes.
   //
   // The ref skips the FIRST pass. Without it the initial render would write the
@@ -181,6 +198,21 @@ export default function PackingApp({
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3600);
+  }
+
+  // Finalise the run: write the fact, tell the packer plainly what it did.
+  //
+  // "The drivers can see it now" is the honest wording. It does not push
+  // anything to a phone -- the driver screen has always read the same run --
+  // what changes is that it now knows the run is finished and who finished it.
+  async function finaliseRun(runId: string, runName: string) {
+    setFinalising(runId || "-");
+    const res = await setPackingFinalised(day, runId);
+    setFinalising(null);
+    if (!res.ok) { showToast(`Could not finalise: ${res.error}`); return; }
+    // The server's stamp, not a second one from this tablet's clock.
+    setFinalised((f) => ({ ...f, [runId]: { at: res.at, by: res.by } }));
+    showToast(`${runName} is packed. The drivers can see it now.`);
   }
 
   function mutate(si: number, fn: (s: UIStore) => UIStore) {
@@ -379,9 +411,25 @@ export default function PackingApp({
               })}
             </div>
             <div className="foot">
-              <span className="st">{allDone ? `All ${run.stores.length} stores resolved — ready to finalise.` : `${plural(run.stores.length - curPacked, "store")} still to pack or flag.`}</span>
-              <button className="final" disabled={!allDone} onClick={() => showToast(`${run.name} marked finalised by ${who}. Not saved and not sent to drivers yet — that is the next phase.`)}>
-                {allDone ? `Finalise ${run.name}` : "Finalise run"}
+              <span className="st">{
+                finalised[run.run_id]
+                  ? `Packed and handed to the drivers at ${finTime(finalised[run.run_id].at)} by ${finalised[run.run_id].by}.`
+                  : allDone
+                    ? `All ${run.stores.length} stores resolved — ready to finalise.`
+                    : `${plural(run.stores.length - curPacked, "store")} still to pack or flag.`
+              }</span>
+              <button
+                className="final"
+                disabled={!allDone || finalising !== null}
+                onClick={() => void finaliseRun(run.run_id, run.name)}
+              >
+                {finalising !== null
+                  ? "Sending…"
+                  : finalised[run.run_id]
+                    ? `Finalise ${run.name} again`
+                    : allDone
+                      ? `Finalise ${run.name}`
+                      : "Finalise run"}
               </button>
             </div>
           </div>

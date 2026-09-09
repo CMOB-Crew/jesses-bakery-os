@@ -1084,6 +1084,29 @@ export async function getPackingState(day: string): Promise<PackState> {
   }
 }
 
+// WHICH RUNS THE FLOOR HAS FINISHED PACKING, for one day.
+// { "<run_id>": { "at": "<ISO>", "by": "<name>" } }
+//
+// This is the only thing the driver screen was ever actually missing.
+// app/driver/page.tsx has always called the same getPackingRuns() the packing
+// sheet calls, so the stops and the quantities were never in question. What
+// nobody could see was whether a run was FINISHED, or who finished it, or when.
+//
+// A driver can read this surface only because migration 091 says so. Adding a
+// surface without adding a policy returns NO ROWS rather than an error, which
+// is the failure 071, 075 and 078 each had to fix on this table -- and it would
+// pass every test run by somebody signed in as an admin.
+export type PackFinal = Record<string, { at: string; by: string }>;
+export async function getPackingFinalised(day: string): Promise<PackFinal> {
+  try {
+    const rows = await sql<{ approved: PackFinal }[]>`
+      select approved from daily_run_state where surface = 'packing_final' and day = ${day}::date`;
+    return rows[0]?.approved ?? {};
+  } catch {
+    return {};
+  }
+}
+
 export type DailyBar = { sale_date: Date; dow: string; sold: number; sent: number };
 export async function getStoreDaily(id: string): Promise<DailyBar[]> {
   try {
