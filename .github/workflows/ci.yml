@@ -111,6 +111,57 @@ jobs:
           DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/ci
           AUTH_ENFORCED: "0"
 
+  # Everything above tests the application's logic. This tests the database:
+  # whether it can be built from this repository at all, and whether the
+  # authorisation model actually refuses what it claims to refuse.
+  #
+  # A throwaway Postgres 16 per run. It is dropped and rebuilt from the
+  # migrations every time, which is the only way the rebuild stays true --
+  # the four-week gap where it silently was not is what this exists to stop.
+  db:
+    name: Rebuild the database, and condition 15
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # Local to the runner, and the password is the literal string "ci".
+      # Not a secret, and deliberately not written as one -- a fake secret
+      # teaches people to look past the real ones.
+      DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: psql
+        run: |
+          set -euo pipefail
+          command -v psql >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          }
+          psql --version
+
+      # Fails if any migration cannot apply. Three are skipped by name, each
+      # for a stated reason; anything else failing is a defect.
+      - name: Can this repository rebuild the database?
+        run: bash db/checks/rebuild-from-migrations.sh
+
+      # Rebuilds again from clean, seeds two drivers and a packer, and runs
+      # the three tests as the application's own database role.
+      - name: Condition 15 — the three authorisation tests
+        run: bash db/checks/authorisation-tests.sh
+
   secrets:
     name: Secret scanning
     runs-on: ubuntu-latest
@@ -179,13 +230,28 @@ jobs:
           /tmp/gitleaks git . --redact --exit-code 1
 
 # ---------------------------------------------------------------------
-# STILL OPEN: condition 15, three authorisation tests.
+# CONDITION 15, and what running it actually found.
 #
-# The suites above are logic tests. None of them proves that a driver
-# cannot read another run's stores, that a packer cannot reach the office
-# pages, or that row-level security refuses a write from an unauthenticated
-# session. Those need a throwaway database with the migrations applied and
-# three sessions with different roles, which is a job of its own.
+# It was open from 11 August to 10 September, and it was never blocked on
+# writing tests -- it was blocked on there being no database to test
+# against. Applying all 89 migrations to an empty Postgres had never been
+# tried; when it was, 78 applied. Migrations 003 and 004 were written,
+# applied to production and never committed, and the grants for the
+# application role existed only on production. Both are reconstructed now
+# and the `db` job above rebuilds the database from scratch every run.
 #
-# Written down here rather than quietly counted as done.
+# On top of that, the three tests:
+#
+#   1. a driver cannot read another driver's run   NOT MET
+#   2. a restricted role cannot write wrongly      met, five ways
+#   3. an unauthenticated request returns nothing  met, every table
+#
+# The first is not a missing policy. There is no driver-to-run assignment
+# in this system at all -- every driver is shown every run and picks one.
+# No policy can express "another driver's run" against a model with no
+# such thing, so closing it means building run assignment first.
+#
+# The suite reports that as an open gap and asserts it is exactly the size
+# it was measured to be, so it cannot widen unnoticed and cannot be
+# quietly counted as done either.
 # ---------------------------------------------------------------------

@@ -14,7 +14,12 @@
 -- 1. Auth. Referenced by 012 onward: auth.users, auth.uid().
 create schema if not exists auth;
 create table if not exists auth.users (id uuid primary key, email text);
-create or replace function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
+-- Settable, so a test can say "I am this user". Supabase's real auth.uid()
+-- reads the verified JWT; here it reads a session setting the test controls.
+-- Unset means unauthenticated, which is the third of Fred's three tests.
+create or replace function auth.uid() returns uuid language sql stable as $$
+  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+$$;
 
 -- 2. The application role. 033 grants to it. On Supabase it is the role
 --    DATABASE_URL points at once AUTH_ENFORCED is on.
