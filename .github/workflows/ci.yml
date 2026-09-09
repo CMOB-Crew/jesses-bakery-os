@@ -110,12 +110,62 @@ jobs:
 
       # Condition 10 of the decision record. This repository is PUBLIC and
       # holds a client's production system. The rule everywhere in this
-      # project is that credentials live in Supabase secrets and never here --
-      # this is what makes that a gate rather than a habit.
+      # project is that credentials live in Netlify and Supabase and never
+      # here -- this is what makes that a gate rather than a habit.
+      #
+      # THE CLI, NOT gitleaks-action. The action went proprietary at v2.0.0
+      # and refuses to run against an organisation-owned repository without a
+      # GITLEAKS_LICENSE key. Every CI run from the day it shipped failed in
+      # four seconds on that alone, while the real job beside it -- typecheck,
+      # lint, seven suites, build -- passed every time. Nobody looked, because
+      # a red light that cannot be fixed is a red light people stop reading.
+      #
+      # The key is free. It is still the wrong dependency: a client's
+      # production gate should not rest on a third party's licence server
+      # continuing to hand out free keys. The gitleaks CLI is MIT, needs no
+      # key, and is the same scanner.
+      #
+      # Version pinned. The asset NAME is resolved from the release rather
+      # than guessed, because that is the part that changes.
+      #
+      # --redact because these logs are PUBLIC. A scanner that prints the
+      # secret it just found has published it.
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: v8.28.0
+        run: |
+          set -euo pipefail
+
+          json=$(curl -sSL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/gitleaks/gitleaks/releases/tags/${GITLEAKS_VERSION}")
+
+          # Match on shape, not on an exact filename. x64 and amd64 are both
+          # used across projects and the naming is the part most likely to
+          # drift; the version is what we actually care about pinning.
+          url=$(printf '%s' "$json" | jq -r '
+            [ .assets[]?
+              | select(.name | test("linux"; "i"))
+              | select(.name | test("(x64|amd64)"; "i"))
+              | select(.name | test("\\.tar\\.gz$"))
+              | .browser_download_url ] | first // empty')
+
+          if [ -z "$url" ]; then
+            echo "No linux x64 tarball on the gitleaks ${GITLEAKS_VERSION} release."
+            echo "Either the tag is wrong or the asset naming changed. Assets present:"
+            printf '%s' "$json" | jq -r '.assets[]?.name // empty'
+            printf '%s' "$json" | jq -r '.message // empty'
+            exit 1
+          fi
+
+          echo "Downloading ${url}"
+          curl -sSL "$url" -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks version
+
+          # `git .` scans the full history checked out above. `detect` is the
+          # older spelling of this and is deprecated upstream.
+          /tmp/gitleaks git . --redact --exit-code 1
 
 # ---------------------------------------------------------------------
 # STILL OPEN: condition 15, three authorisation tests.
