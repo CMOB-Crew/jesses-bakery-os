@@ -137,16 +137,25 @@ export default function ProductsList({ products }: { products: ProductPerf[] }) 
     <div className="plist">
       <div className="strip">
         <div className="tile"><div className="tn">{totals.lines}</div><div className="tl">Core lines · planned</div></div>
-        <div className="tile"><div className="tn">{nf(totals.sent)}</div><div className="tl">Delivered · units / wk, every store</div></div>
-        <div className="tile"><div className="tn">{nf(totals.sold)}</div><div className="tl">Sold · units / wk, stores that report</div></div>
+        <div className="tile"><div className="tn">{nf(totals.sent)}</div><div className="tl">Delivered · units confirmed, last 7 days</div></div>
+        <div className="tile"><div className="tn">{nf(totals.sold)}</div><div className="tl">Sold · units, last 7 days, stores that report</div></div>
         <div className="tile"><div className="tn">{totals.wastePct ?? "—"}<span className="u">%</span></div><div className="tl">Waste · of the {nf(totals.feedSent)} units sent to reporting stores</div></div>
       </div>
 
       <div className="scopenote">
-        These are the plan&apos;s core planned lines (store_reco), not the full catalogue. <b>Delivered</b> counts
-        every store. <b>Sell-through</b> and <b>Waste</b> only count the stores whose sales we can actually see — so a
+        These are the plan&apos;s core planned lines (store_reco), not the full catalogue. <b>Delivered</b> is what
+        drivers actually confirmed over the last seven days; <b>Sold</b> is what the retailers reported over the same
+        days. <b>Sell-through</b> and <b>Waste</b> only count the stores whose sales we can actually see — so a
         line that goes mostly to invoice customers shows a dash rather than pretending all of it went in the bin.
         Click a line to see which stores drive it.
+        {totals.sent === 0 ? (
+          <div style={{ marginTop: 10 }}>
+            <b>Nothing is recorded as delivered in the last seven days</b>, so waste and sell-through cannot be
+            measured yet and every line shows a dash. The sales feed is not what is missing — all three retailers are
+            reporting normally. Drivers began confirming deliveries on 9 September, and these fill in as a week of
+            them builds up.
+          </div>
+        ) : null}
       </div>
 
       <NewProductLaunch />

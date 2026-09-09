@@ -352,6 +352,16 @@ export type ProductPerf = {
   stores: number; sent: number; sold: number; recommended: number;
   sell_through: number | null; waste_pct: number | null; change: number;
   launched: boolean; // tagged as a tracked launch (launched_at set)
+  // `sent` IS MEASURED, as of migration 090: units actually confirmed
+  // delivered in the seven days ending jb_asof(). It used to be
+  // store_reco.sent -- which is the standing order and which nothing has ever
+  // written -- so this page reported waste and sell-through off a snapshot
+  // taken at the legacy load, under a column labelled "Delivered".
+  //
+  // `standing` is that same store_reco.sent kept under its real name, because
+  // `change` is a plan-against-plan comparison and belongs against the
+  // standing order, not against one week's measurement.
+  standing: number;
   // Measured population, same rule as the network and region rollups
   // (migrations 031/032). stores/sent/recommended cover everywhere we deliver;
   // feed_* is only where sales come back. Any RATIO uses the feed_* pair.
@@ -359,39 +369,73 @@ export type ProductPerf = {
 };
 export async function getProducts(): Promise<ProductPerf[]> {
   try {
-    const rows = await sql<{ product_id: string; name: string; category: string; stores: number; sent: number; sold: number; recommended: number; feed_stores: number; feed_sent: number; launched_at: Date | null }[]>`
+    const rows = await sql<{ product_id: string; name: string; category: string; stores: number; sent: number; sold: number; standing: number; recommended: number; feed_stores: number; feed_sent: number; launched_at: Date | null }[]>`
       select p.id as product_id, p.name, p.category::text as category,
              count(distinct r.store_id)::int as stores,
-             sum(r.sent)::int as sent, sum(r.sold)::int as sold,
+             -- MEASURED. Confirmed deliveries and reported sales over the
+             -- seven days ending jb_asof() -- the same window v_store_week
+             -- uses, so this page and the Overview cannot disagree about what
+             -- a week is.
+             coalesce(sum(dv.delivered), 0)::int as sent,
+             coalesce(sum(sd.sold), 0)::int      as sold,
+             -- The standing order, under its own name at last. Nothing writes
+             -- it; it is what the packing sheet falls back on for a store with
+             -- no plan for the day, which is why 090 left it alone.
+             coalesce(sum(r.sent), 0)::int       as standing,
              sum(r.recommended)::int as recommended,
              -- Where the sales actually come back from. A product delivered
              -- only to invoice customers has no measurable waste at all, and
              -- must not be reported as 100%.
              count(distinct r.store_id) filter (where w.has_sales_feed)::int as feed_stores,
-             coalesce(sum(r.sent) filter (where w.has_sales_feed), 0)::int      as feed_sent,
+             coalesce(sum(dv.delivered) filter (where w.has_sales_feed), 0)::int as feed_sent,
              p.launched_at
       from store_reco r
       join products p on p.id = r.product_id
       left join v_store_week w on w.store_id = r.store_id
+      left join v_store_product_delivered dv
+             on dv.store_id = r.store_id and dv.product_id = r.product_id
+      left join (
+        select s.store_id, s.product_id, sum(s.units_sold)::int as sold
+          from sales_daily s
+          left join store_product_ranging rg
+            on rg.store_id = s.store_id and rg.product_id = s.product_id
+         where s.sale_date >  jb_asof() - 7
+           and s.sale_date <= jb_asof()
+           and coalesce(rg.ranged, true)
+         group by s.store_id, s.product_id
+      ) sd on sd.store_id = r.store_id and sd.product_id = r.product_id
       where p.active
       group by p.id, p.name, p.category, p.launched_at
-      order by sum(r.sent - r.sold) desc`;
+      -- Worst first still, but on measured numbers. p.name breaks the tie so
+      -- the order is stable while everything is zero, which it will be for
+      -- most lines in the days after go-live.
+      order by coalesce(sum(dv.delivered), 0) - coalesce(sum(sd.sold), 0) desc, p.name`;
     return rows.map((r) => {
       const sent = Number(r.sent), sold = Number(r.sold);
       // Sell-through and waste divide by what the REPORTING stores received, not
       // by everything delivered. Bagel - Mini goes to two invoice customers who
       // never scan a sale, so the old sums read 1,080 delivered / 0 sold / 100%
       // waste and sat at the top of a list sorted worst-first. It is not 100%
-      // waste, it is unmeasurable — and "—" is the honest answer. Same rule as
+      // waste, it is unmeasurable -- and "-" is the honest answer. Same rule as
       // migrations 027/031/032.
+      //
+      // Since 090 that same dash also covers a line nothing has been recorded
+      // as delivering this week. In the days after go-live that is most of
+      // them, and it is the truth: waste cannot be measured against a delivery
+      // nobody wrote down. The page says so rather than leaving a wall of
+      // dashes to be interpreted.
       const feedSent = Number(r.feed_sent);
       return {
         product_id: r.product_id, name: r.name, category: r.category,
         stores: Number(r.stores), sent, sold, recommended: Number(r.recommended),
+        standing: Number(r.standing),
         feed_stores: Number(r.feed_stores), feed_sent: feedSent,
         sell_through: feedSent > 0 ? Math.round((1000 * sold) / feedSent) / 10 : null,
         waste_pct: feedSent > 0 ? Math.round((1000 * (feedSent - sold)) / feedSent) / 10 : null,
-        change: Number(r.recommended) - sent,
+        // Plan against plan: what the engine wants, against the standing order
+        // it would replace. Comparing it to one week's measured deliveries
+        // would read as a cut every time a driver forgot to confirm.
+        change: Number(r.recommended) - Number(r.standing),
         launched: r.launched_at != null,
       };
     });
