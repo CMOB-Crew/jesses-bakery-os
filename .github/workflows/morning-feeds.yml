@@ -59,9 +59,14 @@ on:
   workflow_dispatch:
     inputs:
       hours:
-        description: "How far back to look. 36 is a normal morning, 360 is a fortnight, 720 is the most the poller accepts."
+        description: "Mailbox: how far back to look. 36 is a normal morning, 360 is a fortnight, 720 is the most the poller accepts."
         required: false
         default: "36"
+        type: string
+      weeks:
+        description: "Harris Farm: how many weeks back to walk. 2 is a normal morning. Their dropdown holds 170, so this is how history gets loaded."
+        required: false
+        default: "2"
         type: string
 
 concurrency:
@@ -69,6 +74,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # TWO JOBS ON PURPOSE.
+  #
+  # Coles and Woolworths arrive by email and are collected by the mailbox
+  # poller. Harris Farm sends no email and never has, so it is an API call
+  # instead -- a different endpoint, a different failure mode, and for a while
+  # yet a different state of readiness.
+  #
+  # If they shared a job, a Harris Farm outage would paint the whole morning
+  # red and the mailbox pull's result would be invisible behind it. One red
+  # light meaning "something this morning failed" is the kind people stop
+  # reading -- exactly what happened with the gitleaks licence, where a real
+  # suite passed underneath a failure nobody could fix for six straight runs.
   poll:
     name: Pull the morning reports
     runs-on: ubuntu-latest
@@ -121,4 +138,55 @@ jobs:
           case "$body" in
             *'"ok":true'*) echo "Poll completed." ;;
             *) echo "The poller reported a problem. See the line above."; exit 1 ;;
+          esac
+
+  harrisfarm:
+    name: Pull Harris Farm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask Harris Farm for vendor sales
+        env:
+          FEED_POLL_SECRET: ${{ secrets.FEED_POLL_SECRET }}
+          # Same rule as the job above: through env, never pasted into the
+          # script. GitHub expands ${{ }} before bash sees the line.
+          WEEKS_INPUT: ${{ inputs.weeks }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${FEED_POLL_SECRET:-}" ]; then
+            echo "FEED_POLL_SECRET is not set as a repository secret."
+            echo "Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 1
+          fi
+
+          # Digits only, from this workflow's own input box. Not a secret, so
+          # the query string is where it belongs. The KEY is, and stays in the
+          # header -- these run logs are public.
+          weeks="${WEEKS_INPUT:-2}"
+          case "$weeks" in
+            ''|*[!0-9]*) weeks=2 ;;
+          esac
+          echo "Walking back $weeks week(s) of Harris Farm vendor sales."
+
+          body=$(curl -sS --max-time 300 \
+            -H "x-feed-poll-key: ${FEED_POLL_SECRET}" \
+            "https://app.jessesbakery.com.au/api/feeds/harris-farm-pull?weeks=${weeks}")
+          rc=$?
+
+          echo "$body"
+
+          if [ "$rc" -ne 0 ]; then
+            echo "curl failed with exit code $rc. The site did not answer."
+            exit 1
+          fi
+
+          # THIS IS ALLOWED TO GO RED, and until HARRIS_FARM_USERNAME and
+          # HARRIS_FARM_PASSWORD are set in Netlify it will, every morning,
+          # naming what is missing. A feed that does not work should look like
+          # a feed that does not work. The alternative is a green tick over a
+          # retailer nobody is collecting, which is the failure this whole
+          # system exists to stop.
+          case "$body" in
+            *'"ok":true'*) echo "Harris Farm pull completed." ;;
+            *) echo "Harris Farm reported a problem. See the line above."; exit 1 ;;
           esac
