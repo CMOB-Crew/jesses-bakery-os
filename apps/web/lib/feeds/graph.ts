@@ -153,46 +153,78 @@ export type MailPage = {
   messages: MailMessage[];
   /** How many messages Microsoft returned, before the attachment filter. */
   scanned: number;
-  /** Microsoft filled the page, so there may be older mail we never saw.
+  /** How many pages were fetched. One is an ordinary morning. */
+  pages: number;
+  /** We stopped at the page budget with mail still unread behind it.
    *
-   *  ONE page is requested, sorted newest first. At the ordinary 36-hour
-   *  lookback that is never close to the limit. Ask for a fortnight to
-   *  backfill a gap and accounts@ can easily have more than `top` messages in
-   *  the window -- and the ones that fall off the end are the OLDEST, which
-   *  are exactly the ones being backfilled.
+   *  This used to mean "Microsoft filled one page", and the warning built on
+   *  it told the reader to retry with a smaller hours= value. That advice was
+   *  impossible to follow and it is worth writing down why, because the shape
+   *  of the mistake is more useful than the mistake.
    *
-   *  Truncating quietly would look identical to those reports never having
-   *  been sent. So it is reported, and the caller says so out loud. */
+   *  sinceIso is a LOWER bound. There is no upper bound in this query and no
+   *  way to ask for a slice of the past: every window ends at now. A smaller
+   *  hours moves the START date forward, away from the old mail being chased.
+   *  No value of hours reaches past a full page. The instruction read as
+   *  practical advice and was structurally impossible.
+   *
+   *  Graph's answer to this has always been @odata.nextLink, which is what the
+   *  loop below follows. So capped now means something true and rare: the
+   *  mailbox holds more than maxPages * top messages inside the window, and
+   *  the answer to that is to narrow the window or ask for the file directly,
+   *  not to retry. */
   capped: boolean;
 };
 
+type RawMessage = {
+  id: string; subject?: string; receivedDateTime?: string; hasAttachments?: boolean;
+  from?: { emailAddress?: { address?: string } };
+};
+
+/** maxPages * top is the real ceiling: 1,000 messages in one window.
+ *
+ *  A normal morning is one page of a few dozen. A fortnight-wide backfill on
+ *  accounts@ might be three or four. A thousand means something else is going
+ *  on in that mailbox and stopping is the right thing to do -- each page is a
+ *  round trip inside a function with a 60 second budget. */
+const MAX_PAGES = 10;
+
 export async function listMessages(
-  cfg: GraphConfig, token: string, sinceIso: string, top = 100,
+  cfg: GraphConfig, token: string, sinceIso: string, top = 100, maxPages = MAX_PAGES,
 ): Promise<MailPage> {
-  const url =
+  // Only the FIRST url is built here. Every one after it comes from Microsoft
+  // in @odata.nextLink, already carrying the filter, the sort and the paging
+  // cursor -- rebuilding it by hand is how paging quietly loses records.
+  let next: string | null =
     `${GRAPH}/users/${encodeURIComponent(cfg.mailbox)}/messages` +
     `?$select=id,subject,from,receivedDateTime,hasAttachments` +
     `&$filter=${encodeURIComponent(`receivedDateTime ge ${sinceIso}`)}` +
     `&$orderby=${encodeURIComponent("receivedDateTime desc")}` +
     `&$top=${top}`;
-  const res = await fetch(url, {
-    headers: { authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  if (!res.ok) throw await graphFail(res);
-  const j = (await res.json()) as {
-    value?: Array<{
-      id: string; subject?: string; receivedDateTime?: string; hasAttachments?: boolean;
-      from?: { emailAddress?: { address?: string } };
-    }>;
-  };
+
+  const raw: RawMessage[] = [];
+  let pages = 0;
+
+  while (next && pages < maxPages) {
+    const res: Response = await fetch(next, {
+      headers: { authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) throw await graphFail(res);
+    const j = (await res.json()) as {
+      value?: RawMessage[];
+      "@odata.nextLink"?: string;
+    };
+    raw.push(...(j.value ?? []));
+    next = j["@odata.nextLink"] ?? null;
+    pages++;
+  }
   // hasAttachments used to be part of the $filter. It is applied here now --
   // see the header. A message with no attachment cannot carry a sales report.
   //
-  // scanned counts what Microsoft sent, NOT what survived this filter. A page
-  // of 100 ordinary emails with no attachments is a full page: we saw a
-  // hundred and reached no further back, and that is the fact that matters.
-  const raw = j.value ?? [];
+  // scanned counts everything Microsoft sent across every page, NOT what
+  // survived this filter. Three hundred ordinary emails with no attachments
+  // still means we read three hundred messages' worth of the window.
   const messages = raw
     .filter((m) => m.hasAttachments)
     .map((m) => ({
@@ -202,7 +234,10 @@ export async function listMessages(
       receivedAt: m.receivedDateTime ?? "",
       hasAttachments: true,
     }));
-  return { messages, scanned: raw.length, capped: raw.length >= top };
+  // next is still set only if Microsoft offered another page and the budget
+  // ran out first. An exhausted mailbox leaves it null, which is the ordinary
+  // case and reports honestly as not capped.
+  return { messages, scanned: raw.length, pages, capped: next !== null };
 }
 
 export type MailAttachment = { id: string; name: string; size: number; contentType: string };

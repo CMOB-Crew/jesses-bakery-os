@@ -187,10 +187,12 @@ async function run(req: NextRequest) {
     // same, and on a backfill the difference is the entire point, so the
     // truncated one says so in a sentence rather than in a flag nobody reads.
     const warning = page.capped
-      ? `Microsoft returned a full page of ${page.scanned} messages for the last ` +
-        `${lookback} hours, newest first, so the OLDEST mail in that window was ` +
-        `never reached. Anything missing from before that point is still there. ` +
-        `Run it again with a smaller hours= value to walk back in steps.`
+      ? `Stopped after reading ${page.scanned} messages over ${page.pages} pages, ` +
+        `and there is still older mail in the last ${lookback} hours we did not ` +
+        `reach. A smaller hours= will NOT help -- it moves the start date forward, ` +
+        `away from the mail being looked for. Either narrow the window to a period ` +
+        `that holds fewer than a thousand emails, or ask for that day's report to ` +
+        `be sent again and load it from the Feeds screen.`
       : null;
 
     return NextResponse.json({
@@ -199,6 +201,7 @@ async function run(req: NextRequest) {
       since: sinceIso,
       hours: lookback,
       scanned: page.scanned,
+      pages: page.pages,
       looked: messages.length,
       handled: results.length,
       ...(warning ? { warning } : {}),
