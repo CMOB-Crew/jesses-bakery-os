@@ -2,6 +2,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setStoreOverride, clearStoreOverride, setStorePrice, setStoreDay, clearStoreDays } from "@/app/store/actions";
+import { draftXeroInvoice } from "@/app/store/xero-actions";
 import type { StandingLine, ProductPick } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -29,6 +30,9 @@ import type { StandingLine, ProductPick } from "@/lib/queries";
 type Props = {
   storeId: string;
   storeName: string;
+  /** The customer as it already exists in Jesse's Xero. Null blocks the
+   *  invoice rather than letting Xero create a second customer. */
+  xeroContactId?: string | null;
   lines: StandingLine[];
   products: ProductPick[];
   today: string; // YYYY-MM-DD, Sydney
@@ -49,11 +53,55 @@ const DOW_LABEL: Record<string, string> = {
   mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun",
 };
 
-export default function StandingOrderPanel({ storeId, storeName, lines, products, today, deliveryDays = [] }: Props) {
+export default function StandingOrderPanel({ storeId, storeName, xeroContactId = null, lines, products, today, deliveryDays = [] }: Props) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  /* ---------------------------------------------------------------- *
+   * The invoice.
+   *
+   * A DRAFT in Xero, never authorised and never sent. Simona opens it,
+   * checks it and sends it -- which is what the legacy system did when
+   * she edited a standing order, and the only honest thing to do until a
+   * real Xero organisation has confirmed that a per-customer UnitAmount
+   * overrides the price stored on the Xero item.
+   *
+   * Every rule about WHAT gets billed is in lib/xero-invoice.ts and
+   * asserted in scripts/xero-invoice-check.ts. Nothing here decides it.
+   * ---------------------------------------------------------------- */
+  const [invoice, setInvoice] = useState<{ ok: boolean; text: string; url?: string } | null>(null);
+  const [invoicing, setInvoicing] = useState(false);
+
+  // Monday of the week being billed, in Sydney. `today` is already that.
+  const periodStart = (() => {
+    const d = new Date(`${today}T00:00:00`);
+    const back = (d.getDay() + 6) % 7; // 0 = Monday
+    d.setDate(d.getDate() - back);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  function makeInvoice() {
+    setInvoice(null);
+    setInvoicing(true);
+    start(async () => {
+      const res = await draftXeroInvoice({ storeId, storeName, xeroContactId, periodStart });
+      setInvoicing(false);
+      if (res.ok) {
+        setInvoice({
+          ok: true,
+          text: `Draft ${res.invoiceNumber ?? "invoice"} created in Xero — ${res.lines} line${res.lines === 1 ? "" : "s"}${res.total != null ? `, $${res.total.toFixed(2)}` : ""}. Check it before you send it.`,
+          url: res.url,
+        });
+      } else {
+        const detail = (res.refusals ?? [])
+          .map((r) => `${r.reason}${r.lines.length ? " (" + r.lines.join(", ") + ")" : ""}`)
+          .join(" ");
+        setInvoice({ ok: false, text: `${res.error}${detail ? " " + detail : ""}` });
+      }
+    });
+  }
 
   // Local edits, so a stepper feels instant and one save does not re-render
   // the whole list. Keyed by product id; absent means "unchanged".
@@ -279,8 +327,28 @@ export default function StandingOrderPanel({ storeId, storeName, lines, products
               {unpriced > 0 ? ` · ${unpriced} line${unpriced === 1 ? "" : "s"} unpriced` : ""}
             </small>
           )}
+          <button
+            type="button"
+            className="inv-btn"
+            onClick={makeInvoice}
+            disabled={invoicing || pending || total === 0}
+            title={total === 0
+              ? "There is nothing on this order to bill"
+              : "Creates a DRAFT invoice in Xero. It is not sent."}
+          >
+            {invoicing ? "Drafting…" : "Draft invoice in Xero"}
+          </button>
         </div>
       </div>
+
+      {invoice && (
+        <div className={`inv-res ${invoice.ok ? "ok" : "no"}`}>
+          <span>{invoice.text}</span>
+          {invoice.url && (
+            <a href={invoice.url} target="_blank" rel="noreferrer">Open it in Xero →</a>
+          )}
+        </div>
+      )}
 
       {grouped.map(([cat, ls]) => (
         <div className="grp" key={cat}>

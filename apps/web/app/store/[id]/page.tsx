@@ -1,7 +1,7 @@
 import { withUser } from "@/lib/db";
 import Link from "next/link";
 import NotFoundPanel from "@/components/NotFoundPanel";
-import { getStoreById, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto, getStoreAddress, getStoreShelfCap, getStoreDayGrid, getStoreSellouts, getStoreSchedule, getRunPicklist, getStoreRevenueWeek, getStoreStandingOrder, getProductPicklist } from "@/lib/queries";
+import { getStoreById, getStoreRecos, getStoreWeek, getStoreOverrides, getStoreRanging, getStoreServiceLevel, getStoreLastVisit, getStorePhoto, getStoreAddress, getStoreShelfCap, getStoreDayGrid, getStoreSellouts, getStoreSchedule, getRunPicklist, getStoreRevenueWeek, getStoreStandingOrder, getProductPicklist, getStoreXeroContact } from "@/lib/queries";
 import StoreProfile, { type PeerStat } from "@/components/StoreProfile";
 import StandingOrderPanel from "@/components/StandingOrderPanel";
 import type { StoreWeek } from "@/lib/queries";
@@ -88,7 +88,7 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
   // All in one Promise.all. Every one of these is a round trip to the Singapore
   // pooler at ~130ms; awaited in sequence the three new ones would add ~400ms to
   // a page Tommy already called slow on the 26 Aug screen share.
-  const [store, recos, all, overrides, ranging, serviceLevel, lastVisit, photo, address, shelf, dayGrid, sellouts, schedule, runs, revMap, standingLines, allProducts] = await withUser(() =>
+  const [store, recos, all, overrides, ranging, serviceLevel, lastVisit, photo, address, shelf, dayGrid, sellouts, schedule, runs, revMap, standingLines, allProducts, xeroContact] = await withUser(() =>
     Promise.all([
     getStoreById(id), getStoreRecos(id), getStoreWeek(), getStoreOverrides(id),
     getStoreRanging(id), getStoreServiceLevel(id), getStoreLastVisit(id), getStorePhoto(id), getStoreAddress(id), getStoreShelfCap(id),
@@ -99,6 +99,11 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
     // empty map — so a store with no priced sales degrades to the units-only
     // panel instead of breaking the page.
     getStoreRevenueWeek(), getStoreStandingOrder(id), getProductPicklist(),
+    // Same Promise.all again: one more concurrent round trip costs the page
+    // nothing, and it returns null rather than throwing, so a store with no
+    // Xero contact renders the panel with the invoice button disabled and a
+    // reason instead of failing the page.
+    getStoreXeroContact(id),
   ])
   );
   // Rendered directly, not via notFound(): this page is force-dynamic and
@@ -136,6 +141,7 @@ export default async function StorePage({ params }: { params: Promise<{ id: stri
         <StandingOrderPanel
           storeId={id}
           storeName={store.name}
+          xeroContactId={xeroContact}
           lines={standingLines}
           products={allProducts}
           today={today}

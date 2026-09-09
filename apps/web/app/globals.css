@@ -402,3 +402,19 @@ tr.clk:hover td{background:#faf6ee}
   font-variant-numeric:tabular-nums}
 .fgaps .fg-f{margin-top:11px;font-size:12.5px;opacity:.7;line-height:1.5}
 @media (max-width:640px){.fgaps .fg-c{margin-left:0}}
+
+/* ---------------------------------------------------------------- *
+ * Draft invoice in Xero. A DRAFT — Simona checks and sends it there.
+ * See lib/xero-invoice.ts for every rule about what gets billed.
+ * ---------------------------------------------------------------- */
+.sord .inv-btn{display:block;margin-top:9px;padding:7px 13px;border-radius:8px;
+  border:1px solid #cfc0a4;background:#fff;color:#4a3a20;font-size:12.5px;
+  font-weight:650;cursor:pointer;white-space:nowrap}
+.sord .inv-btn:hover:not(:disabled){background:#f7f1e6;border-color:#b9a684}
+.sord .inv-btn:disabled{opacity:.45;cursor:not-allowed}
+.sord .inv-res{margin:12px 0 0;padding:11px 14px;border-radius:9px;
+  font-size:13px;line-height:1.5;display:flex;gap:12px;align-items:baseline;
+  flex-wrap:wrap;border:1px solid #d8e2cd;background:#f2f7ec;color:#31491f}
+.sord .inv-res.no{border-color:#e2b3ad;background:#fdecea;color:#6b2b22}
+.sord .inv-res a{color:inherit;font-weight:650;text-decoration:underline;
+  text-underline-offset:3px;margin-left:auto}

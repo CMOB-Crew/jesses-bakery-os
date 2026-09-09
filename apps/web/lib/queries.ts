@@ -2968,6 +2968,24 @@ export type StandingLine = {
   // number. An explicit 0 is a real instruction -- do not deliver that day.
   days: Record<string, number> | null;
 };
+/* The Xero contact this customer already exists as in Jesse's books.
+ *
+ * Its own query rather than a column on v_store_week: that view is read by
+ * the overview, the region pages, the stores list and the recommendation
+ * engine, and widening it for one button on one kind of store is how a
+ * cheap change becomes an expensive one. 72 of 73 invoice customers have
+ * one; the odd one out must block the invoice rather than let Xero create
+ * a second customer with the same name. */
+export async function getStoreXeroContact(id: string): Promise<string | null> {
+  try {
+    const rows = await sql<{ xero_contact_id: string | null }[]>`
+      select xero_contact_id from stores where id = ${id}::uuid`;
+    return rows[0]?.xero_contact_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getStoreStandingOrder(id: string): Promise<StandingLine[]> {
   try {
     const rows = await sql<{
