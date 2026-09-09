@@ -34,7 +34,13 @@ function fmtWhen(d: Date | null) {
 }
 
 function fmtDate(d: Date) {
-  return new Intl.DateTimeFormat("en-AU", { weekday: "short", day: "numeric", month: "short" }).format(new Date(d));
+  // Sydney, like fmtWhen above. This one happens to render the same either way
+  // -- a DATE column arrives as UTC midnight and Sydney is ahead of UTC, so the
+  // day does not move -- but a formatter on a UTC server that does not name its
+  // zone is a bug waiting for the first person to look at it from elsewhere.
+  return new Intl.DateTimeFormat("en-AU", {
+    weekday: "short", day: "numeric", month: "short", timeZone: "Australia/Sydney",
+  }).format(new Date(d));
 }
 
 export default async function Overview() {

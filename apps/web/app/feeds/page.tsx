@@ -17,10 +17,17 @@ const RETAILER: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = { ok: "Up to date", late: "Running late", stopped: "Stopped" };
 
 const nf = (n: number | string) => (Number(n) || 0).toLocaleString("en-AU");
+// SYDNEY, EXPLICITLY. The server runs in UTC, so a format with no timeZone
+// renders UTC and looks like a local time. The first automated mail pull ran
+// at 2:01pm Sydney and this table showed it as "9 Sept, 4:01 am" -- ten hours
+// out, on the one screen whose whole job is telling somebody how fresh the
+// numbers are. Every other date in this app already names the zone; these two
+// were written before that was a rule and were never revisited.
+const SYD = "Australia/Sydney";
 const fmtDay = (d: string | null) =>
-  d ? new Intl.DateTimeFormat("en-AU", { weekday: "short", day: "numeric", month: "short" }).format(new Date(d)) : "—";
+  d ? new Intl.DateTimeFormat("en-AU", { weekday: "short", day: "numeric", month: "short", timeZone: SYD }).format(new Date(d)) : "—";
 const fmtWhen = (d: string | null) =>
-  d ? new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(d)) : "—";
+  d ? new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: SYD }).format(new Date(d)) : "—";
 
 export default async function FeedsPage() {
   const [health, uploads, gaps] = await withUser(() =>

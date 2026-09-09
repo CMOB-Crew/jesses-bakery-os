@@ -23,8 +23,20 @@
 # a stack trace and nobody watching. Pinned until exceljs is upgraded and
 # the parser is proven on a newer Node deliberately, rather than finding
 # out on a Tuesday morning.
+# Netlify scans the build for the values of every secret env var and fails the
+# deploy on a match. On 9 September it found GRAPH_CLIENT_SECRET inside
+# .netlify/.next/cache/turbopack/... -- Turbopack's build cache, which is never
+# deployed. The secret had not leaked anywhere; the scanner was reading a
+# working file.
+#
+# This exempts the cache directory and nothing else. Every file that actually
+# ships is still scanned, so a secret reaching real output still fails the
+# build, which is the behaviour we want.
+#
+# It lived in the Netlify dashboard first, where the reason lived nowhere.
 [build.environment]
   NODE_VERSION = "22"
+  SECRETS_SCAN_OMIT_PATHS = ".netlify/.next/cache/**,.next/cache/**"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"

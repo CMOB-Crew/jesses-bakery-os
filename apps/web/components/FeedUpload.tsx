@@ -37,6 +37,10 @@ const FIELD_LABEL: Record<string, string> = {
   salesQty: "Units sold", wasteQty: "Waste", invoiceCost: "Revenue",
   state: "State", storeDesc: "Store name", productDesc: "Product name",
 };
+// tz-ok: no timeZone on purpose. This is a browser component and the value is
+// a date with no time in it. "T00:00:00" parses it as midnight in the reader's
+// own zone, which is the only reading of a bare date that cannot shift the day.
+// Naming a zone here would be pretending the date has a time it does not have.
 const fmtDay = (d: string | null) =>
   d ? new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short" }).format(new Date(d + "T00:00:00")) : "—";
 

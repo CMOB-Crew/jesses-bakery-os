@@ -83,6 +83,11 @@ jobs:
       - name: Auth proxy — which paths it runs on
         run: npx tsx scripts/proxy-matcher-check.ts
 
+      # Five wrong dates on five different screens in one week. This is the
+      # cheapest thing that notices instead of a person noticing.
+      - name: Dates — every one names its clock
+        run: npx tsx scripts/dates-name-their-timezone-check.ts
+
       # The only suite here that guards money leaving a real customer's
       # account: an unpriced line refuses rather than billing zero, a line
       # with no Xero code refuses rather than guessing, and a refusal never
