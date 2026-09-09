@@ -1,5 +1,5 @@
 import { withUser } from "@/lib/db";
-import { getFeedHealth, getFeedUploads } from "@/lib/queries";
+import { getFeedHealth, getFeedUploads, getFeedGaps } from "@/lib/queries";
 import FeedUpload from "@/components/FeedUpload";
 
 export const dynamic = "force-dynamic";
@@ -23,10 +23,11 @@ const fmtWhen = (d: string | null) =>
   d ? new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(d)) : "—";
 
 export default async function FeedsPage() {
-  const [health, uploads] = await withUser(() =>
-    Promise.all([getFeedHealth(), getFeedUploads()])
+  const [health, uploads, gaps] = await withUser(() =>
+    Promise.all([getFeedHealth(), getFeedUploads(), getFeedGaps()])
   );
   const stopped = health.filter((h) => h.status === "stopped");
+  const withGaps = gaps.filter((g) => g.missing.length > 0);
 
   return (
     <>
@@ -59,6 +60,30 @@ export default async function FeedsPage() {
           Every waste, sell-through and lost-sales figure for those stores is frozen at the
           last day we received. They are not performing badly — we cannot see them at all.
           Upload the latest report below and they come back.
+        </div>
+      )}
+
+      {/* "How far behind" is answered by the cards above. This answers "and
+          what is missing in between" -- the question that actually gets
+          asked, and the one whose absence let Sunday 6 September go
+          unnoticed until someone went looking on the 9th. */}
+      {withGaps.length > 0 && (
+        <div className="fgaps">
+          <div className="fg-h">Days with nothing loaded <span className="fg-n">last 14 days</span></div>
+          {withGaps.map((g) => (
+            <div key={g.retailer} className="fg-r">
+              <span className="fg-t">{RETAILER[g.retailer] ?? g.retailer}</span>
+              <span className="fg-d">
+                {g.missing.map((d) => <span key={d} className="fg-p">{fmtDay(d)}</span>)}
+              </span>
+              <span className="fg-c">{g.missing.length} {g.missing.length === 1 ? "day" : "days"}</span>
+            </div>
+          ))}
+          <div className="fg-f">
+            A day is listed when that retailer sent no sales at all. Load its report
+            below and it disappears — the loader matches on store, product and date, so
+            re-uploading a day you already have changes nothing.
+          </div>
         </div>
       )}
 

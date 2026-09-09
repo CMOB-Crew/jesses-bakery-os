@@ -891,6 +891,54 @@ export async function getFeedHealth(): Promise<FeedHealth[]> {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Which days a retailer has sent nothing for.
+ *
+ * On 9 September the Coles files were re-uploaded to recover a store whose
+ * code had been renumbered. The files sat in a Downloads folder named
+ * "Pay on Scan - Daily Report (1)" through "(9)", the numbering did not
+ * follow the calendar, two were duplicates of the same day, and Sunday
+ * 6 September was in the one nobody would have guessed. Working out which
+ * eight files were which day took longer than the upload did.
+ *
+ * The page can simply say it. A feed's freshness card answers "how far
+ * behind" -- this answers "and what is missing in between", which is the
+ * question that actually gets asked, and the one whose absence let a whole
+ * day go unnoticed.
+ *
+ * Fourteen days, because that is about as far back as anyone will go and
+ * refilling further is a backfill job, not a morning job. A day with no
+ * sales rows at all for that retailer is missing; a quiet day with even
+ * one row is not. Retailers report every day they trade, so "no rows at
+ * all" is a gap, not a slow Tuesday.
+ * ------------------------------------------------------------------ */
+export type FeedGap = { retailer: string; missing: string[] };
+
+export async function getFeedGaps(days = 14): Promise<FeedGap[]> {
+  try {
+    const rows = await sql<{ retailer: string; missing: string[] }[]>`
+      with a as (select as_of::date as as_of from v_asof),
+      d as (
+        select generate_series((select as_of from a) - ${days}::int,
+                               (select as_of from a) - 1, interval '1 day')::date as day
+      ),
+      r as (select distinct source::text as retailer from sales_daily),
+      have as (select distinct source::text as retailer, sale_date from sales_daily
+                where sale_date >= (select as_of from a) - ${days}::int)
+      select r.retailer,
+             coalesce(array_agg(d.day::text order by d.day)
+                      filter (where not exists (
+                        select 1 from have h
+                         where h.retailer = r.retailer and h.sale_date = d.day)), '{}') as missing
+        from r cross join d
+       group by r.retailer
+       order by r.retailer`;
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
 // The upload log — what was loaded, when, and how much of it didn't.
 export type FeedUpload = {
   id: string; retailer: string; filename: string;
