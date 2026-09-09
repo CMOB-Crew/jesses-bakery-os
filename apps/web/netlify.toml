@@ -5,5 +5,26 @@
 [build]
   command = "npm run build"
 
+# PIN THE NODE VERSION. Without this Netlify picks its own default and it
+# moves without asking.
+#
+# It is not cosmetic. On 9 September the Coles parser check threw on a
+# machine running Node 24:
+#
+#   TypeError: Cannot read properties of undefined (reading 'sheets')
+#     at WorkbookReader._parseWorksheet (exceljs/lib/stream/xlsx/workbook-reader.js:303)
+#     at loadSheetsThatHaveRows (lib/feeds/coles.ts:258)
+#
+# That is exceljs's STREAMING reader -- the one added to survive the 4.9MB
+# Woolworths workbook -- and it is the code path every Coles and
+# Woolworths .xlsx goes through. The same check passes on Node 22.
+#
+# So the morning feeds are one Netlify default-bump away from failing, with
+# a stack trace and nobody watching. Pinned until exceljs is upgraded and
+# the parser is proven on a newer Node deliberately, rather than finding
+# out on a Tuesday morning.
+[build.environment]
+  NODE_VERSION = "22"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
