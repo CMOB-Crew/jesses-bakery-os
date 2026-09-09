@@ -149,9 +149,26 @@ export type MailMessage = {
  *  to 100 because the filter is now looser and accounts@ is a working mailbox,
  *  not a quiet one -- the morning's reports must not be pushed off the page by
  *  ordinary mail. */
+export type MailPage = {
+  messages: MailMessage[];
+  /** How many messages Microsoft returned, before the attachment filter. */
+  scanned: number;
+  /** Microsoft filled the page, so there may be older mail we never saw.
+   *
+   *  ONE page is requested, sorted newest first. At the ordinary 36-hour
+   *  lookback that is never close to the limit. Ask for a fortnight to
+   *  backfill a gap and accounts@ can easily have more than `top` messages in
+   *  the window -- and the ones that fall off the end are the OLDEST, which
+   *  are exactly the ones being backfilled.
+   *
+   *  Truncating quietly would look identical to those reports never having
+   *  been sent. So it is reported, and the caller says so out loud. */
+  capped: boolean;
+};
+
 export async function listMessages(
   cfg: GraphConfig, token: string, sinceIso: string, top = 100,
-): Promise<MailMessage[]> {
+): Promise<MailPage> {
   const url =
     `${GRAPH}/users/${encodeURIComponent(cfg.mailbox)}/messages` +
     `?$select=id,subject,from,receivedDateTime,hasAttachments` +
@@ -171,7 +188,12 @@ export async function listMessages(
   };
   // hasAttachments used to be part of the $filter. It is applied here now --
   // see the header. A message with no attachment cannot carry a sales report.
-  return (j.value ?? [])
+  //
+  // scanned counts what Microsoft sent, NOT what survived this filter. A page
+  // of 100 ordinary emails with no attachments is a full page: we saw a
+  // hundred and reached no further back, and that is the fact that matters.
+  const raw = j.value ?? [];
+  const messages = raw
     .filter((m) => m.hasAttachments)
     .map((m) => ({
       id: m.id,
@@ -180,6 +202,7 @@ export async function listMessages(
       receivedAt: m.receivedDateTime ?? "",
       hasAttachments: true,
     }));
+  return { messages, scanned: raw.length, capped: raw.length >= top };
 }
 
 export type MailAttachment = { id: string; name: string; size: number; contentType: string };

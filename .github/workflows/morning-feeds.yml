@@ -41,7 +41,28 @@ on:
   schedule:
     - cron: "5 23 * * *"
     - cron: "5 0 * * *"
-  workflow_dispatch: {}
+
+  # BACKFILLING A GAP, WITHOUT ANYONE TOUCHING THE SECRET
+  #
+  # /feeds lists the days a retailer sent nothing. On 9 September that was six
+  # days of Coles, 25 to 30 August. Those reports may still be in accounts@.
+  #
+  # The poller takes ?hours= up to 720, but calling it needs the poll key, and
+  # the rule in this project is that a secret never goes into a shell command
+  # or a browser address bar. GitHub already holds it. So the backfill is this
+  # box, and the key stays where it is.
+  #
+  # Put in enough hours to cover the oldest missing day, then check /feeds.
+  # Microsoft is asked for one page, newest first, so a very wide window can
+  # stop short of the oldest mail -- the run log says so plainly when that
+  # happens. Walk back in steps rather than asking for a month at once.
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "How far back to look. 36 is a normal morning, 360 is a fortnight, 720 is the most the poller accepts."
+        required: false
+        default: "36"
+        type: string
 
 concurrency:
   group: morning-feeds
@@ -55,6 +76,12 @@ jobs:
       - name: Poll the mailbox
         env:
           FEED_POLL_SECRET: ${{ secrets.FEED_POLL_SECRET }}
+          # THROUGH env, NOT INTO THE SCRIPT. GitHub expands ${{ }} by text
+          # substitution before bash sees the line, so a templated value
+          # containing a quote or a semicolon becomes part of the command
+          # rather than an argument to it. On a schedule this is empty and the
+          # default below applies.
+          HOURS_INPUT: ${{ inputs.hours }}
         run: |
           set -uo pipefail
 
@@ -67,9 +94,18 @@ jobs:
           # --max-time 300: the Woolworths workbook is 4.9MB and the route is
           # allowed 60s per retailer. Generous, so a slow morning is not a
           # failure. -sS keeps curl quiet but still prints transport errors.
+          # Digits only, and only ever from this workflow's own input box. Not a
+          # secret, so the query string is the right place for it -- unlike the
+          # key, which stays in the header for the reason directly below.
+          hours="${HOURS_INPUT:-36}"
+          case "$hours" in
+            ''|*[!0-9]*) hours=36 ;;
+          esac
+          echo "Looking back $hours hour(s)."
+
           body=$(curl -sS --max-time 300 \
             -H "x-feed-poll-key: ${FEED_POLL_SECRET}" \
-            "https://app.jessesbakery.com.au/api/feeds/mail-poll")
+            "https://app.jessesbakery.com.au/api/feeds/mail-poll?hours=${hours}")
           rc=$?
 
           # The secret goes in a HEADER, not the query string. A URL with the

@@ -117,7 +117,8 @@ async function run(req: NextRequest) {
 
   try {
     const token = await graphToken(cfg);
-    const messages = await listMessages(cfg, token, sinceIso);
+    const page = await listMessages(cfg, token, sinceIso);
+    const messages = page.messages;
 
     for (const msg of messages) {
       const rule = ruleFor(msg);
@@ -181,12 +182,26 @@ async function run(req: NextRequest) {
       }
     }
 
+    // A run that reached the whole window and a run that ran out of page look
+    // the same from the outside -- both say "nothing to do". They are not the
+    // same, and on a backfill the difference is the entire point, so the
+    // truncated one says so in a sentence rather than in a flag nobody reads.
+    const warning = page.capped
+      ? `Microsoft returned a full page of ${page.scanned} messages for the last ` +
+        `${lookback} hours, newest first, so the OLDEST mail in that window was ` +
+        `never reached. Anything missing from before that point is still there. ` +
+        `Run it again with a smaller hours= value to walk back in steps.`
+      : null;
+
     return NextResponse.json({
       ok: true,
       mailbox: cfg.mailbox,
       since: sinceIso,
+      hours: lookback,
+      scanned: page.scanned,
       looked: messages.length,
       handled: results.length,
+      ...(warning ? { warning } : {}),
       results,
     });
   } catch (e) {
