@@ -361,3 +361,24 @@ tr.clk:hover td{background:#faf6ee}
      deliberately larger than 16px, this needs a max() and a second look. */
   input, select, textarea { font-size: 16px !important; }
 }
+
+/* ---------------------------------------------------------------- *
+ * Feed alarm — the bar that says a retailer has gone quiet.
+ * Above every page, because the page that shows feed health is the one
+ * nobody opens when everything looks fine. See components/FeedAlarm.tsx.
+ * ---------------------------------------------------------------- */
+.feedalarm{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  margin:0 0 18px;padding:11px 14px;border-radius:10px;
+  border:1px solid #e6c9a8;background:#fdf3e6;color:#5a3d1e;
+  font-size:13.5px;line-height:1.45}
+.feedalarm.stopped{border-color:#e2b3ad;background:#fdecea;color:#6b2b22}
+.feedalarm .fa-dot{flex:none;width:8px;height:8px;border-radius:50%;
+  background:#c98a3c;align-self:center}
+.feedalarm.stopped .fa-dot{background:#c0392b}
+.feedalarm .fa-t{font-weight:650}
+.feedalarm .fa-d{font-variant-numeric:tabular-nums;opacity:.9}
+.feedalarm .fa-w{opacity:.75}
+.feedalarm .fa-a{margin-left:auto;flex:none;font-weight:650;
+  color:inherit;text-decoration:underline;text-underline-offset:3px}
+.feedalarm .fa-a:hover{text-decoration:none}
+@media (max-width:640px){.feedalarm .fa-a{margin-left:0}}

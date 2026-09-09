@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
+import FeedAlarm from "@/components/FeedAlarm";
 import { getDisplayUser } from "@/lib/supabase/server";
 import DemoTour from "@/components/DemoTour";
 import RouteFrame from "@/components/RouteFrame";
@@ -68,7 +69,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               flight. It is a client wrapper around a server slot, so no page
               becomes a client component and no Suspense boundary is created --
               see components/nav-pending.ts for why that last part matters. */}
-          <main className="main"><RouteFrame>{children}</RouteFrame></main>
+          {/* A stopped feed is the state of the business, not a notification,
+              so it sits above every page rather than on the one page nobody
+              opens when things look fine. Silent at 2 days or less.
+              See components/FeedAlarm.tsx. */}
+          <main className="main"><FeedAlarm /><RouteFrame>{children}</RouteFrame></main>
           {DEMO && <DemoTour />}
         </div>
       </body>
