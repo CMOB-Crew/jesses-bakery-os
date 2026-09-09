@@ -1,0 +1,88 @@
+name: Morning feeds
+
+# ---------------------------------------------------------------------
+# Pull the Coles and Woolworths sales reports out of the mailbox.
+#
+# Until 9 September this happened because a person downloaded two files
+# and uploaded them. Then it happened because a person opened a URL.
+# This is the first version where it happens because nobody did anything.
+#
+# WHY GITHUB ACTIONS AND NOT pg_cron
+#
+# The nightly engine runs on pg_cron (migration 034) because it calls a
+# stored procedure -- no network needed. This has to make an HTTPS call,
+# which pg_cron cannot do without pg_net, and pg_net is not enabled on
+# this project. It would also mean the poll secret living in cron.job,
+# readable by anyone with database access.
+#
+# keep-warm.yml already schedules a curl against this site, so this is
+# the pattern the repository already uses rather than a third scheduler.
+#
+# WHY TWICE, AND WHY BEING LATE IS FINE
+#
+# Coles lands ~08:22 Sydney and Woolworths ~07:23. Sydney is UTC+10 in
+# winter and UTC+11 from the first Sunday in October, so a fixed UTC time
+# drifts an hour twice a year. 23:05 and 00:05 UTC put the two runs
+# somewhere between 09:05 and 11:05 Sydney whichever side of daylight
+# saving we are on -- always after both reports have landed.
+#
+# Running twice is safe by construction: mail-poll claims each message in
+# feed_mail_seen on a first-come basis, so the second run finds nothing
+# to do and says so. The same is true of a retry.
+#
+# GitHub's scheduler is best-effort and can run late. That is acceptable
+# HERE and nowhere else in this system, because the feed alarm shipped on
+# 9 September (adbc225) shouts when a feed goes stale. A missed morning
+# is visible rather than silent, which is the only reason best-effort is
+# good enough.
+# ---------------------------------------------------------------------
+
+on:
+  schedule:
+    - cron: "5 23 * * *"
+    - cron: "5 0 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: morning-feeds
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    name: Pull the morning reports
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poll the mailbox
+        env:
+          FEED_POLL_SECRET: ${{ secrets.FEED_POLL_SECRET }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${FEED_POLL_SECRET:-}" ]; then
+            echo "FEED_POLL_SECRET is not set as a repository secret."
+            echo "Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 1
+          fi
+
+          # --max-time 300: the Woolworths workbook is 4.9MB and the route is
+          # allowed 60s per retailer. Generous, so a slow morning is not a
+          # failure. -sS keeps curl quiet but still prints transport errors.
+          body=$(curl -sS --max-time 300 \
+            -H "x-feed-poll-key: ${FEED_POLL_SECRET}" \
+            "https://app.jessesbakery.com.au/api/feeds/mail-poll")
+          rc=$?
+
+          # The secret goes in a HEADER, not the query string. A URL with the
+          # key in it ends up in the run log, and these logs are public on a
+          # public repository.
+          echo "$body"
+
+          if [ "$rc" -ne 0 ]; then
+            echo "curl failed with exit code $rc. The site did not answer."
+            exit 1
+          fi
+
+          case "$body" in
+            *'"ok":true'*) echo "Poll completed." ;;
+            *) echo "The poller reported a problem. See the line above."; exit 1 ;;
+          esac
