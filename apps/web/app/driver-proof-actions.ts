@@ -55,7 +55,29 @@ export async function saveDeliveryProof(input: {
     // has happened by definition.
     const [d] = await sql<{ id: string }[]>`
       insert into deliveries (store_id, delivery_date, status, delivered_at, driver_sig_name)
-      values (${storeId}::uuid, ${day}::date, 'delivered'::delivery_status, now(), ${who?.email ?? null})
+      values (${storeId}::uuid, ${day}::date, 'delivered'::delivery_status, now(),
+              -- The signature names a PERSON, not a login.
+              --
+              -- Jesse's Microsoft tenant has eleven delivery mailboxes and all
+              -- eleven are numbered slots: delivery1@ .. delivery11@. If a
+              -- driver is ever put on one of those, stamping the raw address
+              -- here would sign the drop "delivery4@jessesbakery.com.au". A
+              -- store disputing a delivery would be answered with a mailbox.
+              --
+              -- public.users.full_name has been in the schema since migration
+              -- 012 and nothing had ever read it. It does now.
+              --
+              -- The fallback is the email address, which is exactly what this
+              -- line used to be, so an unfilled full_name changes nothing. The
+              -- lookup is by email rather than auth.uid() so it does not depend
+              -- on how the enforced data path sets its claims; if RLS hides the
+              -- row the subquery is empty and the fallback takes over. There is
+              -- no path here that writes a worse value than before.
+              coalesce(
+                (select nullif(btrim(u.full_name), '')
+                   from public.users u
+                  where lower(u.email) = lower(${who?.email ?? null})),
+                ${who?.email ?? null}))
         on conflict (store_id, delivery_date) do update
        set status          = 'delivered'::delivery_status,
            delivered_at    = coalesce(deliveries.delivered_at, now()),
