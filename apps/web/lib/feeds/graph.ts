@@ -126,19 +126,36 @@ export type MailMessage = {
 
 /** Messages with attachments received since `sinceIso`, newest first.
  *
- *  Filtering is deliberately coarse here -- received date and hasAttachments
- *  only -- and the sender/subject matching happens in TypeScript against the
- *  rules in mailbox.ts. Graph's $filter on from/emailAddress/address combined
- *  with $orderby is fragile across mailbox types, and a filter that silently
- *  matches nothing looks exactly like a quiet morning. Better to pull the
- *  handful of messages and decide here, where the decision is testable. */
+ *  Filtering is deliberately coarse here -- received date only -- and the
+ *  sender, subject and attachment matching all happen in TypeScript against
+ *  the rules in mailbox.ts. Graph's $filter on from/emailAddress/address
+ *  combined with $orderby is fragile across mailbox types, and a filter that
+ *  silently matches nothing looks exactly like a quiet morning. Better to pull
+ *  the handful of messages and decide here, where the decision is testable.
+ *
+ *  ONE PROPERTY IN $filter, THE SAME ONE IN $orderby. 9 September, the first
+ *  time this ever ran against the real mailbox, Microsoft answered:
+ *
+ *    400 InefficientFilter
+ *    "The restriction or sort order is too complex for this operation."
+ *
+ *  The filter was `hasAttachments eq true and receivedDateTime ge X` while the
+ *  sort was `receivedDateTime desc`. Graph will not combine a $filter on one
+ *  property with an $orderby on another on this endpoint. Nothing to do with
+ *  permissions or credentials -- those were fine, which is why the message
+ *  came back from Microsoft rather than from us.
+ *
+ *  So hasAttachments comes out of the filter and is applied below. $top rises
+ *  to 100 because the filter is now looser and accounts@ is a working mailbox,
+ *  not a quiet one -- the morning's reports must not be pushed off the page by
+ *  ordinary mail. */
 export async function listMessages(
-  cfg: GraphConfig, token: string, sinceIso: string, top = 40,
+  cfg: GraphConfig, token: string, sinceIso: string, top = 100,
 ): Promise<MailMessage[]> {
   const url =
     `${GRAPH}/users/${encodeURIComponent(cfg.mailbox)}/messages` +
     `?$select=id,subject,from,receivedDateTime,hasAttachments` +
-    `&$filter=${encodeURIComponent(`hasAttachments eq true and receivedDateTime ge ${sinceIso}`)}` +
+    `&$filter=${encodeURIComponent(`receivedDateTime ge ${sinceIso}`)}` +
     `&$orderby=${encodeURIComponent("receivedDateTime desc")}` +
     `&$top=${top}`;
   const res = await fetch(url, {
@@ -152,13 +169,17 @@ export async function listMessages(
       from?: { emailAddress?: { address?: string } };
     }>;
   };
-  return (j.value ?? []).map((m) => ({
-    id: m.id,
-    subject: m.subject ?? "",
-    from: (m.from?.emailAddress?.address ?? "").toLowerCase(),
-    receivedAt: m.receivedDateTime ?? "",
-    hasAttachments: Boolean(m.hasAttachments),
-  }));
+  // hasAttachments used to be part of the $filter. It is applied here now --
+  // see the header. A message with no attachment cannot carry a sales report.
+  return (j.value ?? [])
+    .filter((m) => m.hasAttachments)
+    .map((m) => ({
+      id: m.id,
+      subject: m.subject ?? "",
+      from: (m.from?.emailAddress?.address ?? "").toLowerCase(),
+      receivedAt: m.receivedDateTime ?? "",
+      hasAttachments: true,
+    }));
 }
 
 export type MailAttachment = { id: string; name: string; size: number; contentType: string };
