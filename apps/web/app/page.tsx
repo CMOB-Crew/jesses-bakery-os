@@ -142,7 +142,16 @@ export default async function Overview() {
   const hasData = (s: StoreWeek) => isMeasured(scored.get(s.store_id) ?? "no-delivery");
   const eff: Record<"red" | "amber" | "green" | "nodata" | "nodelivery" | "invoice", number> =
     { red: 0, amber: 0, green: 0, nodata: 0, nodelivery: 0, invoice: 0 };
+  // Per region, the unscored stores split by REASON. It used to be one number
+  // called ndByRegion, printed as "20 awaiting feed" on every delivery run tile.
+  // On 9 September that sentence was on all 14 runs while all three retailer
+  // feeds were current to the day before -- 206 of the 266 stores had sales
+  // arriving and no delivery record, and 7 were actually awaiting a feed. One
+  // number cannot say that, and the label it carried named the wrong one.
   const ndByRegion = new Map<string, number>();
+  const noFeedByRegion = new Map<string, number>();
+  const noDelByRegion = new Map<string, number>();
+  const invByRegion = new Map<string, number>();
   for (const s of stores) {
     if (hasData(s)) { eff[s.status] += 1; continue; }
     // Not scored. Three reasons a store lands here, and they go to three
@@ -169,6 +178,8 @@ export default async function Overview() {
     // healthy, which is the exact bug the comment above this loop describes.
     const k = s.region ?? "";
     ndByRegion.set(k, (ndByRegion.get(k) ?? 0) + 1);
+    const by = sc === "invoice" ? invByRegion : sc === "no-delivery" ? noDelByRegion : noFeedByRegion;
+    by.set(k, (by.get(k) ?? 0) + 1);
   }
 
   // The sentence and the rule that justifies it live in the same module, so they
@@ -309,8 +320,21 @@ export default async function Overview() {
       <div className="rgrid">
         {regions.map((r) => {
           const nd = ndByRegion.get(r.region) ?? 0;
+          const noFeed = noFeedByRegion.get(r.region) ?? 0;
+          const noDel = noDelByRegion.get(r.region) ?? 0;
+          const inv = invByRegion.get(r.region) ?? 0;
           const green = Math.max(0, r.green - nd);
-          const kind = r.red ? "red" : r.amber ? "amber" : green > 0 ? "green" : "nodata";
+          // Nothing measured. Say WHICH kind of nothing, by whichever reason
+          // covers the most stores in this run -- "No data" on a run whose feeds
+          // are all current sends someone to chase a report that already landed.
+          const unscored = noDel > noFeed ? "nodelivery" : "nodata";
+          const kind = r.red ? "red" : r.amber ? "amber" : green > 0 ? "green" : unscored;
+          // Only the reasons that apply, each named for the person it belongs to.
+          const notes = [
+            noDel ? `${noDel} no delivery yet` : "",
+            noFeed ? `${noFeed} awaiting feed` : "",
+            inv ? `${inv} invoice` : "",
+          ].filter(Boolean);
           return (
             <Link prefetch={false} key={r.region_id} href={`/region/${encodeURIComponent(r.region)}`} className="rtile">
               <div className="rn">{r.region} <StatusTag status={kind} /></div>
@@ -321,7 +345,7 @@ export default async function Overview() {
                 {nd ? <span style={{ flex: nd, background: "var(--line2)" }} /> : null}
               </div>
               <div className="mini">
-                <span>{r.red} need · {r.amber} watch · {green} on track{nd ? ` · ${nd} awaiting feed` : ""}</span>
+                <span>{r.red} need · {r.amber} watch · {green} on track{notes.length ? ` · ${notes.join(" · ")}` : ""}</span>
                 <span className="rw">waste {r.waste_pct == null ? "—" : `${r.waste_pct}%`}</span>
               </div>
             </Link>
