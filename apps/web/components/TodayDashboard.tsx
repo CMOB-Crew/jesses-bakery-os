@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { StoreWeek, NetworkWeek } from "@/lib/queries";
 import { isCapStale, type ShelfCapOverride } from "@/lib/shelfcap";
+import { listEmptyReason, hasLossToShow, type ListRow } from "@/lib/today-lists";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
 const RETAILER: Record<string, string> = {
@@ -196,7 +197,13 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
   // Retail scan stores only, with real sent + a size. Median % and median wasted
   // units per band, so Simona can read "20% here means ~X loaves" at a glance.
   const bandStats = BANDS.map((b) => {
-    const inBand = rows.filter((r) => r.band === b.key && r.s.retailer !== "invoice" && r.sent > 0);
+    // `count` is every retail store in the band, not only the ones with a
+    // delivery record. It used to require r.sent > 0, which meant that on a
+    // morning with no deliveries recorded every band read "0 stores" -- and
+    // the All-sizes cell beside them read "0 retail stores" over a network of
+    // 265. A count of the stores Jesse supplies does not depend on whether
+    // today's paperwork is in.
+    const inBand = rows.filter((r) => r.band === b.key && r.s.retailer !== "invoice");
     // Only stores that actually report sales have a waste figure. The rest are
     // UNKNOWN, not zero.
     //
@@ -237,9 +244,29 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
     .slice(0, 10);
 
   // ---- biggest losses: most wasted units ----
-  const losses = rows.filter((r) => inSelected(r.band)).sort((a, b) => b.wasted - a.wasted).slice(0, 10);
+  // hasLossToShow is the floor. Without it this was every store sorted by
+  // wasted units and cut at ten -- so with nothing recorded as delivered it
+  // rendered ten stores at "0 units" and "—", ranked 1 to 10, under a heading
+  // with a siren on it. See lib/today-lists.ts.
+  const losses = rows.filter((r) => inSelected(r.band) && hasLossToShow({ retailer: r.s.retailer, has_sales_feed: r.s.has_sales_feed, sent: r.sent, sold: r.sold, wasted: r.wasted }))
+    .sort((a, b) => b.wasted - a.wasted).slice(0, 10);
 
   const bandLabel = band === "all" ? "all sizes" : BANDS.find((b) => b.key === band)!.label + " stores";
+
+  // Why a list is empty, worked out from the same rows the list was drawn
+  // from. Both lists used to say "Lights up as the sales feed fills", which on
+  // 9 September was pointed at three feeds that were all current to the day
+  // before. What was missing was our own delivery record.
+  const listRows: ListRow[] = rows
+    .filter((r) => inSelected(r.band))
+    .map((r) => ({ retailer: r.s.retailer, has_sales_feed: r.s.has_sales_feed, sent: r.sent, sold: r.sold, wasted: r.wasted }));
+  const emptyWhy = listEmptyReason(listRows, band === "all" ? null : bandLabel);
+
+  // The All-sizes cell. Two different numbers on purpose: how many retail
+  // stores are in view, and how many of those we can actually put a waste
+  // figure against.
+  const retailCount = rows.filter((r) => r.s.retailer !== "invoice").length;
+  const measurableCount = rows.filter((r) => r.s.retailer !== "invoice" && r.waste != null).length;
 
   return (
     <section className="today">
@@ -340,14 +367,22 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
         <div className="tsz-grid">
           <button className={`tsz-cell all ${band === "all" ? "on" : ""}`} onClick={() => setBand("all")}>
             <span className="tsz-lab">All sizes</span>
-            <span className="tsz-big">{rows.filter((r) => r.s.retailer !== "invoice" && r.sent > 0).length}</span>
-            <span className="tsz-u">retail stores</span>
+            {/* Retail stores in view, and separately how many of them have a
+                waste figure. The number used to require r.sent > 0, so with no
+                delivery records in the window it read "0 retail stores" across
+                a network of 265 -- a count of the shops Jesse supplies, made to
+                depend on whether the paperwork was in. */}
+            <span className="tsz-big">{retailCount}</span>
+            <span className="tsz-u">retail stores · {measurableCount > 0 ? `${nf(measurableCount)} measured` : "none measured yet"}</span>
           </button>
           {bandStats.map((b) => (
             <button key={b.key} className={`tsz-cell ${band === b.key ? "on" : ""}`} onClick={() => setBand(band === b.key ? "all" : b.key)}>
               <span className="tsz-lab">{b.label} <i>{b.range}</i></span>
               <span className="tsz-big"><span className={`tszv ${b.tone}`}>{b.medWaste == null ? "—" : `${b.medWaste}%`}</span><span className="tsz-count">{b.count} {b.count === 1 ? "store" : "stores"}</span></span>
-              <span className="tsz-u">{b.medWaste == null ? "none reporting sales yet" : `${b.measuredCount} of ${b.count} reporting · limit ${b.limit}%${b.overCount > 0 ? ` · ${b.overCount} over` : " · all under"}`}</span>
+              {/* "none reporting sales yet" was wrong on 9 September: the sales
+                  were arriving and the delivery record was not. Waste needs
+                  both, so the cell says which half it is short of. */}
+              <span className="tsz-u">{b.medWaste == null ? `0 of ${b.count} measured · limit ${b.limit}%` : `${b.measuredCount} of ${b.count} measured · limit ${b.limit}%${b.overCount > 0 ? ` · ${b.overCount} over` : " · all under"}`}</span>
             </button>
           ))}
         </div>
@@ -367,7 +402,7 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
               <span className="mv2">{r.waste == null ? "—" : `${r.waste}%`}<small>{nf(r.wasted)}u</small></span>
             </Link>
           ))}
-          {best.length === 0 && <div className="t-empty">{band === "all" ? "Lights up as the sales feed fills." : `No ${bandLabel} with a scan feed yet.`}</div>}
+          {best.length === 0 && <EmptyWhy why={emptyWhy} />}
         </div>
         <div className="t-list">
           <div className="t-lh"><span>🚨 Biggest losses</span><span className="sub">wasted units · waste %</span></div>
@@ -379,7 +414,7 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
               <span className="mv2">{r.waste == null ? "—" : `${r.waste}%`}</span>
             </Link>
           ))}
-          {losses.length === 0 && <div className="t-empty">{band === "all" ? "Lights up as the sales feed fills." : `No ${bandLabel} with waste yet.`}</div>}
+          {losses.length === 0 && <EmptyWhy why={emptyWhy} />}
         </div>
       </div>
 
@@ -478,7 +513,23 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
       .today .t-row .mv2{font-size:12.5px;color:var(--ink2);font-weight:700;font-variant-numeric:tabular-nums;text-align:right;min-width:44px;line-height:1.15}
       .today .t-row .mv2 small{display:block;font-weight:400;color:var(--faint);font-size:10px}
       .today .t-empty{padding:16px;color:var(--faint);font-size:12.5px}
+      .today .t-empty b{display:block;color:var(--ink2);font-weight:600;font-size:13px;line-height:1.4}
+      .today .t-empty span{display:block;margin-top:5px;line-height:1.5}
       `}</style>
     </section>
+  );
+}
+
+/* An empty list says which of three things is missing, and stops there.
+   It does not guess a number to fill itself with, and it does not send
+   anyone to chase the feed when the feed is fine. The wording and every
+   branch of it live in lib/today-lists.ts, asserted by
+   scripts/today-lists-check.ts. */
+function EmptyWhy({ why }: { why: { line: string; sub: string | null } }) {
+  return (
+    <div className="t-empty">
+      <b>{why.line}</b>
+      {why.sub && <span>{why.sub}</span>}
+    </div>
   );
 }
