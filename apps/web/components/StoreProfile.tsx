@@ -109,6 +109,20 @@ export default function StoreProfile({
   }));
   const score = hasData ? SCORE[store.status] : SCORE.nodata;
 
+  // An invoice customer is not a supermarket and never will be. It has no
+  // retailer feed, so it has no sell-through, no waste, no scan-based sold
+  // figure and nothing for the engine to forecast -- they tell the bakery what
+  // they want and get billed for it. Six panels below were built for stores
+  // that report sales back, and on an invoice customer every one of them shows
+  // a dash or, worse, "awaiting this store's retailer feed" about a feed that
+  // is never coming.
+  //
+  // Simona asked for exactly this on the 1 September call, listed in Tommy's
+  // recap: "Invoice Store profile. Remove shelf cap, service level, last store
+  // visit, this week, units recommended, sold. Keep delivery run and final
+  // delivery." Removed here rather than left to be explained every time.
+  const isInvoice = store.retailer === "invoice";
+
   const rows: Row[] = useMemo(
     () => recos.map((r) => ({ pid: r.product_id, name: r.product_name, sold: Number(r.sold) || 0, now: Number(r.sent) || 0, rec: Number(r.recommended) || 0 })),
     [recos],
@@ -422,7 +436,9 @@ export default function StoreProfile({
           <span className="sd">{score.dot}</span>
           <span className="st">{score.label}
             <small>
-              {!hasData
+              {isInvoice
+                ? "Invoice customer — ordered, not forecast"
+                : !hasData
                 ? "Awaiting this store's retailer feed"
                 : peer && peer.count > 0 && peer.betterPct != null
                 ? `Waste beats ${peer.betterPct}% of ${peer.basis}`
@@ -432,6 +448,7 @@ export default function StoreProfile({
         </div>
       </div>
 
+      {!isInvoice && (
       <div className="sumrow">
         <div className="sumbox">
           <div className="sb-h">This week</div>
@@ -460,6 +477,7 @@ export default function StoreProfile({
           </div>
         </div>
       </div>
+      )}
 
       <div className="mgrid">
         {metrics.map((m) => (
@@ -545,6 +563,7 @@ export default function StoreProfile({
         </div>
       )}
 
+      {!isInvoice && (
       <div className="dialrow">
         <div className="dial-l">
           <div className="dl-t">Service level · this store</div>
@@ -569,7 +588,9 @@ export default function StoreProfile({
           ))}
         </div>
       </div>
+      )}
 
+      {!isInvoice && (
       <div className="visitrow">
         <div className="dial-l">
           <div className="dl-t">Last store visit</div>
@@ -592,7 +613,9 @@ export default function StoreProfile({
           {visit && <button type="button" className="visit-clear" onClick={() => saveVisit("")}>Clear</button>}
         </div>
       </div>
+      )}
 
+      {!isInvoice && (
       <div className="visitrow">
         <div className="dial-l">
           <div className="dl-t">Shelf cap · this store</div>
@@ -621,6 +644,7 @@ export default function StoreProfile({
           )}
         </div>
       </div>
+      )}
 
       {/* Simona, 26 Aug: "maybe the daily unit needs to sit above this, above
           products and ranging, so then I've got my figures right above each
