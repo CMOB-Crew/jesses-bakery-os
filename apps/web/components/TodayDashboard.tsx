@@ -166,6 +166,12 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
   const stockOuts = rows.filter(
     (r) => r.stockouts > 0 && (r.waste == null || r.waste < 20),
   ).length;
+  // Has anything counted a shelf this week? The stockout row is computed only
+  // from the on-hand ledger, and when the ledger is empty the row read
+  // "0 stores -- lines selling out ... fills as the sales history loads". The
+  // sales history is loaded. What is missing is the ledger, and no amount of
+  // sales data produces it. Migration 093.
+  const countedShelf = rows.some((r) => r.s.has_on_hand);
   const salesDecline = rows.filter((r) => r.growth != null && r.growth < -10).length;
   const strongSellers = rows.filter((r) => r.sellThrough != null && r.sellThrough >= 95 && (r.waste == null || r.waste < 12)).length;
   const needAttention = rows.filter((r) => r.s.status === "red").length;
@@ -187,7 +193,8 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
 
   const actions = [
     { key: "waste", tone: "red", n: highWastage, issue: "high wastage", action: "Reduce production", href: "/stores?view=waste30", pending: false },
-    { key: "stock", tone: "amber", n: stockOuts, issue: "lines selling out", action: "Increase allocation", href: "/stores?view=stockouts", pending: true },
+    { key: "stock", tone: "amber", n: stockOuts, issue: "lines selling out", action: "Increase allocation", href: "/stores?view=stockouts", pending: true,
+      note: countedShelf ? undefined : "no shelf counts this week — needs the on-hand ledger, not more sales history" },
     { key: "cap", tone: "violet", n: capStale, issue: "shelf cap smaller than a day's sales", action: "Check the real shelf size", href: "/stores?view=capstale", pending: false },
     { key: "decline", tone: "blue", n: salesDecline, issue: "sudden sales decline", action: "Investigate", href: "/stores?view=declines", pending: true },
     { key: "growth", tone: "green", n: strongSellers, issue: "strong sellers", action: "Consider expanding range", href: "/stores?view=expandrange", pending: false },
@@ -353,7 +360,7 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
           return a.n > 0 ? (
             <Link prefetch={false} key={a.key} href={a.href} className="ta-row lk">{inner}<span className="ta-go">›</span></Link>
           ) : (
-            <div key={a.key} className="ta-row off">{inner}<span className="ta-note">{a.pending ? "fills as the sales history loads" : "none flagged"}</span></div>
+            <div key={a.key} className="ta-row off">{inner}<span className="ta-note">{("note" in a && a.note) || (a.pending ? "fills as the sales history loads" : "none flagged")}</span></div>
           );
         })}
       </div>

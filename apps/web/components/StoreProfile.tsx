@@ -83,6 +83,10 @@ export default function StoreProfile({
   const soldWk = Number(store.total_sold) || 0;
   const sentWk = Number(store.total_sent) || 0;
   const soldPrev = Number(store.total_sold_prev) || 0;
+  // Sold-out days is only a number when the shelf was actually counted. It has
+  // not been since 22 August -- see migration 093 -- and this tile read a flat
+  // "0" the entire time, which is a claim, not a blank.
+  const countedShelf = store.has_on_hand !== false && store.stockout_days != null;
   const stockouts = Number(store.stockout_days) || 0;
   // The size-band shelf max Simona confirmed. Per-store overrides (below) can
   // replace it or mark the store "no fixed limit" (e.g. Mascot DC picks to order).
@@ -382,7 +386,7 @@ export default function StoreProfile({
   // Secondary tiles — the dollar/accuracy figures move to a single "unlocks
   // with the cost feed" line below rather than sitting as dead "$ —" tiles.
   const metrics: { k: string; v: string; cls?: string }[] = [
-    { k: "Sold-out days", v: stockouts ? `${stockouts}` : "0", cls: stockouts ? "a" : undefined },
+    { k: "Sold-out days", v: !countedShelf ? "—" : stockouts ? `${stockouts}` : "0", cls: countedShelf && stockouts ? "a" : undefined },
     { k: "Sales growth", v: growth == null ? "—" : `${growth >= 0 ? "▲" : "▼"} ${Math.abs(growth)}%`, cls: growth == null ? undefined : growth >= 0 ? "g" : "r" },
   ];
 
@@ -655,7 +659,7 @@ export default function StoreProfile({
           three blocks higher with the service-level and shelf-cap dials in
           between — the two things she needs to read together were separated by
           the two she doesn't. */}
-      <StoreWeekPanel days={dayGrid} sellouts={sellouts} schedule={schedule} storeId={store.store_id} runs={runs} />
+      <StoreWeekPanel days={dayGrid} sellouts={sellouts} schedule={schedule} storeId={store.store_id} runs={runs} countedShelf={countedShelf} />
 
       <div className="ph">
         <div className="ph-t">Products &amp; ranging <span className="cnt">{rangedCount}/{rows.length} ranged</span></div>

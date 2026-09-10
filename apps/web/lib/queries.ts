@@ -23,9 +23,17 @@ export type StoreWeek = {
   total_sold: number;
   total_sold_prev: number;
   total_wasted: number;
-  stockout_days: number;
+  // NULL means the shelf was not counted this week -- the on_hand_ledger has no
+  // reading for this store in the window. 0 means it WAS counted and never hit
+  // empty. Migration 093 stopped the view collapsing the two into 0, because
+  // every screen downstream was reporting the second while the first was true.
+  stockout_days: number | null;
   waste_pct: number | null;
   status: Status;
+  // False when nothing counted this store's shelf this week. Read it before
+  // printing a stockout figure, exactly as has_sales_feed is read before
+  // printing a waste figure.
+  has_on_hand?: boolean;
 };
 
 export type NetworkWeek = {
@@ -1641,6 +1649,11 @@ export type Stockout = {
 export type LostSales = {
   losses: Stockout[]; totalLostWk: number; totalLostRevenueWk: number | null;
   storesFlagged: number; repeatCount: number; hasData: boolean;
+  // Has ANY store had its shelf counted this week? This page is computed
+  // entirely from the on-hand ledger, so when the answer is no the page is
+  // empty for a reason no amount of sales history will change -- and it used
+  // to say the opposite. See migration 093.
+  countedShelf: boolean;
 };
 
 // Revenue layer (Invoice_Cost). Per-store trailing-week revenue + revenue-weighted
@@ -1770,6 +1783,7 @@ export async function getStockouts(): Promise<LostSales> {
   return {
     losses, totalLostWk: losses.reduce((a, l) => a + l.lostWk, 0), totalLostRevenueWk,
     storesFlagged: losses.length, repeatCount: losses.filter((l) => l.repeat).length, hasData: losses.length > 0,
+    countedShelf: stores.some((s) => s.has_on_hand),
   };
 }
 
