@@ -15,10 +15,22 @@ import { AUTH_ENFORCED } from "@/lib/auth";
 // 10 September 2026: a signed-out request to https://app.jessesbakery.com.au/
 // is redirected to the sign-in page, which only happens through line 65 below.
 //
-// That matters more than a stale comment usually would, because it means every
-// policy in 014, 075, 078, 091, 092 and 093 is being applied to real requests
-// rather than waiting for a flip. The app connects as jbo_app, which does not
-// bypass RLS -- confirmed the same day by the proof audit's read_as block.
+// AND THAT IS ALL IT PROVES, which is worth being exact about because the first
+// version of this comment was not. AUTH_ENFORCED has been set in Netlify since
+// 24 August -- it is written down in the 4 September flip runbook -- so the
+// measurement above confirmed something already known rather than finding it.
+//
+// It is also NOT what makes the policies apply. Whether row-level security
+// bites is a property of the CONNECTING DATABASE ROLE, not of this flag. The
+// "flip" that runbook describes is changing DATABASE_URL so the app connects as
+// jbo_app instead of the privileged role, and the evidence that it has happened
+// came from somewhere else entirely: the proof audit reports
+// read_as { db_user: "jbo_app", bypasses_rls: false }, measured the same
+// evening. THAT is why 014, 075, 078, 091, 092 and 093 are being applied to
+// real requests.
+//
+// Two separate switches, two separate pieces of evidence. Conflating them is
+// how you end up confident about a thing you did not check.
 //
 // With SUPABASE env unset this no-ops entirely, and the demo build
 // (NEXT_PUBLIC_DEMO=1) never enforces.
