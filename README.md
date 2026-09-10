@@ -22,13 +22,19 @@ apply two migrations, said the app ran against a local 84-store seed, and
 described going live on Supabase as future work. All of that stopped being true
 and nobody noticed, because a README is the one file no test covers.
 
-So: **the numbers below were measured on 10 September 2026, not remembered** —
-except the one row that says it was not, which is marked so you can tell the
-difference at a glance. That distinction is the whole point; a table where you
-cannot tell a measurement from a recollection is worth about as much as the
-README it replaces. If you find a claim here that is no
-longer true, that is a defect — fix it in the same commit as whatever made it
-untrue.
+So: **every number below was measured on 10 September 2026, not remembered.**
+The distinction is the whole point; a table where you cannot tell a measurement
+from a recollection is worth about as much as the README it replaces. If you
+find a claim here that is no longer true, that is a defect — fix it in the same
+commit as whatever made it untrue.
+
+The Accounts row is why the distinction earns its keep. It was the one row that
+carried a **Not re-measured today** marker, holding a breakdown copied from a 7
+September note. Running the query showed the total was right and the breakdown
+was wrong in two directions at once — and turned up a switched-off rehearsal
+account still holding the `manager` role, which is one flip of a boolean away
+from full write access to a live business. A stale line in a README found that,
+because it was labelled as stale instead of blending in.
 
 | | |
 |---|---|
@@ -37,7 +43,7 @@ untrue.
 | Network | 273 active stores; 218 of them report scan sales. |
 | Auth | `AUTH_ENFORCED` is **on** — set in Netlify since 24 August. A signed-out request to any non-public path is redirected to `/login`. |
 | Database role | The app connects as `jbo_app`, which does **not** bypass RLS. This is the "RLS flip" the 4 September runbook describes, and it has happened. |
-| Accounts | 11 recorded as created on 7 September — 6 driver, 3 packer, 1 admin, 1 manager. **Not re-measured today**, unlike every other row here; `select coalesce(role,'(none)'), count(*) from public.users group by 1` settles it. |
+| Accounts | 11 rows in `public.users`, **9 of them live**: 4 driver, 3 packer, 1 manager, 1 admin. The other two are rehearsal accounts, both now switched off with no role. |
 
 `db/checks/rebuild-from-migrations.sh` is what keeps the first two rows honest —
 it drops the schema and applies every migration in order, and CI runs it on every
@@ -65,7 +71,7 @@ jesses-bakery-os/
 
 ---
 
-## Three things that will mislead you
+## Four things that will mislead you
 
 **1. `on_hand_ledger` is not the heart of the system today.** It was designed to
 be, and the older version of this file said so. In practice nothing writes it —
@@ -88,6 +94,17 @@ rule appearing.
 Application identity is `public.users`, keyed on `auth.uid()`, and
 `public.current_app_role()` is what every policy reads. `app_users` survives
 because older columns still reference it.
+
+**4. `is_active = false` locks the data, not the door.** There is no sign-in
+check for it anywhere in the app — the account still authenticates. What it does
+is make `public.current_app_role()` return null (`select role from public.users
+where id = auth.uid() and is_active`), so every policy evaluates false and the
+person sees an empty application. That is genuine enforcement and it is where
+the enforcement lives, but two things follow. A deactivated account is not a
+closed account, so anyone still holding its password can still log in. And
+deactivating **without clearing `role`** leaves the account one boolean away from
+whatever it used to be — which is how a rehearsal account sat on the `manager`
+role until 10 September. Do both.
 
 ---
 
