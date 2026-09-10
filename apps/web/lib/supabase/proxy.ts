@@ -9,8 +9,19 @@ import { AUTH_ENFORCED } from "@/lib/auth";
 //   1. refreshes the Supabase auth cookie on every request (always safe), and
 //   2. when AUTH_ENFORCED=1, bounces signed-out users to /login (optimistic).
 //
-// With AUTH_ENFORCED unset -- today's live site and the demo -- step 2 never
-// runs, so behaviour is unchanged. With SUPABASE env unset, it no-ops entirely.
+// AUTH_ENFORCED IS SET ON THE LIVE SITE. This comment used to end "with
+// AUTH_ENFORCED unset -- today's live site and the demo -- step 2 never runs",
+// which was true when it was written and quietly stopped being true. Measured
+// 10 September 2026: a signed-out request to https://app.jessesbakery.com.au/
+// is redirected to the sign-in page, which only happens through line 65 below.
+//
+// That matters more than a stale comment usually would, because it means every
+// policy in 014, 075, 078, 091, 092 and 093 is being applied to real requests
+// rather than waiting for a flip. The app connects as jbo_app, which does not
+// bypass RLS -- confirmed the same day by the proof audit's read_as block.
+//
+// With SUPABASE env unset this no-ops entirely, and the demo build
+// (NEXT_PUBLIC_DEMO=1) never enforces.
 
 function supabaseEnv(): { url: string; anon: string } | null {
   const url =
