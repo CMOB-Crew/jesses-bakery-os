@@ -191,3 +191,15 @@ started; the driver app has no offline support; there is no route optimisation;
 the assistant is keyword-routed rather than a language model; the Xero push is
 built and switched off; and the image bytes behind proof of delivery are in no
 backup — the record of each proof is, the photographs are not.
+
+One of those gaps is a permission rather than a feature, so it is stated
+separately. **The mail poller's Entra app can read every mailbox in the
+tenant.** `Mail.Read` was granted as an application permission on 9 September,
+which is tenant-wide by definition; the code only ever asks for `accounts@`, but
+nothing stops it asking for more. Narrowing it is App RBAC in Exchange Online
+PowerShell **plus** removing the Entra consent afterwards — Microsoft takes the
+union of the two, so doing one half achieves nothing. It needs Global
+Administrator, which on this tenant is Jesse Meguideche and nobody else.
+`lib/feeds/graph.ts` used to describe this scope as already in place. It was
+not, and a comment asserting a control that does not exist is worse than
+silence.
