@@ -19,10 +19,13 @@
  * exercising, and the existence check is tested with the contents check
  * switched off.
  *
- * Existence is now a SQL join against storage.objects rather than API calls,
- * so the fixture inserts and deletes rows there -- which is also a fair
- * imitation of what a lost object looks like, because that table IS Supabase's
- * record of what the bucket holds.
+ * Existence is a SQL join rather than API calls, so the fixture inserts and
+ * deletes rows in storage.objects -- which is a fair imitation of a lost
+ * object, because that table IS Supabase's record of what the bucket holds.
+ * The audit reads it through jb_proof_objects(), the security-definer function
+ * migration 094 added after the first live run came back "permission denied
+ * for schema storage"; the fixture writes the table directly, so this exercises
+ * the real path from both ends.
  *
  *   DATABASE_URL=postgres://... npx tsx scripts/test-proof-audit.ts
  *
@@ -194,6 +197,43 @@ async function main() {
     is("an orphan: nothing missing", a.counts.missing, 0);
     is("an orphan: does not fail the audit", proofAuditFailed(a), false);
     has("an orphan: is reported", proofAuditLines(a).join("\n"), "ORPHAN");
+  }
+
+  // --- BLIND: the audit cannot see the rows it is auditing -----------------
+  // The failure this nearly shipped with. delivery_photos has RLS, enabled and
+  // forced; a scheduled call has no session, so every policy is false and the
+  // table returns no rows rather than an error. Left unchecked the audit reads
+  // 0 recorded / 0 missing / 0 changed and reports a green tick over a table it
+  // cannot see -- worse than the "permission denied for schema storage" it
+  // began with, and the same bug it exists to catch.
+  //
+  // Simulated by running the audit as jbo_app inside a transaction with no
+  // claims set, which is exactly what a cron looks like to the database.
+  {
+    await bucketHolds([A_PHOTO, A_SIG, B_PHOTO]);
+    await sql.begin(async (tx) => {
+      await tx`set local role jbo_app`;
+      const a = await auditProof({ sql: tx as unknown as SqlArg, read: reader(BYTES), sample: 10 });
+      is("blind: sees no rows", a.counts.recorded, 0);
+      is("blind: but knows three are there", a.counts.actually_there, 3);
+      is("blind: says so", a.blind, { visible: 0, actually_there: 3 });
+      // The whole point. Nothing missing, nothing changed, and it must STILL
+      // not pass.
+      is("blind: nothing looks missing", a.counts.missing, 0);
+      is("blind: nothing looks changed", a.counts.checksums_mismatched, 0);
+      is("blind: and it FAILS anyway", proofAuditFailed(a), true);
+      has("blind: names the gap", proofAuditLines(a).join("\n"), "could see 0 of 3");
+      await tx`set local role none`;
+    });
+  }
+
+  // --- and NOT blind when it can see everything ---------------------------
+  {
+    await bucketHolds([A_PHOTO, A_SIG, B_PHOTO]);
+    const a = await auditProof({ sql: sql as unknown as SqlArg, read: reader(BYTES), sample: 0 });
+    is("not blind: sees all three", a.counts.recorded, 3);
+    is("not blind: blind is null", a.blind, null);
+    is("not blind: passes", proofAuditFailed(a), false);
   }
 
   // --- the manifest is opt-in ---------------------------------------------

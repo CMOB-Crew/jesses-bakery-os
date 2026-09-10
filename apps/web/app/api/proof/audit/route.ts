@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sql } from "@/lib/db";
+import { runAsUser, sql } from "@/lib/db";
+import { type UserClaims } from "@/lib/auth";
 import { supabaseAdmin, PROOF_BUCKET } from "@/lib/supabase/admin";
 import { auditProof, proofAuditFailed, proofAuditLines, type ObjectReader } from "@/lib/proof-audit";
 
@@ -76,16 +77,37 @@ export async function GET(req: NextRequest) {
     return Buffer.from(await data.arrayBuffer());
   };
 
+  // WHO THIS RUNS AS, and why the audit is worthless without it.
+  //
+  // delivery_photos has row-level security, enabled and forced, since
+  // migration 014, and current_app_role() reads auth.uid(). A scheduled call
+  // has no session, so the role is null, every policy is false, and the table
+  // returns NO ROWS RATHER THAN AN ERROR. This audit would then report zero
+  // proofs, zero missing, zero changed -- a green tick every Monday over a
+  // table it cannot see.
+  //
+  // Same problem the mailbox poller solved with FEED_POLL_USER_ID, and the
+  // same variable, so there is one identity for scheduled work rather than
+  // two. Used here WHENEVER IT IS SET, not only when AUTH_ENFORCED is on:
+  // injecting claims we already hold is never harmful, and RLS is a property
+  // of the database rather than of that flag.
+  //
+  // If it is missing, the audit still runs -- and lib/proof-audit.ts compares
+  // what it can see against jb_proof_row_count(), so it reports itself BLIND
+  // instead of clean. Refusing outright would be defensible; reporting the
+  // exact gap is more useful and cannot be misread either way.
+  const auditUserId = process.env.FEED_POLL_USER_ID ?? "";
+  const claims: UserClaims | null = /^[0-9a-f-]{36}$/i.test(auditUserId)
+    ? { sub: auditUserId, role: "authenticated" }
+    : null;
+
+  type SqlArg = Parameters<typeof auditProof>[0]["sql"];
+
   try {
-    // sql, not q: this runs with no session, and the audit is a read over the
-    // whole table by design. q() would resolve to no claims and return zero
-    // rows -- which would report every proof as missing.
-    const audit = await auditProof({
-      sql: sql as unknown as Parameters<typeof auditProof>[0]["sql"],
-      read,
-      sample,
-      includeObjects,
-    });
+    const audit = claims
+      ? await runAsUser(claims, (tx) =>
+          auditProof({ sql: tx as unknown as SqlArg, read, sample, includeObjects }))
+      : await auditProof({ sql: sql as unknown as SqlArg, read, sample, includeObjects });
     const failed = proofAuditFailed(audit);
     return NextResponse.json(
       { ok: !failed, ...audit, findings: proofAuditLines(audit) },

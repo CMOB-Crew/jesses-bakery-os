@@ -41,8 +41,19 @@
  * grows without bound because the audit covers every proof ever recorded.
  *
  * Supabase keeps object metadata in `storage.objects`, in the same Postgres.
- * Verified readable on production, 10 September: 4 objects in driver-proof,
- * all dated 2026-09-04. So existence -- in BOTH directions -- is one query.
+ * So existence -- in BOTH directions -- is one query.
+ *
+ * That table was checked in the Supabase SQL editor before this was designed:
+ * 4 objects in driver-proof, all dated 2026-09-04. The SQL editor connects as
+ * postgres, a superuser. THE APP DOES NOT, and the first live run of this
+ * audit said so:
+ *
+ *   {"ok":false,"error":"permission denied for schema storage"}
+ *
+ * Migration 094 is the answer, and its header explains why it is a
+ * security-definer function rather than a grant: Supabase keeps RLS on
+ * storage.objects, RLS returns no rows rather than an error, and an empty
+ * bucket would read here as every proof of delivery missing.
  *
  *   a row with no object    the drop is now unevidenced. The real risk.
  *   an object with no row   bytes nobody references. Cheaper to spot, and it
@@ -96,7 +107,12 @@ export type ProofAudit = {
     orphans: number;
     checksums_verified: number;
     checksums_mismatched: number;
+    /** How many delivery_photos rows there really are, read past RLS. */
+    actually_there: number;
   };
+  /** Set when the audit could not see every row it was meant to audit. When
+   *  this is set, NOTHING else in the result may be read as an all-clear. */
+  blind: { visible: number; actually_there: number } | null;
   missing: ProofRow[];
   orphans: Orphan[];
   changed: Mismatch[];
@@ -125,6 +141,22 @@ export async function auditProof(opts: {
   const { sql, read } = opts;
   const sample = Math.max(0, Math.trunc(opts.sample ?? 25));
 
+  // EYESIGHT FIRST. delivery_photos has row-level security, enabled and
+  // forced, since migration 014, and current_app_role() reads auth.uid(). A
+  // scheduled call has no session, so the role is null, every policy is false,
+  // and the table returns NO ROWS rather than an error.
+  //
+  // Left alone, this audit would then have reported 0 recorded, 0 missing,
+  // 0 changed -- a green tick every Monday over a table it cannot see. That is
+  // worse than the "permission denied for schema storage" it began with, and
+  // it is the very bug the audit exists to catch: an absence read as an
+  // all-clear.
+  //
+  // jb_proof_row_count() reads past RLS and returns a count and nothing else.
+  // If it disagrees with what we can see, the audit is blind and says so.
+  const [{ n: actuallyThere }] = await sql<{ n: number }[]>`
+    select public.jb_proof_row_count()::int as n`;
+
   // One query, both directions.
   //
   // The signer is on deliveries, not delivery_photos -- who signed is a
@@ -148,13 +180,20 @@ export async function auditProof(opts: {
            s.name                                      as store_name,
            to_char(d.delivery_date, 'YYYY-MM-DD')      as delivery_date,
            d.driver_sig_name                           as signed_by,
-           (o.metadata ->> 'size')::bigint             as object_size,
+           o.size                                      as object_size,
            (o.name is not null)                        as object_exists
       from delivery_photos p
       join deliveries d on d.id = p.delivery_id
       left join stores s on s.id = d.store_id
-      left join storage.objects o
-        on o.bucket_id = ${PROOF_BUCKET} and o.name = p.storage_path
+      -- jb_proof_objects(), not storage.objects. The app role has no access to
+      -- the storage schema -- the first live run of this audit said
+      -- "permission denied for schema storage" -- and granting it would have
+      -- been worse: Supabase keeps RLS on that table, RLS returns no rows
+      -- rather than an error, and an empty bucket reads as every proof
+      -- missing. Migration 094 wraps it in a security-definer function scoped
+      -- to this one bucket. See its header.
+      left join public.jb_proof_objects() o
+        on o.name = p.storage_path
      order by d.delivery_date, s.name, p.kind`;
 
   // The other direction. Bytes with no row behind them mean either something
@@ -162,15 +201,18 @@ export async function auditProof(opts: {
   // object -- both worth knowing, neither visible from the query above.
   const orphans = await sql<Orphan[]>`
     select o.name                                      as path,
-           (o.metadata ->> 'size')::bigint             as size,
+           o.size                                      as size,
            to_char(o.created_at at time zone 'UTC',
                    'YYYY-MM-DD"T"HH24:MI:SS"Z"')       as created_at
-      from storage.objects o
-     where o.bucket_id = ${PROOF_BUCKET}
-       and not exists (
+      from public.jb_proof_objects() o
+     where not exists (
          select 1 from delivery_photos p where p.storage_path = o.name
        )
      order by o.created_at`;
+
+  const blind = rows.length < Number(actuallyThere)
+    ? { visible: rows.length, actually_there: Number(actuallyThere) }
+    : null;
 
   const missing = rows.filter((r) => !r.object_exists);
   const present = rows.filter((r) => r.object_exists);
@@ -206,7 +248,9 @@ export async function auditProof(opts: {
       orphans: orphans.length,
       checksums_verified: verified,
       checksums_mismatched: changed.length,
+      actually_there: Number(actuallyThere),
     },
+    blind,
     missing,
     orphans,
     changed,
@@ -214,9 +258,13 @@ export async function auditProof(opts: {
   };
 }
 
-/** Did the audit find anything that should stop a green tick? */
+/** Did the audit find anything that should stop a green tick?
+ *
+ *  `blind` is checked FIRST and on its own. An audit that could not see the
+ *  rows has not found nothing -- it has found nothing out, and the two must
+ *  never produce the same tick. */
 export function proofAuditFailed(a: ProofAudit): boolean {
-  return a.counts.missing > 0 || a.counts.checksums_mismatched > 0;
+  return a.blind !== null || a.counts.missing > 0 || a.counts.checksums_mismatched > 0;
 }
 
 /** The findings, as lines. Shared so the endpoint, the CLI and any future
@@ -224,6 +272,13 @@ export function proofAuditFailed(a: ProofAudit): boolean {
  *  audit: bytes with no row are untidy, not lost evidence. */
 export function proofAuditLines(a: ProofAudit): string[] {
   const out: string[] = [];
+  if (a.blind) {
+    out.push(`BLIND    this audit could see ${a.blind.visible} of ${a.blind.actually_there} recorded proofs.`);
+    out.push(`         Nothing below is an all-clear. delivery_photos has row-level`);
+    out.push(`         security and a scheduled call has no session, so the rows are`);
+    out.push(`         filtered away rather than refused. Give the caller an identity`);
+    out.push(`         (FEED_POLL_USER_ID) or the audit cannot do its job.`);
+  }
   for (const r of a.missing) {
     out.push(`MISSING  ${r.delivery_date ?? "?"}  ${r.store_name ?? r.store_id ?? "?"}  ${r.kind}`);
     out.push(`         ${r.path}`);
