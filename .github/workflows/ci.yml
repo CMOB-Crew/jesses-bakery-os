@@ -162,6 +162,25 @@ jobs:
       - name: Condition 15 — the three authorisation tests
         run: bash db/checks/authorisation-tests.sh
 
+      # The proof-of-delivery audit is the only thing that would ever notice a
+      # signature going missing from Storage, which is in no backup. A check
+      # like that fails silently when IT breaks, so its three answers are
+      # asserted against a real Postgres and a fake bucket. Last, because it
+      # needs the schema the two steps above have just built.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install (for the audit test)
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Does the proof-of-delivery audit still detect a loss?
+        working-directory: apps/web
+        run: node scripts/test-proof-of-delivery-audit.mjs
+
   secrets:
     name: Secret scanning
     runs-on: ubuntu-latest

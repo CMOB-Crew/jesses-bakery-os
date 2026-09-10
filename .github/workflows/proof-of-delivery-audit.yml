@@ -1,0 +1,93 @@
+name: Proof of delivery audit
+
+# Supabase's own documentation: "Database backups do not include objects you
+# store via the Storage API." The shelf photos and the customers' signatures
+# live in the driver-proof bucket and are in no backup.
+#
+# This does NOT back them up. A full weekly dump is roughly 1,900 objects at
+# 2-5MB once every store is live, and the destination Jesse controls is a
+# decision nobody has made yet. What it does is close the gap nothing else
+# covers: today, if an object vanished from that bucket, nobody would ever find
+# out. The database would still hold a row with a checksum, the store page would
+# still show a proof badge, and the file behind it would be gone.
+#
+# It also writes out the manifest -- every proof's path, checksum, capture time,
+# GPS and signer -- and keeps it for a year. That is the small, useful half of a
+# backup and it is what a dispute actually needs. It is not the images and does
+# not pretend to be.
+#
+# Mondays, 06:10 UTC = 16:10 Sydney (AEST). After the morning feeds, well clear
+# of the run.
+
+on:
+  schedule:
+    - cron: "10 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      sample:
+        description: "How many objects to re-download and re-hash. Existence is checked for every object regardless; this is the contents check. 0 skips it."
+        required: false
+        default: "25"
+        type: string
+
+concurrency:
+  group: proof-of-delivery-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Is every proof of delivery still there
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Audit
+        working-directory: apps/web
+        env:
+          # Through env, never interpolated into the command line. These run
+          # logs are public and ${{ }} expands before bash sees the line.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SAMPLE_INPUT: ${{ inputs.sample }}
+        run: |
+          set -uo pipefail
+
+          for v in DATABASE_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+            if [ -z "${!v:-}" ]; then
+              echo "$v is not set as a repository secret."
+              echo "Settings -> Secrets and variables -> Actions -> New repository secret."
+              exit 1
+            fi
+          done
+
+          # Digits only, from this workflow's own input box.
+          sample="${SAMPLE_INPUT:-25}"
+          case "$sample" in
+            ''|*[!0-9]*) sample=25 ;;
+          esac
+
+          node scripts/proof-of-delivery-audit.mjs \
+            --sample "$sample" \
+            --out "$GITHUB_WORKSPACE/proof-manifest.json"
+
+      # if: always() so the manifest is kept even when the audit fails -- a run
+      # that found something missing is the run whose manifest matters most.
+      - name: Keep the manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-manifest-${{ github.run_id }}
+          path: proof-manifest.json
+          retention-days: 365
+          if-no-files-found: warn
