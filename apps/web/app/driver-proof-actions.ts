@@ -106,3 +106,111 @@ export async function saveDeliveryProof(input: {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save the proof." };
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * WHAT WAS ACTUALLY DELIVERED, line by line.
+ *
+ * delivery_items has been in the schema since 001 and, until now, was written
+ * by NOTHING but the seed scripts. Migration 080 said so out loud in August --
+ * "the moment items are ever attached" -- and that moment never came.
+ *
+ * Two things were reading it anyway:
+ *
+ *   v_store_week.total_sent          the Overview's whole "sent" figure
+ *   v_store_product_delivered        added on 10 September, this morning
+ *
+ * So every delivery a driver recorded contributed ZERO to what the business
+ * thinks it delivered, and the measured column shipped this morning was
+ * structurally zero for every new drop. That is the fifth table in this system
+ * found to be read by something and written by nothing, and the first one
+ * where the reader was built on top of it the same day.
+ *
+ * WHY THE QUANTITIES COME FROM THE PHONE.
+ *
+ * They are not taken on trust; they are validated below. But they are the
+ * right SOURCE. What a store is due on a given day is worked out partly in
+ * TypeScript -- the weekday curve splits a weekly standing order into one
+ * day's drop -- so recomputing it here would be a second implementation of the
+ * same arithmetic, and the two would disagree the first time either changed.
+ * The phone's list is also what the driver actually stood in front of and
+ * signed for, which is the more truthful record of a delivery.
+ *
+ * WHY IT IS NOT PART OF saveDeliveryProof.
+ *
+ * That function only runs when there is a photo or a signature to keep. A stop
+ * confirmed without either created no deliveries row at all -- the driver's own
+ * screen said delivered and the business had no record. This creates the row
+ * whether or not proof follows, and saveDeliveryProof still upserts the same
+ * row, so the two are safe in either order.
+ * ------------------------------------------------------------------ */
+
+export type DeliveredLine = { productId: string; qty: number };
+export type RecordResult =
+  | { ok: true; lines: number; dropped: number }
+  | { ok: false; error: string };
+
+export async function recordDelivery(input: {
+  storeId: string;
+  day: string;
+  items: DeliveredLine[];
+}): Promise<RecordResult> {
+  if (process.env.DEMO_READONLY === "1") return { ok: true, lines: 0, dropped: 0 };
+  try {
+    const { storeId, day } = input;
+    if (!UUID.test(storeId)) return { ok: false, error: "Unknown store." };
+    if (!DAY.test(day)) return { ok: false, error: "Bad day." };
+
+    // A stop is a handful of lines. A phone sending hundreds is a bug or a
+    // tampered client, and either way this is not the place to find out how
+    // large it can get.
+    const raw = Array.isArray(input.items) ? input.items.slice(0, 200) : [];
+    const ids: string[] = [];
+    const qtys: number[] = [];
+    for (const it of raw) {
+      if (!it || !UUID.test(String(it.productId))) continue;
+      const q = Math.round(Number(it.qty));
+      if (!Number.isFinite(q) || q < 0 || q > 100000) continue;
+      ids.push(String(it.productId));
+      qtys.push(q);
+    }
+
+    const who = await getDisplayUser().catch(() => null);
+
+    // Same upsert as saveDeliveryProof, deliberately. Either can run first, and
+    // running both is not two deliveries -- migration 080's unique key on
+    // (store_id, delivery_date) is what makes that true.
+    const [d] = await sql<{ id: string }[]>`
+      insert into deliveries (store_id, delivery_date, status, delivered_at, driver_sig_name)
+      values (${storeId}::uuid, ${day}::date, 'delivered'::delivery_status, now(),
+              coalesce(
+                (select nullif(btrim(u.full_name), '')
+                   from public.users u
+                  where lower(u.email) = lower(${who?.email ?? null})),
+                ${who?.email ?? null}))
+        on conflict (store_id, delivery_date) do update
+       set status          = 'delivered'::delivery_status,
+           delivered_at    = coalesce(deliveries.delivered_at, now()),
+           driver_sig_name = coalesce(excluded.driver_sig_name, deliveries.driver_sig_name)
+      returning id::text as id`;
+
+    if (!d?.id) return { ok: false, error: "Could not record the delivery." };
+    if (!ids.length) return { ok: true, lines: 0, dropped: 0 };
+
+    // The join to products is the last check: a product id the phone has and
+    // the database does not simply does not land. A driver is NEVER blocked
+    // over it -- the count comes back so the screen can say something, and the
+    // delivery itself is already recorded above.
+    const rows = await sql<{ product_id: string }[]>`
+      insert into delivery_items (delivery_id, product_id, qty_sent)
+      select ${d.id}::uuid, p.id, t.qty
+        from unnest(${ids}::uuid[], ${qtys}::int[]) as t(pid, qty)
+        join products p on p.id = t.pid
+        on conflict (delivery_id, product_id) do update
+       set qty_sent = excluded.qty_sent
+      returning product_id::text as product_id`;
+
+    return { ok: true, lines: rows.length, dropped: ids.length - rows.length };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not record what was delivered." };
+  }
+}

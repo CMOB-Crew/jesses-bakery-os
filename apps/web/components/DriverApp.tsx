@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { PackRun, DriverState, PackFinal } from "@/lib/queries";
 import { setDriverState } from "@/app/run-state-actions";
-import { saveDeliveryProof } from "@/app/driver-proof-actions";
+import { saveDeliveryProof, recordDelivery } from "@/app/driver-proof-actions";
 import { uploadProof } from "@/lib/driver-proof";
 import { driverDayMode, driverDayNote, driverDayBanner, showsSampleStops, type DriverDayCounts } from "@/lib/driver-day";
 
@@ -26,18 +26,26 @@ const finTime = (iso: string) => {
 type Status = "done" | "next" | "pending" | "circle";
 // sid is the real store id. Optional because the sample stops have none -- they
 // are not real stores and must never write a delivery record.
-type Stop = { id: number; name: string; addr: string; items: [string, number][]; status: Status; sid?: string };
+// items carries the product id as well as the name and the quantity. It used
+// to be [name, qty] and the id was thrown away one line after it was read --
+// which is why delivery_items, the table the whole "delivered" figure is
+// measured from, was written by nothing.
+type StopLine = { pid: string; name: string; qty: number };
+type Stop = { id: number; name: string; addr: string; items: StopLine[]; status: Status; sid?: string };
 type Screen = "licence" | "pickrun" | "run" | "stop" | "circle" | "cam" | "photo" | "waste" | "sign" | "done";
 
+// The walkthrough's sample stops. pid is empty on purpose: nothing here is
+// ever saved -- these appear only when nobody is signed in -- and an empty id
+// is refused by recordDelivery's uuid check rather than landing as a real line.
 const INITIAL: Stop[] = [
-  { id: 0, name: "Coles Bondi Junction", addr: "500 Oxford St · Bondi Junction", items: [["White Sourdough", 6], ["Plain Bagel", 8], ["Mini Challah", 4], ["Pita", 5]], status: "done" },
-  { id: 1, name: "Woolworths Bondi Beach", addr: "27 Hall St · Bondi Beach", items: [["White Sourdough", 5], ["Sesame Bagel", 6], ["Pita", 4]], status: "done" },
-  { id: 2, name: "Coles Randwick", addr: "The Spot · Randwick", items: [["Spelt Sourdough", 7], ["Plain Bagel", 9], ["Mini Challah", 3]], status: "done" },
-  { id: 3, name: "Harris Farm Bondi", addr: "Bondi Rd · Bondi", items: [["White Sourdough", 8], ["Rye Sourdough", 4], ["Poppy Bagel", 6], ["Pita", 5]], status: "next" },
-  { id: 4, name: "Coles Coogee", addr: "216 Coogee Bay Rd · Coogee", items: [["White Sourdough", 6], ["Plain Bagel", 7]], status: "pending" },
-  { id: 5, name: "Woolworths Maroubra", addr: "Maroubra Junction", items: [["Spelt Sourdough", 9], ["Sesame Bagel", 8], ["Mini Challah", 5]], status: "pending" },
-  { id: 6, name: "Coles Eastgardens", addr: "152 Bunnerong Rd · Eastgardens", items: [["White Sourdough", 7], ["Pita", 6]], status: "pending" },
-  { id: 7, name: "Harris Farm Rose Bay", addr: "744 New South Head Rd", items: [["Rye Sourdough", 5], ["Plain Bagel", 6], ["Poppy Bagel", 4]], status: "pending" },
+  { id: 0, name: "Coles Bondi Junction", addr: "500 Oxford St · Bondi Junction", items: [{ pid: "", name: "White Sourdough", qty: 6 }, { pid: "", name: "Plain Bagel", qty: 8 }, { pid: "", name: "Mini Challah", qty: 4 }, { pid: "", name: "Pita", qty: 5 }], status: "done" },
+  { id: 1, name: "Woolworths Bondi Beach", addr: "27 Hall St · Bondi Beach", items: [{ pid: "", name: "White Sourdough", qty: 5 }, { pid: "", name: "Sesame Bagel", qty: 6 }, { pid: "", name: "Pita", qty: 4 }], status: "done" },
+  { id: 2, name: "Coles Randwick", addr: "The Spot · Randwick", items: [{ pid: "", name: "Spelt Sourdough", qty: 7 }, { pid: "", name: "Plain Bagel", qty: 9 }, { pid: "", name: "Mini Challah", qty: 3 }], status: "done" },
+  { id: 3, name: "Harris Farm Bondi", addr: "Bondi Rd · Bondi", items: [{ pid: "", name: "White Sourdough", qty: 8 }, { pid: "", name: "Rye Sourdough", qty: 4 }, { pid: "", name: "Poppy Bagel", qty: 6 }, { pid: "", name: "Pita", qty: 5 }], status: "next" },
+  { id: 4, name: "Coles Coogee", addr: "216 Coogee Bay Rd · Coogee", items: [{ pid: "", name: "White Sourdough", qty: 6 }, { pid: "", name: "Plain Bagel", qty: 7 }], status: "pending" },
+  { id: 5, name: "Woolworths Maroubra", addr: "Maroubra Junction", items: [{ pid: "", name: "Spelt Sourdough", qty: 9 }, { pid: "", name: "Sesame Bagel", qty: 8 }, { pid: "", name: "Mini Challah", qty: 5 }], status: "pending" },
+  { id: 6, name: "Coles Eastgardens", addr: "152 Bunnerong Rd · Eastgardens", items: [{ pid: "", name: "White Sourdough", qty: 7 }, { pid: "", name: "Pita", qty: 6 }], status: "pending" },
+  { id: 7, name: "Harris Farm Rose Bay", addr: "744 New South Head Rd", items: [{ pid: "", name: "Rye Sourdough", qty: 5 }, { pid: "", name: "Plain Bagel", qty: 6 }, { pid: "", name: "Poppy Bagel", qty: 4 }], status: "pending" },
 ];
 
 const WPRODS = ["Sourdough", "Bagels", "Challah", "Pita"];
@@ -121,7 +129,7 @@ export default function DriverApp({
         sid: st.store_id,
         name: st.name,
         addr: addresses[st.store_id] ?? (st.retailer === "invoice" ? "Invoice customer" : ""),
-        items: st.items.map((it) => [it.name, it.qty] as [string, number]),
+        items: st.items.map((it) => ({ pid: it.product_id, name: it.name, qty: it.qty })),
         status: (done?.s === "delivered" ? "done" : done?.s === "circled" ? "circle" : "pending") as Status,
       };
     });
@@ -377,13 +385,33 @@ export default function DriverApp({
   );
 
   function deliver() {
-    const sid = stops.find((s) => s.id === curId)?.sid;
+    const stop = stops.find((s) => s.id === curId);
+    const sid = stop?.sid;
     // Read the pad before the screen changes and unmounts it. isSigned guards
     // against storing a blank canvas as somebody's signature.
     const sig = sigRef.current && sigDrawn.current ? sigRef.current.toDataURL("image/jpeg", 0.9) : null;
     if (sid) {
       const entry = { s: "delivered" as const, at: new Date().toISOString() };
       persist({ ...record, [sid]: entry }, { [sid]: entry });
+
+      // The delivery and its lines, recorded whether or not proof follows.
+      // Not awaited, for the same reason sendProof is not: a driver in a
+      // loading dock with one bar must not be held on a spinner, and must not
+      // lose the drop because the upload was slow. A failure says so in the
+      // same banner the proof uploads use.
+      if (dayIso && live) {
+        void recordDelivery({
+          storeId: sid,
+          day: dayIso,
+          items: (stop?.items ?? []).map((i) => ({ productId: i.pid, qty: i.qty })),
+        }).then((r) => {
+          if (!r.ok) setProofNote(r.error);
+          else if (r.dropped > 0) {
+            setProofNote(`${r.lines} line(s) recorded. ${r.dropped} could not be matched to a product — tell the office.`);
+          }
+        });
+      }
+
       void sendProof(sid, sig, photo);
     }
     setStops((ss) => {
@@ -585,7 +613,7 @@ export default function DriverApp({
             <div className="content">
               <div className="addr">{cur.addr}</div>
               <div className="box"><div className="bh">Deliver to shelf</div>
-                {cur.items.map((i) => <div className="li" key={i[0]}><span>{i[0]}</span><b>{i[1]}</b></div>)}
+                {cur.items.map((i) => <div className="li" key={i.pid || i.name}><span>{i.name}</span><b>{i.qty}</b></div>)}
               </div>
               <div className="box"><div className="bh">Notes</div><div style={{ fontSize: 13.5, color: "var(--ink2)" }}>Shelf max 45. Merchandise front-facing, oldest to front.</div></div>
             </div>
