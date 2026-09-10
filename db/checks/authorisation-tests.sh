@@ -83,6 +83,14 @@ insert into stores (id, name, retailer, region_id, default_run_id, active) value
  ('d0000000-0000-0000-0000-000000000001','TEST Store North','coles','b0000000-0000-0000-0000-000000000001','c0000000-0000-0000-0000-000000000001',true),
  ('d0000000-0000-0000-0000-000000000002','TEST Store South','coles','b0000000-0000-0000-0000-000000000001','c0000000-0000-0000-0000-000000000002',true)
 on conflict do nothing;
+-- A product and a delivery header, so section 4 can test the two writes the
+-- driver app actually makes at a stop rather than a stand-in for them.
+insert into products (id, name) values
+ ('e0000000-0000-0000-0000-000000000001','TEST Sourdough')
+on conflict do nothing;
+insert into deliveries (id, store_id, delivery_date, status) values
+ ('f0000000-0000-0000-0000-000000000001','d0000000-0000-0000-0000-000000000001',current_date,'delivered')
+on conflict do nothing;
 SQL
 
 fails=0
@@ -171,6 +179,57 @@ if printf '%s' "$leaky" | grep -q 'LEAKY'; then
 else
   ok "every public table returns zero rows with no session"
 fi
+
+echo
+echo "── 4. A driver CAN write what a driver is for ──"
+echo
+
+# The three checks above are all "this must be refused", and a suite made only
+# of those has a failure mode: delete every driver policy and it goes greener,
+# not redder. On 10 September that was not hypothetical. 25c926d taught the
+# driver app to write delivery_items and the wastage commit taught it to write
+# wastage, and neither table had a driver INSERT policy -- the app worked only
+# because AUTH_ENFORCED is still off. Both would have started failing on a
+# phone, at a store, the morning of the flip.
+#
+# So the permissions the floor NEEDS are asserted here too, and this section
+# going red means the driver app has quietly stopped being able to do its job.
+check_allowed() {
+  local label="$1" uid="$2" stmt="$3"
+  local out; out="$(as_user "$uid" -c "with x as ($stmt returning 1) select count(*) from x")"
+  if [ "$(printf '%s' "$out" | tr -d '[:space:]')" = "1" ]; then
+    ok "$label"
+  else
+    bad "$label" "expected one row written, got: $out"
+  fi
+}
+
+ITEM="insert into delivery_items (delivery_id, product_id, qty_sent) values ('f0000000-0000-0000-0000-000000000001','e0000000-0000-0000-0000-000000000001',%s) on conflict (delivery_id, product_id) do update set qty_sent = excluded.qty_sent"
+WASTE="insert into wastage (store_id, product_id, waste_date, qty) values ('d0000000-0000-0000-0000-000000000001','e0000000-0000-0000-0000-000000000001',current_date,%s) on conflict (store_id, product_id, waste_date) do update set qty = excluded.qty"
+
+check_allowed "a driver can record what was delivered" "$DRIVER_A" \
+  "$(printf "$ITEM" 12)"
+# The second tap takes the UPDATE arm of the upsert, which is a different
+# policy. An INSERT policy on its own passes this test's first half and fails
+# a driver correcting a count at the stop.
+check_allowed "a driver can correct a delivered count" "$DRIVER_A" \
+  "$(printf "$ITEM" 14)"
+check_allowed "a driver can record a confirmed nil at the shelf" "$DRIVER_A" \
+  "$(printf "$WASTE" 0)"
+check_allowed "a driver can re-count the shelf" "$DRIVER_A" \
+  "$(printf "$WASTE" 3)"
+
+# Writing is not deleting. A wrong number is corrected by writing the right
+# one, which leaves the correction visible.
+check_refused "a driver cannot delete a shelf count" "$DRIVER_A" \
+  "delete from wastage"
+check_refused "a driver cannot delete what was delivered" "$DRIVER_A" \
+  "delete from delivery_items"
+
+stored="$(psql "$DATABASE_URL" -tAq -c "select qty from wastage where store_id='d0000000-0000-0000-0000-000000000001'")"
+[ "$(printf '%s' "$stored" | tr -d '[:space:]')" = "3" ] \
+  && ok "the re-count is what is actually stored" \
+  || bad "the re-count did not land" "wastage.qty is: $stored"
 
 echo
 if [ "$fails" -ne 0 ]; then

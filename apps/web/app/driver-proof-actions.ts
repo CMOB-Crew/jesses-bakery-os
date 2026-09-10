@@ -153,6 +153,9 @@ export async function recordDelivery(input: {
   storeId: string;
   day: string;
   items: DeliveredLine[];
+  /** What the driver pulled off the shelf, per product. An EMPTY ARRAY and a
+   *  missing array mean different things -- see the note at the write. */
+  waste?: DeliveredLine[] | null;
 }): Promise<RecordResult> {
   if (process.env.DEMO_READONLY === "1") return { ok: true, lines: 0, dropped: 0 };
   try {
@@ -208,6 +211,53 @@ export async function recordDelivery(input: {
         on conflict (delivery_id, product_id) do update
        set qty_sent = excluded.qty_sent
       returning product_id::text as product_id`;
+
+    // ----------------------------------------------------------------
+    // WASTE AT THE SHELF.
+    //
+    // The driver app has had a wastage screen since it was built. The counts
+    // lived in React state and were never sent anywhere -- and `wastage`, the
+    // table they belong in, is read by the app (the product waste rollup) and
+    // was written by nothing. Waste reduction is the entire premise of this
+    // build and the screen that captured it threw it away.
+    //
+    // A CONFIRMED NIL IS NOT THE SAME AS NO ANSWER, and this is the part worth
+    // getting right. v_store_week reads
+    //
+    //   coalesce(waste.total_wasted, greatest(sent - sold, 0))
+    //
+    // so an absent row means "nobody told us, so infer it from the gap". A
+    // driver standing at the shelf saying there was none is better evidence
+    // than that inference, and it must beat it -- which it only does if the
+    // zero is WRITTEN. So nil sends a zero for every line delivered, and
+    // `waste` being undefined (an older phone, or a stop with no waste screen)
+    // writes nothing at all and leaves the inference in place.
+    // ----------------------------------------------------------------
+    if (Array.isArray(input.waste)) {
+      const wid: string[] = [];
+      const wq: number[] = [];
+      for (const it of input.waste.slice(0, 200)) {
+        if (!it || !UUID.test(String(it.productId))) continue;
+        const q = Math.round(Number(it.qty));
+        if (!Number.isFinite(q) || q < 0 || q > 100000) continue;
+        wid.push(String(it.productId));
+        wq.push(q);
+      }
+      if (wid.length) {
+        // captured_by is deliberately left null. The column references
+        // app_users, the legacy table, and pointing a modern account at it
+        // would be a foreign key into the wrong identity system. Who recorded
+        // it is on the delivery row, which is the same person and the same
+        // moment.
+        await sql`
+          insert into wastage (store_id, product_id, waste_date, qty)
+          select ${storeId}::uuid, p.id, ${day}::date, t.qty
+            from unnest(${wid}::uuid[], ${wq}::int[]) as t(pid, qty)
+            join products p on p.id = t.pid
+            on conflict (store_id, product_id, waste_date) do update
+           set qty = excluded.qty`;
+      }
+    }
 
     return { ok: true, lines: rows.length, dropped: ids.length - rows.length };
   } catch (e) {

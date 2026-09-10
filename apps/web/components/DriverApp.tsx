@@ -48,7 +48,13 @@ const INITIAL: Stop[] = [
   { id: 7, name: "Harris Farm Rose Bay", addr: "744 New South Head Rd", items: [{ pid: "", name: "Rye Sourdough", qty: 5 }, { pid: "", name: "Plain Bagel", qty: 6 }, { pid: "", name: "Poppy Bagel", qty: 4 }], status: "pending" },
 ];
 
-const WPRODS = ["Sourdough", "Bagels", "Challah", "Pita"];
+// The wastage screen used to offer these four names. They are categories, not
+// products -- a store that carries Rye Sourdough and Poppy Bagels could count
+// neither -- and being strings they could never be written anywhere, because
+// wastage is keyed on product_id. The screen now lists the store's own lines.
+// Kept only as the fallback for the signed-out walkthrough, where a stop has
+// no real products behind it.
+const WPRODS_SAMPLE = ["Sourdough", "Bagels", "Challah", "Pita"];
 const REASONS = ["Truck at loading dock", "Store closed", "No room on shelf", "No one to receive"];
 
 export default function DriverApp({
@@ -318,11 +324,13 @@ export default function DriverApp({
     setScreen("photo");
   }
 
-  function wstep(p: string, d: number) {
+  // Keyed by product id now, not by name. A name cannot be written to wastage,
+  // which is keyed on (store_id, product_id, waste_date).
+  function wstep(pid: string, d: number) {
     setWaste((w) => {
-      const nv = Math.max(0, (w[p] || 0) + d);
+      const nv = Math.max(0, (w[pid] || 0) + d);
       if (nv > 0) setNil(false);
-      return { ...w, [p]: nv };
+      return { ...w, [pid]: nv };
     });
   }
   function toggleNil() {
@@ -400,10 +408,22 @@ export default function DriverApp({
       // lose the drop because the upload was slow. A failure says so in the
       // same banner the proof uploads use.
       if (dayIso && live) {
+        // nil confirmed sends an explicit zero for every line, because a
+        // driver saying "none" has to beat the inference v_store_week falls
+        // back on. Neither answered leaves waste undefined, and nothing is
+        // written.
+        const lines = stop?.items ?? [];
+        const wasteOut =
+          nil ? lines.map((i) => ({ productId: i.pid, qty: 0 }))
+          : Object.keys(waste).length
+            ? lines.filter((i) => waste[i.pid] != null).map((i) => ({ productId: i.pid, qty: waste[i.pid] }))
+            : null;
+
         void recordDelivery({
           storeId: sid,
           day: dayIso,
-          items: (stop?.items ?? []).map((i) => ({ productId: i.pid, qty: i.qty })),
+          items: lines.map((i) => ({ productId: i.pid, qty: i.qty })),
+          waste: wasteOut,
         }).then((r) => {
           if (!r.ok) setProofNote(r.error);
           else if (r.dropped > 0) {
@@ -413,6 +433,10 @@ export default function DriverApp({
       }
 
       void sendProof(sid, sig, photo);
+      // The next store starts from nothing. Carrying one store's counts onto
+      // the next is how a shelf count becomes fiction.
+      setWaste({});
+      setNil(false);
     }
     setStops((ss) => {
       const updated = ss.map((s) => (s.id === curId ? { ...s, status: "done" as Status } : s));
@@ -673,13 +697,13 @@ export default function DriverApp({
             <div className="content">
               <button className={`nilbtn ${nil ? "on" : ""}`} onClick={toggleNil}>{nil ? "✓ Nil confirmed" : "✓ No wastage — nil"}</button>
               <div className="box"><div className="bh">Or count what&apos;s being pulled</div>
-                {WPRODS.map((p) => (
-                  <div className="step" key={p}>
-                    <span className="p">{p}</span>
+                {(cur?.items.length ? cur.items : WPRODS_SAMPLE.map((n) => ({ pid: "", name: n, qty: 0 }))).map((p) => (
+                  <div className="step" key={p.pid || p.name}>
+                    <span className="p">{p.name}</span>
                     <div className="stepper">
-                      <button onClick={() => wstep(p, -1)}>−</button>
-                      <span className="v">{waste[p] || 0}</span>
-                      <button onClick={() => wstep(p, 1)}>+</button>
+                      <button onClick={() => wstep(p.pid || p.name, -1)}>−</button>
+                      <span className="v">{waste[p.pid || p.name] || 0}</span>
+                      <button onClick={() => wstep(p.pid || p.name, 1)}>+</button>
                     </div>
                   </div>
                 ))}
