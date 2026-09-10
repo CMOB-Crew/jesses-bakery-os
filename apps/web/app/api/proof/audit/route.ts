@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runAsUser, sql } from "@/lib/db";
 import { type UserClaims } from "@/lib/auth";
 import { supabaseAdmin, PROOF_BUCKET } from "@/lib/supabase/admin";
-import { auditProof, proofAuditFailed, proofAuditLines, type ObjectReader } from "@/lib/proof-audit";
+import { auditProof, proofAuditFailed, proofAuditLines, proofAuditNotes, type ObjectReader } from "@/lib/proof-audit";
 
 export const dynamic = "force-dynamic";
 // Existence is one SQL join, so the only thing that takes time is hashing the
@@ -106,11 +106,11 @@ export async function GET(req: NextRequest) {
   try {
     const audit = claims
       ? await runAsUser(claims, (tx) =>
-          auditProof({ sql: tx as unknown as SqlArg, read, sample, includeObjects }))
-      : await auditProof({ sql: sql as unknown as SqlArg, read, sample, includeObjects });
+          auditProof({ sql: tx as unknown as SqlArg, read, sample, includeObjects, withIdentity: true }))
+      : await auditProof({ sql: sql as unknown as SqlArg, read, sample, includeObjects, withIdentity: false });
     const failed = proofAuditFailed(audit);
     return NextResponse.json(
-      { ok: !failed, ...audit, findings: proofAuditLines(audit) },
+      { ok: !failed, ...audit, findings: proofAuditLines(audit), notes: proofAuditNotes(audit) },
       // 200 either way. The caller decides what to do about ok:false, exactly
       // as it does for the feed poller; a 500 here would read as "the check
       // broke" when the check worked and found something.

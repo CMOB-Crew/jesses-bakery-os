@@ -93,3 +93,18 @@ jobs:
             *'"ok":true'*) echo "Every recorded proof of delivery is present and unchanged." ;;
             *) echo "Proof of delivery has changed or gone missing. See the body above."; exit 1 ;;
           esac
+
+          # Not a failure, and printed after the verdict so it cannot be
+          # mistaken for one. read_as.bypasses_rls says whether the connection
+          # this audit used is subject to row-level security at all -- which is
+          # the difference between "the policies work" and "the policies have
+          # never been tested against the live app", and both look identical in
+          # every other number above.
+          case "$body" in
+            *'"bypasses_rls":true'*)
+              echo
+              echo "NOTE: this ran on a connection that BYPASSES row-level security."
+              echo "      Every read the live app makes is therefore unfiltered, and the"
+              echo "      policies in 075, 078, 091, 092 and 093 are not being exercised."
+              echo "      Worth settling before AUTH_ENFORCED is turned on, not after." ;;
+          esac

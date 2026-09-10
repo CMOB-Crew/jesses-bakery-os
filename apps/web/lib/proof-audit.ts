@@ -113,6 +113,21 @@ export type ProofAudit = {
   /** Set when the audit could not see every row it was meant to audit. When
    *  this is set, NOTHING else in the result may be read as an all-clear. */
   blind: { visible: number; actually_there: number } | null;
+  /** HOW it read, which is a different question from what it found.
+   *
+   *  Run #2 came back with recorded:4 and blind:null -- a clean result. That
+   *  is consistent with two different worlds, and they are not equally good:
+   *
+   *    the identity worked          RLS is live and the audit was let through
+   *    the role bypasses RLS        RLS is not protecting the live app at all,
+   *                                 and every policy written in 075, 078, 091,
+   *                                 092 and 093 is untested against the real
+   *                                 connection
+   *
+   *  The second is a much bigger fact about the flip than the first, and both
+   *  produce the same number. So the audit reports which one it is, every
+   *  week, instead of somebody remembering to wonder. */
+  read_as: { db_user: string; bypasses_rls: boolean; with_identity: boolean };
   missing: ProofRow[];
   orphans: Orphan[];
   changed: Mismatch[];
@@ -137,6 +152,9 @@ export async function auditProof(opts: {
    *  entirely; existence is still checked for everything. */
   sample?: number;
   includeObjects?: boolean;
+  /** Whether the caller injected request.jwt.claims before calling. Reported,
+   *  not used -- see ProofAudit.read_as. */
+  withIdentity?: boolean;
 }): Promise<ProofAudit> {
   const { sql, read } = opts;
   const sample = Math.max(0, Math.trunc(opts.sample ?? 25));
@@ -156,6 +174,15 @@ export async function auditProof(opts: {
   // If it disagrees with what we can see, the audit is blind and says so.
   const [{ n: actuallyThere }] = await sql<{ n: number }[]>`
     select public.jb_proof_row_count()::int as n`;
+
+  // rolbypassrls is the whole answer and it is not an inference: a role with it
+  // set is never subject to a policy, so a clean result from such a role says
+  // nothing about whether the policies work.
+  const [who] = await sql<{ db_user: string; bypasses_rls: boolean }[]>`
+    select current_user::text                    as db_user,
+           coalesce((select r.rolbypassrls
+                       from pg_roles r
+                      where r.rolname = current_user), false) as bypasses_rls`;
 
   // One query, both directions.
   //
@@ -241,6 +268,11 @@ export async function auditProof(opts: {
   return {
     generated_at: new Date().toISOString(),
     bucket: PROOF_BUCKET,
+    read_as: {
+      db_user: who?.db_user ?? "unknown",
+      bypasses_rls: who?.bypasses_rls === true,
+      with_identity: opts.withIdentity === true,
+    },
     counts: {
       recorded: rows.length,
       present: rows.length - missing.length,
@@ -270,6 +302,30 @@ export function proofAuditFailed(a: ProofAudit): boolean {
 /** The findings, as lines. Shared so the endpoint, the CLI and any future
  *  alert all word it the same way. Orphans are listed but do NOT fail the
  *  audit: bytes with no row are untidy, not lost evidence. */
+/** Things that are true and worth knowing, but are NOT findings.
+ *
+ *  Kept apart from proofAuditLines on purpose. `findings` means "something is
+ *  wrong with the proofs" and anything that reads it -- a person skimming the
+ *  log, or code checking whether it is empty -- should be able to trust that.
+ *  Mixing a note in there was caught by the test asserting a clean run has no
+ *  findings, which is exactly the assertion worth having. */
+export function proofAuditNotes(a: ProofAudit): string[] {
+  const out: string[] = [];
+  // The single most useful line in this output for anyone deciding whether
+  // AUTH_ENFORCED is safe to turn on. Not a failure: the audit's job is the
+  // proofs, not the flip.
+  if (a.read_as.bypasses_rls) {
+    out.push(`NOTE     read as ${a.read_as.db_user}, which BYPASSES row-level security.`);
+    out.push(`         Every result above is therefore unfiltered -- and so is every`);
+    out.push(`         other read the live app makes. The policies in 075, 078, 091,`);
+    out.push(`         092 and 093 are not being exercised by this connection.`);
+  } else if (!a.read_as.with_identity) {
+    out.push(`NOTE     read as ${a.read_as.db_user} with no identity, and RLS applies to it.`);
+    out.push(`         Set FEED_POLL_USER_ID so the audit is not relying on luck.`);
+  }
+  return out;
+}
+
 export function proofAuditLines(a: ProofAudit): string[] {
   const out: string[] = [];
   if (a.blind) {

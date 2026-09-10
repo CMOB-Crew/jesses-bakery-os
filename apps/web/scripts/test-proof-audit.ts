@@ -34,7 +34,7 @@
  */
 import { createHash } from "node:crypto";
 import postgres from "postgres";
-import { auditProof, proofAuditFailed, proofAuditLines, PROOF_BUCKET, type ObjectReader } from "../lib/proof-audit";
+import { auditProof, proofAuditFailed, proofAuditLines, proofAuditNotes, PROOF_BUCKET, type ObjectReader } from "../lib/proof-audit";
 
 const DB = process.env.DATABASE_URL;
 if (!DB) { console.error("CANNOT RUN  set DATABASE_URL to a throwaway database."); process.exit(2); }
@@ -234,6 +234,43 @@ async function main() {
     is("not blind: sees all three", a.counts.recorded, 3);
     is("not blind: blind is null", a.blind, null);
     is("not blind: passes", proofAuditFailed(a), false);
+  }
+
+  // --- it says HOW it read, not only what it found -------------------------
+  // Run #2 on production came back recorded:4, blind:null -- a clean result
+  // that is equally consistent with "the identity worked" and "this role is
+  // never subject to a policy in the first place". The second would mean RLS
+  // is not protecting the live app at all and every policy written this week
+  // is untested against the real connection. Same number either way, so the
+  // audit reports which one it is rather than leaving it to be wondered about.
+  {
+    await bucketHolds([A_PHOTO, A_SIG, B_PHOTO]);
+    const a = await auditProof({ sql: sql as unknown as SqlArg, read: reader(BYTES), sample: 0, withIdentity: false });
+    is("read_as: names the database user", typeof a.read_as.db_user === "string" && a.read_as.db_user.length > 0, true);
+    is("read_as: reports no identity when none was given", a.read_as.with_identity, false);
+    const b = await auditProof({ sql: sql as unknown as SqlArg, read: reader(BYTES), sample: 0, withIdentity: true });
+    is("read_as: reports an identity when one was", b.read_as.with_identity, true);
+    // This test runs as the migration owner, which does bypass RLS -- so the
+    // note must be there. If it ever is not, the flag is not being read.
+    is("read_as: a bypassing role is flagged", a.read_as.bypasses_rls, true);
+    // In notes, NOT findings. A clean run must still report no findings.
+    has("read_as: and says so in the notes", proofAuditNotes(a).join("\n"), "BYPASSES row-level security");
+    is("read_as: the note is not a finding", proofAuditLines(a), []);
+    // A note, not a failure. The audit's job is the proofs, not the flip.
+    is("read_as: bypassing does not fail the audit", proofAuditFailed(a), false);
+  }
+
+  // --- and a non-bypassing role is not flagged -----------------------------
+  {
+    await bucketHolds([A_PHOTO, A_SIG, B_PHOTO]);
+    await sql.begin(async (tx) => {
+      await tx`set local role jbo_app`;
+      const a = await auditProof({ sql: tx as unknown as SqlArg, read: reader(BYTES), sample: 0, withIdentity: false });
+      is("read_as: jbo_app does not bypass RLS", a.read_as.bypasses_rls, false);
+      is("read_as: and it is named", a.read_as.db_user, "jbo_app");
+      has("read_as: the note asks for an identity instead", proofAuditNotes(a).join("\n"), "Set FEED_POLL_USER_ID");
+      await tx`set local role none`;
+    });
   }
 
   // --- the manifest is opt-in ---------------------------------------------
