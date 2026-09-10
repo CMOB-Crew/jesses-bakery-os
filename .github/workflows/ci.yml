@@ -57,7 +57,7 @@ jobs:
       - name: Lint
         run: npx eslint . --max-warnings 0
 
-      # The five suites that need no database. Each imports the real module
+      # The six suites that need no database. Each imports the real module
       # through tsx, so a change to the source is a change to what is tested.
       # test-day-grid-seed.mts is deliberately absent: it writes, and it needs
       # a throwaway database rather than a CI runner.
@@ -66,6 +66,14 @@ jobs:
 
       - name: Driver day — a driver is never shown fabricated stops
         run: node scripts/test-driver-day.mjs
+
+      # provision-users.mjs writes to the live authentication system. This does
+      # not call it -- it exercises the pure function that decides WHICH
+      # accounts --rotate touches. Too generous and Simona is signed out of the
+      # account she runs the business from; too mean and a driver keeps a
+      # password that is sitting in a Slack channel.
+      - name: Password rotation — which accounts it touches
+        run: node scripts/test-provision-rotation.mjs
 
       - name: Coles parser — old and new layouts parse identically
         run: npx tsx scripts/coles-parser-check.ts
