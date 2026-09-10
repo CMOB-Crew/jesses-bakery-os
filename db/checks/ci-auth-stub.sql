@@ -69,10 +69,19 @@ create table if not exists storage.buckets (
   file_size_limit    bigint,
   allowed_mime_types text[]
 );
+-- metadata is the column that matters here, not decoration. Supabase stores
+-- each object's size in it, and lib/proof-audit.ts joins delivery_photos
+-- against this table to answer "is the signature still there" in one query
+-- rather than 1,900 Storage API calls. A stub without metadata would let the
+-- audit's test pass against a shape production does not have.
 create table if not exists storage.objects (
   id         uuid primary key default gen_random_uuid(),
   bucket_id  text,
   name       text,
   owner      uuid,
+  metadata   jsonb,
   created_at timestamptz default now()
 );
+alter table storage.objects add column if not exists metadata jsonb;
+create unique index if not exists storage_objects_bucket_name_uk
+  on storage.objects (bucket_id, name);

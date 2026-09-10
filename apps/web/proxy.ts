@@ -13,7 +13,7 @@ export const config = {
   // Run on everything except static assets, the auth surfaces themselves, and
   // the two endpoints that are called by a machine rather than a person.
   //
-  // WHY THE TWO FEED PULLERS ARE EXCLUDED. 9 September, the first time the
+  // WHY THE MACHINE-CALLED ENDPOINTS ARE EXCLUDED. 9 September, the first time the
   // scheduled job ran, curl came back with an EMPTY body and the run failed
   // with no error to read. With AUTH_ENFORCED=1 this proxy bounces a
   // signed-out request to /login, which is a redirect carrying no body. A
@@ -26,9 +26,17 @@ export const config = {
   // wrong instrument for a caller that is not a session, and leaning on this
   // proxy to protect them hid that.
   //
-  // Only these two. Every other /api route still passes through here.
+  // api/proof/audit is the third, added 10 September and for the same reason:
+  // it is called weekly by a scheduler with no cookie, and it checks
+  // FEED_POLL_SECRET itself. It exists at all because the alternative was
+  // putting the service-role key and the database password into this public
+  // repository's Actions secrets to run a read-only check.
+  //
+  // Only these three. Every other /api route still passes through here --
+  // excluding all of /api would be one character shorter and would quietly
+  // unauthenticate /api/ask and the upload routes.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|login|auth|api/feeds/mail-poll|api/feeds/harris-farm-pull|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|login|auth|api/feeds/mail-poll|api/feeds/harris-farm-pull|api/proof/audit|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
 
