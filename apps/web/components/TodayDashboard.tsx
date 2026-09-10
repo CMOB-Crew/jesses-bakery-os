@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { StoreWeek, NetworkWeek } from "@/lib/queries";
 import { isCapStale, type ShelfCapOverride } from "@/lib/shelfcap";
+import { scoreStore, isMeasured } from "@/lib/store-scoring";
 import { listEmptyReason, hasLossToShow, type ListRow } from "@/lib/today-lists";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
@@ -71,7 +72,15 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
     const stockouts = Number(s.stockout_days) || 0;
     const sellThrough = sent > 0 ? (sold / sent) * 100 : null;
     const growth = prev > 0 ? ((sold - prev) / prev) * 100 : null;
-    return { s, sold, sent, wasted, waste, stockouts, sellThrough, growth, band: bandOf(s.size_category) };
+    // The one rule, same module the Overview headline above this component
+    // uses. Reading s.status raw is what put "0 stores need attention" under a
+    // headline that said nothing had been measured -- two sentences on one
+    // screen, contradicting each other.
+    const score = scoreStore({
+      retailer: s.retailer, has_sales_feed: s.has_sales_feed,
+      sent, sold, status: s.status,
+    });
+    return { s, score, sold, sent, wasted, waste, stockouts, sellThrough, growth, band: bandOf(s.size_category) };
   });
 
   // ---- headline ----
@@ -174,7 +183,17 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
   const countedShelf = rows.some((r) => r.s.has_on_hand);
   const salesDecline = rows.filter((r) => r.growth != null && r.growth < -10).length;
   const strongSellers = rows.filter((r) => r.sellThrough != null && r.sellThrough >= 95 && (r.waste == null || r.waste < 12)).length;
-  const needAttention = rows.filter((r) => r.s.status === "red").length;
+  // Red only where the store was actually assessed. v_store_week.status is
+  // 'green' for anything jb_status could not judge -- a NULL waste_pct falls
+  // past every comparison in its CASE -- so a raw read cannot tell "nothing is
+  // wrong" from "nothing was measured". On 10 September that was all 273
+  // stores: 218 with a sales feed, none with a delivery record, none with a
+  // waste figure, every one of them green.
+  const needAttention = rows.filter((r) => r.score === "red").length;
+  // NOT the same as measuredStores above, which counts stores whose SALES
+  // we can see. This counts stores that came out of the scoring rule with a
+  // real red/amber/green -- sales AND a delivery record.
+  const assessedStores = rows.filter((r) => isMeasured(r.score)).length;
 
   // Shelf caps that can't be true. Simona asked for this one twice on the 26 Aug
   // call: once as a colour on the store page so she can spot it, and once here —
@@ -345,7 +364,12 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
       <div className="t-actions">
         <div className="ta-h">
           <span className="ta-t">📋 Today&apos;s action list</span>
-          <span className="ta-c"><b>{needAttention}</b> {needAttention === 1 ? "store needs" : "stores need"} attention</span>
+          {/* "0 stores need attention" is a reassurance, and it must not be
+              printed when the reason for the zero is that nothing was
+              measured. */}
+          <span className="ta-c">{assessedStores === 0
+            ? <>no stores measured this week</>
+            : <><b>{needAttention}</b> {needAttention === 1 ? "store needs" : "stores need"} attention</>}</span>
         </div>
         {actions.map((a) => {
           const inner = (

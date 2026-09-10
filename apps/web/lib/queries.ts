@@ -3,6 +3,7 @@ import { q as sql } from "./db";
 import type { DriverDayCounts } from "./driver-day";
 import { dayShare, dowMultipliers, dayIndexFromISO } from "./dayshare";
 import { stripPack } from "./bake";
+import { scoreStore } from "./store-scoring";
 
 export type Status = "red" | "amber" | "green";
 
@@ -1378,10 +1379,18 @@ async function getRecosForStores(ids: string[]): Promise<Map<string, StoreReco[]
 // is already half spent before any query runs.
 export async function getRecommendations(limit = 3, stores?: StoreWeek[]): Promise<Recommendation[]> {
   const all = stores ?? (await getStoreWeek());
-  // Only recommend action on stores we can actually see. Same guard as the
-  // Overview's own counting rule — these cards sit on that page.
+  // Only recommend action on stores we can actually see. This said "same guard
+  // as the Overview's own counting rule", and had not been for three days --
+  // the Overview moved to lib/store-scoring.ts on 7 September and this stayed
+  // on the copy that is missing the delivery clause. It could not produce a
+  // WRONG card, because a store that falls through the hole reads green and
+  // never green-to-red; but a comment claiming two rules match while they do
+  // not is how the five copies drifted in the first place.
   const red = all
-    .filter((s) => s.has_sales_feed !== false && s.status === "red")
+    .filter((s) => scoreStore({
+      retailer: s.retailer, has_sales_feed: s.has_sales_feed,
+      sent: s.total_sent, sold: s.total_sold, status: s.status,
+    }) === "red")
     .sort((a, b) => b.total_wasted - a.total_wasted)
     .slice(0, limit);
 

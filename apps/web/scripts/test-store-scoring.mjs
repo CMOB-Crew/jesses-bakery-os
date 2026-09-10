@@ -161,6 +161,82 @@ for (const red of [0, 1, 9]) {
   }
 }
 
+// --- INVARIANT 3: no screen may still carry the superseded rule -------------
+// The module was written on 7 September and the five copies it replaced were
+// deleted. Two were missed, and the unit tests above could never have found
+// them, because a component that never calls scoreStore is invisible to a test
+// of scoreStore.
+//
+// On 10 September:
+//
+//   components/Launches.tsx   `l.total_sent > 0 || l.total_sold > 0 ? status : nodata`
+//   components/TodayDashboard.tsx   `rows.filter((r) => r.s.status === "red")`
+//
+// Launches is the newly-launched stores -- the thirteen metro shops that went
+// live on 9 September are exactly those rows -- and every one of them showed a
+// green "On track" tag off a NULL waste_pct. TodayDashboard printed "0 stores
+// need attention" directly underneath an Overview headline that said nothing
+// had been measured. Two sentences, one screen, contradicting each other.
+//
+// So this scans the source. It is a blunt instrument and that is the point:
+// the rule lives in one module, and a file that reasons about a store's status
+// without importing it is the bug returning.
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+// fileURLToPath, not URL.pathname. A file: URL percent-encodes, so on a repo
+// living under "01 Active Builds" .pathname hands back "01%20Active%20Builds"
+// and every readdir throws ENOENT. It passed here and failed on the machine
+// that actually runs it, because the clone it was written against had no
+// spaces in its path.
+import { fileURLToPath } from "node:url";
+
+const ROOT = fileURLToPath(new URL("../", import.meta.url));
+const walk = (d, out = []) => {
+  for (const e of readdirSync(d)) {
+    if (e === "node_modules" || e === ".next" || e.startsWith(".")) continue;
+    const f = join(d, e);
+    if (statSync(f).isDirectory()) walk(f, out);
+    else if (f.endsWith(".tsx") || f.endsWith(".ts")) out.push(f);
+  }
+  return out;
+};
+// lib is in scope too. getRecommendations lived there carrying the same
+// superseded guard, under a comment claiming it matched the Overview's.
+const sources = [...walk(join(ROOT, "components")), ...walk(join(ROOT, "app")),
+                 ...walk(join(ROOT, "lib"))];
+
+// The exact predicate the module deleted. Whitespace-insensitive so a reformat
+// cannot smuggle it back.
+const SUPERSEDED = /total_sent\s*>\s*0\s*\|\|\s*(l\.|s\.|r\.)?total_sold\s*>\s*0/;
+for (const f of sources) {
+  const src = readFileSync(f, "utf8");
+  is(`${relative(ROOT, f)} does not carry the superseded sent||sold rule`,
+     SUPERSEDED.test(src), false);
+}
+
+// A file that compares a store's status to a colour must import the rule that
+// says whether the status means anything. lib/store-scoring.ts is exempt; it IS
+// the rule. StatusTag renders whatever it is handed and decides nothing.
+const EXEMPT = new Set([
+  // Renders whatever kind it is handed and decides nothing.
+  "components/StatusTag.tsx",
+  // The rule itself.
+  "lib/store-scoring.ts",
+  // Its `rec.store` is pre-filtered by getRecommendations, which runs the rule.
+  // A card only exists for a store already scored red, so the raw status here
+  // is that same answer read a second time, not a second opinion.
+  "components/RecCard.tsx",
+]);
+const COLOUR_CMP = /\.status\s*===\s*"(red|amber|green)"/;
+for (const f of sources) {
+  const rel = relative(ROOT, f);
+  if (EXEMPT.has(rel)) continue;
+  const src = readFileSync(f, "utf8");
+  if (!COLOUR_CMP.test(src)) continue;
+  is(`${rel} compares a status to a colour, so it must import store-scoring`,
+     /from "(@\/lib|\.)\/store-scoring"/.test(src), true);
+}
+
 // --- report -----------------------------------------------------------------
 if (fails.length) {
   console.error(`\n  ${fails.length} FAILED, ${pass} passed:\n`);

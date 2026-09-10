@@ -170,6 +170,7 @@ a{color:inherit;text-decoration:none}
 .tag.green{background:var(--green-b);color:var(--green-t)}
 .tag.nodata{background:var(--line2);color:var(--muted)}
 .tag.nodelivery{background:var(--line2);color:var(--muted)}
+.tag.invoice{background:var(--violet-b);color:var(--violet-t)}
 
 /* ---- ask bar ---- */
 .ask{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:14px 16px;margin-bottom:18px}

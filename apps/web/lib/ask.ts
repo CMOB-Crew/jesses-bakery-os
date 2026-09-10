@@ -1,5 +1,6 @@
 import "server-only";
 import { q as sql } from "./db";
+import { scoreStore, isMeasured, SCORE_LABEL, scoreNote } from "./store-scoring";
 
 /**
  * Deterministic NL assistant core. The question is routed by keyword to a
@@ -245,24 +246,36 @@ export async function answerQuestion(qRaw: string): Promise<Answer> {
 
   // ---- a specific store by name (e.g. "how's Mascot doing?") ----
   {
-    const stores = await sql<{ name: string; store_id: string; waste_pct: number | null; stockout_days: number; total_sold: number; total_sent: number; status: string }[]>`
-      select name, store_id::text as store_id, waste_pct, stockout_days, total_sold, total_sent, status
+    // retailer and has_sales_feed are selected because the scoring rule needs
+    // them. This block used to read `status` straight out of the view and map
+    // green to "on track", which meant asking after any store on 10 September
+    // got "on track" -- 273 of 273, none of them assessed. Same hole as the
+    // Overview's on 7 September, in the one place where somebody has typed a
+    // store's name specifically to be told how it is doing.
+    const stores = await sql<{ name: string; store_id: string; retailer: string; has_sales_feed: boolean | null; waste_pct: number | null; stockout_days: number | null; total_sold: number; total_sent: number; status: string }[]>`
+      select name, store_id::text as store_id, retailer, has_sales_feed,
+             waste_pct, stockout_days, total_sold, total_sent, status
       from v_store_week`;
     const hit = matchStore(q, stores);
     if (hit) {
       const st = hit.total_sent > 0 ? Math.round((100 * hit.total_sold) / hit.total_sent) : null;
-      const verdict =
-        hit.status === "red" ? "needs attention" :
-        hit.status === "amber" ? "one to watch" :
-        hit.status === "green" ? "on track" : "no data loaded yet";
+      const score = scoreStore({
+        retailer: hit.retailer, has_sales_feed: hit.has_sales_feed,
+        sent: hit.total_sent, sold: hit.total_sold, status: hit.status,
+      });
+      const verdict = isMeasured(score)
+        ? (score === "red" ? "needs attention" : score === "amber" ? "one to watch" : "on track")
+        : SCORE_LABEL[score].toLowerCase();
       const bits = [
         hit.waste_pct != null ? `${hit.waste_pct}% waste` : null,
         st != null ? `${st}% sell-through` : null,
-        hit.stockout_days > 0 ? `sold out ${hit.stockout_days} day${hit.stockout_days === 1 ? "" : "s"}` : null,
+        // Null is "nobody counted the shelf" and 0 is "counted, never emptied"
+        // since migration 093. Neither is worth a phrase; only a real count is.
+        (hit.stockout_days ?? 0) > 0 ? `sold out ${hit.stockout_days} day${hit.stockout_days === 1 ? "" : "s"}` : null,
       ].filter(Boolean);
       return {
         headline: `${hit.name}: ${verdict}${bits.length ? ` — ${bits.join(", ")}` : ""}. Sold ${hit.total_sold.toLocaleString("en-AU")} units this week.`,
-        note: "Open the store for its full product list and the recommended fix.",
+        note: scoreNote(score) ?? "Open the store for its full product list and the recommended fix.",
         sql: `select name, waste_pct, stockout_days, total_sold from v_store_week where name = '${hit.name.replace(/'/g, "''")}';`,
       };
     }
