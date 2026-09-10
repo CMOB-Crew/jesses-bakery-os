@@ -130,7 +130,9 @@ most exist because the thing they check was once wrong in production.
 | `test-proof-audit.ts` | the proof-of-delivery audit going green over data it cannot see |
 | `proxy-matcher-check.ts` | widening the auth-proxy exclusion and quietly unauthenticating the site |
 | `workflows-keep-secrets…-check.ts` | a secret reaching a shell command or a URL, in a public repo |
-| `dates-name-their-timezone-check.ts` | a date rendered without saying which clock it is on |
+| `dates-name-their-timezone-check.ts` | a date rendered without saying which clock it is on, **and** a file that parses on one clock and reads back on another |
+| `xero-invoice-check.ts` | an unpriced or uncoded line billing anyway, a partial invoice going out, and the billing week being decided on the drafter's own laptop clock |
+| `test-provision-rotation.mjs` | a password rotation reaching an account it was not asked to touch, or silently skipping one it was |
 
 The authorisation suite reports one condition as an **open design gap** rather
 than passing it: there is no driver-to-run assignment anywhere in the system, so
