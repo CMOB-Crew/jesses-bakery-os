@@ -5,6 +5,8 @@ import type { PackRun, DriverState, PackFinal } from "@/lib/queries";
 import { setDriverState } from "@/app/run-state-actions";
 import { saveDeliveryProof, recordDelivery } from "@/app/driver-proof-actions";
 import { uploadProof } from "@/lib/driver-proof";
+import { uploadLicence } from "@/lib/driver-licence";
+import { saveDriverLicence } from "@/app/driver-licence-actions";
 import { driverDayMode, driverDayNote, driverDayBanner, showsSampleStops, type DriverDayCounts } from "@/lib/driver-day";
 
 // Sydney, named. This carries a TIME, so the no-time exemption in
@@ -18,10 +20,22 @@ const finTime = (iso: string) => {
   }).format(new Date(t));
 };
 
-// Driver app — phone prototype. The build that matters for drivers: dead simple,
-// big taps, live-capture only (no gallery), works down the run stop by stop.
-// Camera uses getUserMedia when granted, else a simulated capture so the flow
-// always demos. Nothing persists yet — the offline queue + upload is next phase.
+// Driver app. The build that matters for drivers: dead simple, big taps,
+// live-capture only (no gallery), works down the run stop by stop.
+//
+// "Nothing persists yet — the offline queue + upload is next phase" is what this
+// comment said until 11 September, written in August when it was true. It stopped
+// being true the day deliveries, photographs and signatures started saving, and
+// nobody came back to it. A stale comment on the file everyone reads first is how
+// the licence below went a fortnight without anyone noticing it kept nothing.
+//
+// What actually persists now: the delivery, the photograph, the signature, the
+// shelf count and, from this commit, the licence. There is still NO OFFLINE
+// QUEUE — a stop recorded with no signal is lost, and that one is real.
+//
+// Camera uses getUserMedia when granted, else a drawn placeholder watermarked
+// "(simulated capture)". On a live run that placeholder is currently filed as
+// proof of delivery, which is its own problem and not this commit's.
 
 type Status = "done" | "next" | "pending" | "circle";
 // sid is the real store id. Optional because the sample stops have none -- they
@@ -178,6 +192,9 @@ export default function DriverApp({
     } catch { /* no stored licence; the driver photographs it again */ }
   }, [dayIso]);
   const [licBusy, setLicBusy] = useState(false);
+  // Why the licence did not keep, shown under the box. Never a blocker: the
+  // Start button is gated on the photo existing, not on it having stored.
+  const [licNote, setLicNote] = useState<string | null>(null);
   const licRef = useRef<HTMLInputElement>(null);
   function onPickLicence(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -202,6 +219,25 @@ export default function DriverApp({
           window.localStorage.setItem("jb.driver.licence", JSON.stringify({ day: dayIso, img: dataUrl }));
         } catch { /* storage full or blocked -- the shift still starts */ }
         setLicBusy(false);
+
+        // And now the part that was missing. Until 11 September the line above
+        // was the end of it: the photograph lived in this browser, keyed to the
+        // day, and expired the next morning. Simona asked for this because
+        // drivers get fines and have accidents and there was no record of
+        // licences -- and there still was not, while every driver paid thirty
+        // seconds a morning for it.
+        //
+        // Deliberately not awaited, and deliberately not able to fail the shift.
+        // The gate is on the photo existing, which it now does; whether it
+        // stored is a separate question and the answer appears under the box.
+        if (live && dayIso) {
+          void (async () => {
+            const up = await uploadLicence(dataUrl, { day: dayIso });
+            if (!up.ok) { setLicNote(up.error); return; }
+            const rec = await saveDriverLicence({ day: dayIso, path: up.path, sha256: up.sha256 });
+            setLicNote(rec.ok ? null : rec.error);
+          })();
+        }
       };
       img.onerror = () => { setLicBusy(false); };
       img.src = reader.result as string;
@@ -505,7 +541,7 @@ export default function DriverApp({
             (mode === "rest-day" || mode === "demo" ? "" : "\u26A0 ") +
             (driverDayBanner(mode, day || "today") ?? "")}
       </div>
-      <div className="cap">Driver app · phone prototype. Live-capture only (no gallery) via the camera — grant access to see your real camera, otherwise it falls back to a simulated capture so the flow always runs.</div>
+      <div className="cap">Driver app, shown here in a phone frame. Live-capture only (no gallery) via the camera — grant access to see your real camera, otherwise it falls back to a capture marked &ldquo;simulated&rdquo; so the flow always runs.</div>
       <div className="phone">
         <div className="notch" />
 
@@ -538,6 +574,11 @@ export default function DriverApp({
                     {licBusy ? "Working…" : "📷  Photograph licence"}
                   </button>
                 )}
+                {licNote ? (
+                  <div style={{ marginTop: 10, fontSize: 12.5, lineHeight: 1.45, color: "var(--amber-t)", background: "var(--amber-b)", borderRadius: 8, padding: "8px 10px" }}>
+                    {licNote}
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="actions">

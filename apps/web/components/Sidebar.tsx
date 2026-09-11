@@ -126,7 +126,7 @@ export default function Sidebar({ user = null, appRole = null }: { user?: Sideba
         {full && <div className="grp">Field</div>}
         {show("/driver") && (
         <Link prefetch={false} href="/driver" className={isOn("/driver") ? "on" : ""}>
-          <svg viewBox="0 0 24 24"><rect x="1" y="6" width="15" height="11" rx="1" /><path d="M16 9h4l3 3v5h-7z" /><circle cx="6" cy="19" r="2" /><circle cx="19" cy="19" r="2" /></svg>Driver app <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, letterSpacing: ".5px", color: "var(--amber-t)", background: "var(--amber-b)", padding: "1px 5px", borderRadius: 999 }}>PROTO</span><LinkPending href="/driver" />
+          <svg viewBox="0 0 24 24"><rect x="1" y="6" width="15" height="11" rx="1" /><path d="M16 9h4l3 3v5h-7z" /><circle cx="6" cy="19" r="2" /><circle cx="19" cy="19" r="2" /></svg>Driver app<LinkPending href="/driver" />
         </Link>
         )}
         {show("/packing") && (

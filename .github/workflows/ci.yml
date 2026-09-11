@@ -117,6 +117,13 @@ jobs:
       - name: R2 — the signature is not the thing that is wrong
         run: npx tsx scripts/test-r2.ts
 
+      # The phone never names the object it writes. This is the check that
+      # enforces it, and a path check is the easiest control in the world to
+      # write almost-correctly -- drop one anchor and traversal walks through
+      # while every honest path still passes.
+      - name: Driver licence — the path is one we issued
+        run: npx tsx scripts/test-driver-licence.ts
+
       # A dummy connection string, not a secret. lib/db.ts throws at module
       # load if DATABASE_URL is unset, and Next evaluates modules while
       # collecting page data, so the build cannot start without one. Nothing

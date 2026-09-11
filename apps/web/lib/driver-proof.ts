@@ -15,7 +15,10 @@ export type ProofUpload =
   | { ok: true; path: string; sha256: string }
   | { ok: false; error: string };
 
-function dataUrlToBlob(dataUrl: string): Blob | null {
+// Exported for lib/driver-licence.ts, which does the same three steps for a
+// different kind of image. Copying thirty lines of base64 handling would have
+// been the other option.
+export function dataUrlToBlob(dataUrl: string): Blob | null {
   const m = /^data:([^;,]+)(;base64)?,/.exec(dataUrl);
   if (!m) return null;
   const type = m[1];
@@ -33,7 +36,7 @@ function dataUrlToBlob(dataUrl: string): Blob | null {
   }
 }
 
-async function sha256Hex(blob: Blob): Promise<string | null> {
+export async function sha256Hex(blob: Blob): Promise<string | null> {
   // crypto.subtle is https-only. On a plain-http preview it is simply absent,
   // and a missing checksum should degrade rather than throw -- but the server
   // requires one, so this is reported honestly instead of faked.
