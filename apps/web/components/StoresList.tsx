@@ -31,11 +31,16 @@ const num = (v: unknown) => Number(v) || 0;
 // data, and the counts still reconcile between the two pages, which is the
 // thing that must never break.
 type Eff = Status | "nodata";
+// The full answer, before this list narrows it to its own two-value
+// vocabulary. The Overview needs the full one to tell "chase the retailer"
+// from "chase our own delivery record"; the drill-down views below need it for
+// exactly the same reason.
+const scoredOf = (s: StoreWeek) => scoreStore({
+  retailer: s.retailer, has_sales_feed: s.has_sales_feed,
+  sent: s.total_sent, sold: s.total_sold, status: s.status,
+});
 const effOf = (s: StoreWeek): Eff => {
-  const v = scoreStore({
-    retailer: s.retailer, has_sales_feed: s.has_sales_feed,
-    sent: s.total_sent, sold: s.total_sold, status: s.status,
-  });
+  const v = scoredOf(s);
   return isMeasured(v) ? v : "nodata";
 };
 const EFF_ORDER: Record<Eff, number> = { red: 0, amber: 1, green: 2, nodata: 3 };
@@ -79,6 +84,15 @@ const VIEWS: Record<string, { label: string; test: (s: StoreWeek, ov?: ShelfCapO
   // the number we hold FOR them is wrong, and it's shaping their plan. Judged
   // against the busiest single day, never the week: see lib/shelfcap.ts.
   capstale: { label: "Shelf cap smaller than a single day's sales", test: (s, ov, peak) => isCapStale(s, ov, peak) },
+  // The three the Overview counts separately and this list does not. Its own
+  // vocabulary folds all three into "No data", so a tile reading 5 cannot send
+  // you to ?status=nodata and 273 rows. Each asks scoredOf -- the same call
+  // that produced the number on the tile -- rather than restating the rule,
+  // because restating the rule in a second place is how the original five
+  // copies drifted. See lib/store-scoring.ts.
+  nofeed: { label: "Awaiting a retailer feed", test: (s) => scoredOf(s) === "no-feed" },
+  nodelivery: { label: "Sales arriving, no delivery recorded", test: (s) => scoredOf(s) === "no-delivery" },
+  invoice: { label: "Invoice customers", test: (s) => scoredOf(s) === "invoice" },
 };
 
 // CSV-escape a cell (quote when it contains a comma, quote, or newline).
@@ -87,10 +101,18 @@ const csvCell = (v: string | number | null) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-export default function StoresList({ stores, showRegion = true, initialView, states = {}, capOverrides = {}, peakDay = {} }: { stores: StoreWeek[]; showRegion?: boolean; initialView?: string; states?: Record<string, string>; capOverrides?: Record<string, ShelfCapOverride>; peakDay?: Record<string, number> }) {
+export default function StoresList({ stores, showRegion = true, initialView, initialStatus, states = {}, capOverrides = {}, peakDay = {} }: { stores: StoreWeek[]; showRegion?: boolean; initialView?: string; initialStatus?: string; states?: Record<string, string>; capOverrides?: Record<string, ShelfCapOverride>; peakDay?: Record<string, number> }) {
   const router = useRouter();
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<"all" | Eff>("all");
+  // Seeded from ?status= so an Overview tile lands on its own population with
+  // the matching chip already lit, and the person can widen it from there.
+  // Anything unrecognised falls back to "all": a mistyped URL should show every
+  // store, not an empty table that reads like a broken query.
+  const [status, setStatus] = useState<"all" | Eff>(
+    initialStatus === "red" || initialStatus === "amber" || initialStatus === "green" || initialStatus === "nodata"
+      ? initialStatus
+      : "all",
+  );
   const [region, setRegion] = useState("all");
   const [retailer, setRetailer] = useState("all");
   const [stateF, setStateF] = useState("all");

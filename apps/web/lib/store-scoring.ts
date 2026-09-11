@@ -126,6 +126,39 @@ export const SCORE_LABEL: Record<Scored, string> = {
   "no-delivery": "No delivery recorded",
 };
 
+/* ---------------------------------------------------------------------------
+ * WHERE A TILE GOES WHEN SOMEBODY CLICKS IT
+ * ---------------------------------------------------------------------------
+ * The six numbers across the top of the Overview looked clickable and were not.
+ * They are cards, with a big serif number and a coloured dot, sitting on the
+ * first screen of the application, directly above an action list whose rows DO
+ * open. Tommy clicked one in front of a client on 11 September and nothing
+ * happened.
+ *
+ * Giving them hrefs is not as simple as it sounds, and the trap is the reason
+ * this map lives HERE rather than inline in the page.
+ *
+ * The Stores list keeps a deliberately smaller vocabulary than the Overview:
+ * measured, or "No data". Three of the six categories below -- no-feed,
+ * no-delivery and invoice -- all collapse into that single "No data" filter
+ * there. Pointing all three at ?status=nodata would land a tile reading 5 on a
+ * list of 273. The comment in StoresList calls those two pages reconciling
+ * "the thing that must never break", so those three get named views of their
+ * own instead, and every predicate behind them calls scoreStore -- the same
+ * function that produced the number on the tile.
+ *
+ * A rule two pages have to agree on is one function, not two. That is the
+ * whole reason this module exists; see the header.
+ */
+export const SCORE_HREF: Record<Scored, string> = {
+  red: "/stores?status=red",
+  amber: "/stores?status=amber",
+  green: "/stores?status=green",
+  invoice: "/stores?view=invoice",
+  "no-feed": "/stores?view=nofeed",
+  "no-delivery": "/stores?view=nodelivery",
+};
+
 /** One line saying who should do what. Null where there is nothing to chase. */
 export function scoreNote(v: Scored): string | null {
   switch (v) {

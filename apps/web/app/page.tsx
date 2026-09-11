@@ -2,7 +2,7 @@ import { withUser } from "@/lib/db";
 import Link from "next/link";
 import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek, getAppSettings, getStoreStates, getShelfCapOverrides, getPeakDaySold, getEngineHealth } from "@/lib/queries";
 import type { StoreWeek } from "@/lib/queries";
-import { scoreStore, isMeasured, overviewHeadline, type Scored } from "@/lib/store-scoring";
+import { scoreStore, isMeasured, overviewHeadline, SCORE_HREF, type Scored } from "@/lib/store-scoring";
 import StatusTag from "@/components/StatusTag";
 import RecCard from "@/components/RecCard";
 import AskBar from "@/components/AskBar";
@@ -288,17 +288,17 @@ export default async function Overview() {
           {headline.sub && <span className="dim">{headline.sub}</span>}
         </div>
         <div className="hstats">
-          <Stat dot="var(--red)" n={eff.red} l="Need attention" />
-          <Stat dot="var(--amber)" n={eff.amber} l="To watch" />
-          <Stat dot="var(--green)" n={eff.green} l="On track" />
-          {eff.nodata > 0 && <Stat dot="var(--muted)" n={eff.nodata} l="Awaiting feed" />}
+          <Stat dot="var(--red)" n={eff.red} l="Need attention" href={SCORE_HREF.red} />
+          <Stat dot="var(--amber)" n={eff.amber} l="To watch" href={SCORE_HREF.amber} />
+          <Stat dot="var(--green)" n={eff.green} l="On track" href={SCORE_HREF.green} />
+          {eff.nodata > 0 && <Stat dot="var(--muted)" n={eff.nodata} l="Awaiting feed" href={SCORE_HREF["no-feed"]} />}
           {/* Its own tile, not folded into "Awaiting feed". The feed is fine for
               these stores — the sales are arriving. What is missing is our own
               delivery record, and that is a different person's job. */}
-          {eff.nodelivery > 0 && <Stat dot="var(--muted)" n={eff.nodelivery} l="No delivery recorded" />}
+          {eff.nodelivery > 0 && <Stat dot="var(--muted)" n={eff.nodelivery} l="No delivery recorded" href={SCORE_HREF["no-delivery"]} />}
           {/* Same colour and the same population as the map's legend, so the
               two pages reconcile at a glance. */}
-          {eff.invoice > 0 && <Stat dot="var(--violet)" n={eff.invoice} l="Invoice customers" />}
+          {eff.invoice > 0 && <Stat dot="var(--violet)" n={eff.invoice} l="Invoice customers" href={SCORE_HREF.invoice} />}
         </div>
       </div>
 
@@ -369,12 +369,25 @@ export default async function Overview() {
   );
 }
 
-function Stat({ dot, n, l }: { dot: string; n: number; l: string }) {
-  return (
-    <div className="stat">
+/* A tile opens its stores when there are stores to open and is inert when
+ * there are not, which is the rule the action list below already follows: a row
+ * reading none flagged gets no chevron. Linking a zero would promise a list and
+ * deliver an empty table.
+ *
+ * Every destination comes from SCORE_HREF rather than being written here, so
+ * the number and the list it opens are decided by one function. */
+function Stat({ dot, n, l, href }: { dot: string; n: number; l: string; href?: string }) {
+  const body = (
+    <>
       <div className="n"><span className="sdot" style={{ background: dot }} />{n}</div>
       <div className="l">{l}</div>
-    </div>
+    </>
+  );
+  if (!href || n <= 0) return <div className="stat">{body}</div>;
+  return (
+    <Link prefetch={false} href={href} className="stat" aria-label={`${n} ${l} — open these stores`}>
+      {body}
+    </Link>
   );
 }
 

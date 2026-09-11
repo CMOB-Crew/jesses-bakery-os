@@ -15,8 +15,8 @@ export const dynamic = "force-dynamic";
 // This does not make the page fast. It stops a slow render being a broken one.
 export const maxDuration = 60;
 
-export default async function StoresPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
-  const [{ view }, stores, states, capOverrides, peakDay] = await withUser(() =>
+export default async function StoresPage({ searchParams }: { searchParams: Promise<{ view?: string; status?: string }> }) {
+  const [{ view, status }, stores, states, capOverrides, peakDay] = await withUser(() =>
     Promise.all([searchParams, getStoreWeek(), getStoreStates(), getShelfCapOverrides(), getPeakDaySold()])
   );
   return (
@@ -25,7 +25,7 @@ export default async function StoresPage({ searchParams }: { searchParams: Promi
         <h1>Stores</h1>
         <div className="meta">{stores.length} active · search, filter and sort</div>
       </div>
-      <StoresList stores={stores} initialView={view} states={states} capOverrides={capOverrides} peakDay={peakDay} />
+      <StoresList stores={stores} initialView={view} initialStatus={status} states={states} capOverrides={capOverrides} peakDay={peakDay} />
     </>
   );
 }
