@@ -19,6 +19,11 @@ Read this whole section before touching a file.
 9. The **Example** on each card is a made-up snippet that shows the shape of the change. It is not code from the repo. Read the real file and write the real change.
 10. Do not add `revalidatePath`, `loading.tsx`, Suspense streaming, `cacheComponents`, or prefetching. Those decisions are explained in `CLAUDE.md` and were made from production measurements.
 11. **Every `unstable_cache` uses the claims-as-argument recipe.** The cached function cannot read cookies, and the database only returns rows for a signed-in user, so the caller passes `await getSessionClaims()` in and the cached function runs `runAsUser(claims, tx => tx\`...\`)`. Cast date columns to text in the SQL. Call `revalidateTag(tag, "max")` only from route handlers (feed ingest, mail poll), never from a server action.
+12. **Set up before the first card.** Run `npm ci` in `apps/web`. `apps/web/.env.local` is gitignored, so a new worktree or clone has none: copy it from your main checkout or ask the project owner. It must point `DATABASE_URL` at a local Postgres (the repo's scripts assume port 5433, database `jesses`) with `AUTH_ENFORCED=0`; the checks write test rows, so never run them against the hosted database. Confirm `npm run lint` and `npm run build` pass on the unchanged code. Anything failing before you start is not yours to fix and must not be counted against a card.
+13. **A Check must be something a machine can run here.** Build, render the page against the local database and compare the visible HTML before and after; run the `scripts/*-check.ts` that covers the area. Where a card's Check needs the preview site (anything about being signed in, roles, or Netlify timings), do the local part, say plainly which part is still to be checked on the preview site, and do not claim it. Do not reload a page with the server off to test offline behaviour; stop the server, act, restart it, fire `online`.
+14. **Only offer fixes that can be built and checked from this repo.** A card that needs a dashboard setting, a fixture that does not exist, a different protocol path through the database pooler, or a large restructure of a component to satisfy an example is not executable as written; make the change that is, record what a person still has to do, and say so.
+15. **Batch mode is allowed when asked.** If the person asks for every card, work them in order with one commit each, and when two cards touch the same file commit the first before editing for the second (back the second card's lines out and reapply if you must). Never `git stash`; stage by path.
+16. **The lint rules that bite here.** `react-hooks/exhaustive-deps` refuses a plain function in a `useMemo` dependency list: wrap it in `useCallback`. Reading a ref in an effect cleanup: copy the ref to a local first. Setting state in an effect on mount from device storage: the existing `// eslint-disable-next-line react-hooks/set-state-in-effect` pattern with a one-line reason. Do not disable a rule to make a card pass.
 
 ## Progress
 
@@ -42,14 +47,14 @@ Biggest effect for the least work. Each one makes every page faster or stops wor
 
 **Problem.** Every page asks the login server "is this person signed in?" twice. Once in the request gate, once again inside the page. Each ask is a network trip and takes about half a second.
 
-**Fix.** First, in the Supabase dashboard, switch the project to the new asymmetric JWT signing keys (Settings → JWT Keys). Then use the built-in `getClaims()` check in both places; it verifies the token locally. With the old shared secret, `getClaims()` still asks the server, so do the dashboard step first.
+**Fix.** Use the built-in `getClaims()` check in all three places (the request gate, the page-side session read and the token verifier). Separately, a PERSON switches the Supabase project to asymmetric JWT signing keys (dashboard: Settings → JWT Keys). The code change is safe in either order: with the old shared secret `getClaims()` still asks the server, so the speed gain only arrives after the dashboard step. The agent cannot do the dashboard step; make the code change, then tell the project owner the dashboard step is waiting.
 
 **Where.**
 - `apps/web/lib/supabase/proxy.ts:61`
 - `apps/web/lib/supabase/server.ts:110`
 - `apps/web/lib/auth.ts:41`
 
-**Check.** Open any page while signed in. It still loads and the sidebar still shows your name. Sign out; protected pages still redirect to login. In the Netlify function log, the auth-verify timing (turn on `SLOW_QUERY_MS`) drops from about 500 ms to a few ms.
+**Check.** Locally: `npx tsx scripts/proxy-matcher-check.ts` passes and `npm run build` passes (auth is off locally, so that is all a machine can check). On the preview site, signed in: pages load and the sidebar shows your name; signed out: protected pages redirect to login. After the dashboard step, the `[auth-verify]` line in the Netlify function log (turn on `SLOW_QUERY_MS`) drops from about 500 ms to a few ms.
 
 **Example** (shape only, not real code):
 
@@ -140,7 +145,7 @@ const sans  = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 **Problem.** On the packing, driver, production and deliveries screens, a tick is sent to the server straight away. If that request fails, the tick still looks saved on screen. It disappears on the next reload. A driver in a dock with no signal loses the delivery.
 
-**Fix.** Save each change on the device first, then send it. When the page opens or the connection comes back, resend anything that did not get through. Always check the reply and show "not saved yet" when it failed.
+**Fix.** Save each change on the device first (a small `localStorage` outbox, one queue per screen and day, keeping only the latest change per store), then send it. When the page opens or the browser fires `online`, resend anything that did not get through. Always check the reply and show "not saved yet" while anything is waiting. One shared hook in `lib/` used by all four screens; do not write four copies.
 
 **Where.**
 - `apps/web/components/PackingApp.tsx:142`
@@ -149,7 +154,7 @@ const sans  = Inter({ subsets: ["latin"], variable: "--font-sans" });
 - `apps/web/components/ProductionBoard.tsx:217`
 - `apps/web/components/DeliveriesBoard.tsx:89`
 
-**Check.** Turn off the network, tick three lines, reload the page, turn the network on. The three ticks are still there and reach the server.
+**Check.** With the page open in a browser, stop the local server, tick three lines: the "not saved yet" bar appears and the queue has entries. Start the server again and fire `window.dispatchEvent(new Event('online'))` in the console (or wait for the next tap): the bar goes and the queue empties. Reload: the three ticks are there. (A page cannot be reloaded while the server is off, so do not test it that way.)
 
 **Example** (shape only, not real code):
 
@@ -210,7 +215,7 @@ mergeRunState(day, { [storeId]: ticks });
 - `apps/web/lib/db.ts:58`
 - `apps/web/lib/feeds/ingest.ts:158`
 
-**Check.** Load the Overview twice while signed in. The second load is visibly faster and shows the same numbers. Upload a feed file; the numbers update on the next load. Signed out, the page still shows nothing (row-level security still applies).
+**Check.** Locally (auth is off): build, start the production server, load the Overview twice; the second load is faster and shows the same numbers, and an entry appears in `.next/cache/fetch-cache/`. The signed-in and signed-out parts can only be checked on the preview site with `AUTH_ENFORCED=1`: the same numbers while signed in, nothing while signed out. A feed upload makes the next load show the new numbers.
 
 **Example** (shape only, not real code):
 
@@ -346,7 +351,7 @@ await withUser(async () => {
 - `apps/web/lib/queries.ts:930`
 - `apps/web/components/FeedAlarm.tsx:46`
 
-**Check.** The feed alarm bar still appears when a feed is late. The packing sheet still splits standing orders by weekday. Dates on the feeds page still read correctly.
+**Check.** `npx tsx scripts/feed-alarm-check.ts` passes. Locally the feeds page and the packing sheet render the same as before (feed health dates read correctly, standing orders still split by weekday). The alarm bar itself only shows when a feed is late, which local data usually is not; the preview site with a stale feed is the place to see it.
 
 **Example** (shape only, not real code):
 
@@ -379,7 +384,7 @@ export const getFeedHealth = cache(async (claims) => cachedFeedHealth(claims));
 - `apps/web/lib/app-role.ts:36`
 - `apps/web/components/FeedAlarm.tsx:46`
 
-**Check.** A driver account still sees only the driver screen. An admin still sees the full sidebar. Change a role in the admin table; the sidebar follows within five minutes.
+**Check.** Build passes. Roles are only enforced with `AUTH_ENFORCED=1`, so this is checked on the preview site: a driver account still sees only the driver screen, an admin still sees the full sidebar, and a role changed in the admin table shows within five minutes.
 
 **Example** (shape only, not real code):
 
@@ -407,7 +412,7 @@ export const getAppRole = cache(async () => roleFor(await getSessionClaims()));
 
 **Problem.** Two very large queries run one after the other, then a calculation over every store and product. The answer only changes once a day.
 
-**Fix.** Cache the whole result for an hour with `unstable_cache`, using the claims-as-argument recipe from the store table card. At minimum, run the two queries at the same time instead of one after the other.
+**Fix.** Cache the whole computed result (not the rows) for an hour with `unstable_cache`, using the claims-as-argument recipe from the store table card, and mark it stale from the feed ingest. Do not try to run the two queries at the same time: inside one bundle they share one connection, so `Promise.all` gains nothing (see `CLAUDE.md`, Database access).
 
 **Where.**
 - `apps/web/lib/queries.ts:2173`
@@ -419,13 +424,19 @@ export const getAppRole = cache(async () => roleFor(await getSessionClaims()));
 
 Before:
 ```
-const stores = await sql`...`;   // 1st
-const products = await sql`...`; // 2nd, waits
+export async function getForecastAccuracy() {
+  const stores = await sql`...`;
+  const products = await sql`...`;
+  return compute(stores, products);
+}
 ```
 After:
 ```
-const [stores, products] = await Promise.all([
-  sql`...`, sql`...`]);        // together
+const cached = unstable_cache(
+  (claims) => runAsUser(claims, tx => compute(tx)),
+  ["forecast-accuracy"], { revalidate: 3600, tags: ["forecast-accuracy"] });
+export const getForecastAccuracy = async () =>
+  cached(await getSessionClaims());
 ```
 
 ### 13. Forecast engine: 15,000 queries per run, could be 3
@@ -442,7 +453,7 @@ const [stores, products] = await Promise.all([
 - `services/forecast/app.py:113`
 - `services/forecast/app.py:119`
 
-**Check.** Run the plan in dry-run mode before and after. The recommended quantities match.
+**Check.** `app.py` has no dry-run mode today, so add one first as part of this card: a `dry_run` field on `PlanRequest` that computes and returns the rows and skips the write. Copy that version of `app.py` aside as the baseline before changing the loop. In a Python venv (`pip install -r services/forecast/requirements.txt`, `DATABASE_URL` pointing at the local database), call `build_plan` on the baseline and on the new module with `dry_run` for a few target dates; the row lists must be identical. Count the `execute` calls in each: on a trial run against local data, about 1,766 per run became 5.
 
 **Example** (shape only, not real code):
 
@@ -536,7 +547,7 @@ const periodStart = sydneyMonday(today);
 
 **Problem.** After saving a shelf cap, a visit date, a price, or one cell of the standing order, the code reloads the page. That re-runs all 18 database reads to show a value the screen already has. Tabbing across five day boxes fires five full reloads.
 
-**Fix.** Keep the saved value in the screen's own state and remove the reload. Keep the reload only where something else on the page really changes, like adding a new product.
+**Fix.** Keep the saved value in the screen's own state and remove the reload. Keep the reload only where something else on the page really changes: adding a line, removing a line that has nothing to fall back to, the first day written into a day grid (the server seeds the other days), saving a store's delivery week (other panels read it) and saving a run's days (its stores change). Where a reload stays, still show the saved value from local state so nothing flashes back.
 
 **Where.**
 - `apps/web/components/StoreProfile.tsx:219`
@@ -852,7 +863,7 @@ export const getRuns = unstable_cache(
 
 **Problem.** Several one-row reads (network totals, as-of date, engine health) and three store lookups run as separate statements, one after another.
 
-**Fix.** Combine the one-row reads into one statement and the three store lookups into one query. Same data, five fewer trips.
+**Fix.** Combine the one-row reads into one statement (`row_to_json` scalar subqueries) and the three store lookups into one statement that returns three `json_agg` arrays. Same data, four fewer trips: measured, thirteen statements became nine.
 
 **Where.**
 - `apps/web/app/page.tsx:58`
@@ -881,12 +892,12 @@ getOverviewHeader()
 
 **Problem.** A 100,000-row Woolworths file is inserted in 2,000-row chunks, each a separate trip. That is about 6.6 seconds of pure waiting out of a 60-second limit.
 
-**Fix.** Stream all rows in one statement with Postgres `COPY` (postgres.js supports it with `.writable()`). If that is too much change, raise the chunk size to 8,000: the insert has 8 columns, so that is 64,000 values per statement, under the 65,535 limit.
+**Fix.** Raise the chunk size to 8,000: the insert has 8 columns, so that is 64,000 values per statement, under Postgres's 65,535-parameter limit, and a 100,000-row file becomes 13 statements. Do NOT switch to `COPY ... FROM STDIN`: it is a different protocol path through the pooled connection and cannot be tested locally against the pooler, so it is not a fix this plan offers.
 
 **Where.**
 - `apps/web/lib/feeds/ingest.ts:121`
 
-**Check.** Upload the Woolworths test file. Same row count loaded, same rejects, faster.
+**Check.** There is no test file in the repo. Make one with `npx tsx scripts/make-coles-fixture.ts`, start the local server and POST it as multipart `file` to `/api/feeds/coles`; the JSON reply shows the same rows loaded and rejected before and after. Note: `scripts/coles-parser-check.ts` fails with an exceljs streaming-reader error on an untouched checkout on Node 22.23.1 and Node 24 (see `netlify.toml`); that failure is pre-existing and is not a check of this card.
 
 **Example** (shape only, not real code):
 
@@ -897,8 +908,8 @@ for (...) await sql`insert into feed_staging ...`;
 ```
 After:
 ```
-const CHUNK = 8000;  // simple version
-// or: sql`copy feed_staging from stdin`.writable()
+const CHUNK = 8000;  // 8 columns x 8,000 = 64,000 values
+for (...) await sql`insert into feed_staging ...`;
 ```
 
 ### 28. Read the spreadsheet before opening the database bundle
@@ -916,7 +927,7 @@ const CHUNK = 8000;  // simple version
 - `apps/web/app/api/feeds/[retailer]/route.ts:66`
 - `apps/web/app/api/feeds/[retailer]/route.ts:129`
 
-**Check.** Upload a Coles file and a Woolworths file. Both load with the same counts as before.
+**Check.** Build passes and `npx tsx scripts/harris-farm-check.ts` passes. To load a file locally, make a fixture with `npx tsx scripts/make-coles-fixture.ts` and POST it to `/api/feeds/coles` on the local server; the counts match the run before the change. The Coles parser check script fails on unchanged code on Node 22.23.1 and Node 24 (see the card above), so it is not a check here.
 
 **Example** (shape only, not real code):
 
@@ -1211,9 +1222,9 @@ After:
 - [ ] Done
 - Size: Small change. Gains: makes it faster.
 
-**Problem.** A few pages pass whole database rows to the browser when the screen reads three fields.
+**Problem.** A few pages pass whole database rows to the browser when the screen reads only some of the fields: the benchmarks page sends every store's benchmark row and the screen never reads it, the new-product form reads a product's name and three article numbers out of nine fields, the delivery sheet reads four fields of each plan row, and the region page's list reads thirteen of a store row's seventeen fields (a small trim).
 
-**Fix.** Map the rows to just the fields the screen uses before passing them down.
+**Fix.** Map the rows to just the fields the screen uses before passing them down, and narrow the component's prop type to match (`Pick<...>` or `Omit<...>`) so the compiler catches a field the screen still needs.
 
 **Where.**
 - `apps/web/app/benchmarks/page.tsx:22`
@@ -1391,7 +1402,7 @@ After:
 
 **Problem.** Changing size or type draws the form once with old values, then again after a follow-up reset. Two draws where one would do.
 
-**Fix.** Put a `key` on the basket section so it restarts cleanly when size or type changes.
+**Fix.** Reset the basket and ranging during the render that sees the new size, type or proposed ranging, using React's adjust-state-when-a-prop-changes form (`if (seen !== context) { setSeen(context); setBasket(...); }`), and delete the `useEffect`. That is what a `key` on a child section would do, without moving the basket, ranging and their handlers into a child component; only use `key` if the basket already lives in its own component.
 
 **Where.**
 - `apps/web/components/NewStoreSetup.tsx:227`
@@ -1403,10 +1414,14 @@ After:
 Before:
 ```
 useEffect(() => { setBasket(auto); }, [size, type]);
+// draws once with the old basket, then again
 ```
 After:
 ```
-<BasketSection key={`${size}-${type}`} initial={auto} />
+const ctx = `${size}|${type}`;
+const [seen, setSeen] = useState(ctx);
+if (seen !== ctx) { setSeen(ctx); setBasket(auto); }
+// React restarts this render before anything is drawn
 ```
 
 ---
@@ -1515,7 +1530,7 @@ r as (select unnest(enum_range(null::retailer_type)) as source)
 **Where.**
 - `apps/web/lib/feeds/coles.ts:272`
 
-**Check.** The Coles parser check script passes on the fixture files.
+**Check.** `npx tsx scripts/coles-parser-check.ts` passes. Run it on the unchanged code first: on Node 22.23.1 and Node 24 the exceljs streaming reader throws before parsing, even on an untouched checkout. If it fails before any change, this card is blocked until Node is pinned to a version where the check passes; do not start it while the check fails on the unchanged code.
 
 **Example** (shape only, not real code):
 

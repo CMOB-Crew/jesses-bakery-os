@@ -64,8 +64,15 @@ These rules apply to everyone and every AI agent working in this repo. They exis
 - Bulk inserts use `COPY` or large chunks, never thousands of small statements.
 - Cleanup that the response does not need (deleting a temp upload, logging) goes in `after()` from `next/server`.
 
+## Verifying locally
+
+- `apps/web/.env.local` is gitignored; copy it from your main checkout or ask the project owner. It points at a local Postgres (port 5433) with `AUTH_ENFORCED=0`. Checks write test rows, so never run them against the hosted database. Auth, roles and row-level security can only be exercised on the preview site with `AUTH_ENFORCED=1`; say which part of a check still needs that rather than claiming it.
+- To check a page change: `npm run build`, `npx next start`, fetch the page before and after, and compare the visible HTML with `<script>` and `<style>` stripped. To check an interaction: drive it in a headless browser and read the saved row back from the database.
+- `scripts/coles-parser-check.ts` fails on Node 22.23.1 with an exceljs streaming-reader error on an untouched checkout (the same failure `netlify.toml` records on Node 24). It is pre-existing; treat it as a regression only if `lib/feeds/coles.ts` changed.
+- A proposed fix must be buildable and checkable from this repo. No fixes that depend on a dashboard setting, a fixture that is not in the repo, a different protocol path to the database pooler (`COPY`), or a component rewrite the task did not ask for. If a person has to do something (a Supabase setting), make the code change that is safe either way and say what is left for them.
+
 ## When you finish a change
 
 - Run `npm run lint` and `npm run build` in `apps/web`. Run the relevant `apps/web/scripts/*-check.ts` if one covers the area.
-- One change, one commit, named for what it does.
-- If the change is one of the cards in `PERFORMANCE-FIXES.md`, tick the card there.
+- One change, one commit, named for what it does. Stage by path; never `git stash` (the stash is shared across worktrees).
+- If the change is one of the cards in `PERFORMANCE-FIXES.md`, tick the card there and run `node docs/perf/build.js`. The card text itself lives in `docs/perf/items.js`; correct it there when a card turns out to be wrong.
