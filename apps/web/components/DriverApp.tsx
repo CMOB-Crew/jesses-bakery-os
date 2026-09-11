@@ -259,6 +259,24 @@ export default function DriverApp({
   // Both are shown on the proof screen and both are stored. null fix means the
   // phone would not give one, which the screen says rather than hiding.
   const [shotAt, setShotAt] = useState<Date | null>(null);
+  // Whether `photo` is a photograph or a drawing of one.
+  //
+  // shutter() has always had two branches: the camera frame when getUserMedia
+  // was granted, and a drawn beige placeholder reading "(simulated capture)"
+  // when it was not, so the flow could be demonstrated without a camera. Until
+  // 11 September nothing downstream could tell them apart, and the placeholder
+  // was uploaded and written into delivery_photos as the proof of that drop.
+  //
+  // It carried its own watermark, so anyone who opened it saw what it was. But
+  // nothing ever opens it. The weekly proof audit checks that objects exist and
+  // that checksums match; neither question is "is this a photograph". A driver
+  // who taps Don't Allow on the camera prompt once, at 4am, filed a drawing for
+  // every stop that day and the system reported proof of delivery complete.
+  //
+  // The photographs are the thing that settles a retailer dispute. A drawing
+  // that says "delivered" is worse than no photograph at all, because the
+  // absence would at least have been countable.
+  const [shotReal, setShotReal] = useState(false);
   const [fix, setFix] = useState<{ lat: number; lng: number; acc: number } | null>(null);
 
   const cur = stops.find((s) => s.id === curId) ?? null;
@@ -281,6 +299,7 @@ export default function DriverApp({
   async function openCam() {
     setScreen("cam");
     setPhoto(null);
+    setShotReal(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
       streamRef.current = stream;
@@ -321,7 +340,14 @@ export default function DriverApp({
     c.width = 600; c.height = 800;
     const x = c.getContext("2d")!;
     const v = videoRef.current;
-    if (realCam && v && v.videoWidth) {
+    // The single condition that decides whether this is evidence. It used to be
+    // written inline on the `if` below, where nothing else could read it.
+    const fromCamera = Boolean(realCam && v && v.videoWidth);
+    setShotReal(fromCamera);
+    // `&& v` again because Boolean() throws the narrowing away: to TypeScript,
+    // fromCamera says nothing about whether v is null, and the branch below
+    // draws from it. Cheaper than restructuring the draw.
+    if (fromCamera && v) {
       const cr = 600 / 800;
       let sw = v.videoWidth, sh = v.videoHeight, sx = 0, sy = 0;
       const vr = v.videoWidth / v.videoHeight;
@@ -401,12 +427,20 @@ export default function DriverApp({
   // is called from the sign screen and the canvas unmounts the moment the screen
   // changes to "done".
   const sendProof = useCallback(
-    async (sid: string, sig: string | null, shot: string | null) => {
+    async (sid: string, sig: string | null, shot: string | null, shotIsReal: boolean) => {
       if (!dayIso || !live) return;
       const jobs: [("photo" | "signature"), string][] = [];
-      if (shot) jobs.push(["photo", shot]);
+      // A drawn placeholder is fine to show the driver and is never filed. The
+      // signature is not affected: it is drawn by a finger on a pad and is the
+      // real thing whether or not a camera was available.
+      if (shot && shotIsReal) jobs.push(["photo", shot]);
       if (sig) jobs.push(["signature", sig]);
-      if (!jobs.length) return;
+      // An honest gap, said out loud. Dropping the upload silently would swap
+      // one invisible problem for another.
+      const cameraNote = shot && !shotIsReal
+        ? "No camera, so no photograph was kept for this stop. The delivery and the signature are recorded."
+        : null;
+      if (!jobs.length) { setProofNote(cameraNote); return; }
 
       const failed: string[] = [];
       for (const [kind, dataUrl] of jobs) {
@@ -422,8 +456,9 @@ export default function DriverApp({
         if (!rec.ok) failed.push(rec.error);
       }
       // One line, not a stack of them. The driver needs to know something did
-      // not keep, not to read a log.
-      setProofNote(failed.length ? failed[0] : null);
+      // not keep, not to read a log. An upload failure outranks the missing
+      // camera, because it is the one that might come good on a retake.
+      setProofNote(failed.length ? failed[0] : cameraNote);
     },
     [dayIso, live, fix],
   );
@@ -468,7 +503,7 @@ export default function DriverApp({
         });
       }
 
-      void sendProof(sid, sig, photo);
+      void sendProof(sid, sig, photo, shotReal);
       // The next store starts from nothing. Carrying one store's counts onto
       // the next is how a shelf count becomes fiction.
       setWaste({});
@@ -483,7 +518,7 @@ export default function DriverApp({
   }
 
   function resetForNextStop() {
-    setPhoto(null); setNil(false); setWaste({}); setReason(null);
+    setPhoto(null); setShotReal(false); setNil(false); setWaste({}); setReason(null);
     sigDrawn.current = false;
     setScreen("run");
   }
@@ -714,7 +749,7 @@ export default function DriverApp({
               {realCam ? (
                 <video ref={videoRef} autoPlay playsInline muted />
               ) : (
-                <div className="fb"><div className="ic">◉</div>Camera preview<br /><small style={{ opacity: 0.7 }}>(grant access for live camera)</small></div>
+                <div className="fb"><div className="ic">◉</div>No camera access<br /><small style={{ opacity: 0.7 }}>Allow the camera to photograph this drop. Without it the delivery is still recorded, but no photo is kept.</small></div>
               )}
               <div className="shutwrap"><div className="shutter" onClick={shutter} /></div>
             </div>
@@ -725,9 +760,16 @@ export default function DriverApp({
         {screen === "photo" && (
           <div className="screen">
             <div className="bar"><div className="back" onClick={openCam}>←</div><div><h1>Use this photo?</h1></div></div>
-            {/* eslint-disable-next-line @next/next/no-img-element -- runtime camera data URL, not a static asset */}
-            <div className="content">{photo && <img src={photo} className="thumb" style={{ height: "auto", aspectRatio: "3 / 4" }} alt="delivery" />}</div>
-            <div className="actions"><button className="big green" onClick={() => setScreen("waste")}>Looks good — next</button><button className="big ghost" onClick={openCam}>Retake</button></div>
+            <div className="content">
+              {/* eslint-disable-next-line @next/next/no-img-element -- runtime camera data URL, not a static asset */}
+              {photo && <img src={photo} className="thumb" style={{ height: "auto", aspectRatio: "3 / 4" }} alt="delivery" />}
+              {photo && !shotReal ? (
+                <div style={{ marginTop: 12, fontSize: 13, lineHeight: 1.45, color: "var(--amber-t)", background: "var(--amber-b)", borderRadius: 8, padding: "10px 12px" }}>
+                  This is a placeholder, not a photograph. The camera was not available, so nothing will be kept for this stop. Go back and allow the camera if you can.
+                </div>
+              ) : null}
+            </div>
+            <div className="actions"><button className="big green" onClick={() => setScreen("waste")}>{shotReal ? "Looks good — next" : "Continue without a photo"}</button><button className="big ghost" onClick={openCam}>Retake</button></div>
           </div>
         )}
 
