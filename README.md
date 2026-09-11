@@ -163,7 +163,7 @@ quietly counted as done.
 | When | What |
 |---|---|
 | Weekday mornings | mailbox poller pulls the Coles and Woolworths reports out of the inbox |
-| Weekday mornings | Harris Farm vendor-sales pull — **fails until its credentials are set in Netlify**, on purpose |
+| Weekday mornings | Harris Farm vendor-sales pull — **red every morning since 2 September.** The credentials are set; Harris Farm rejects them. See Status. |
 | Mondays 06:10 UTC | proof-of-delivery audit: every recorded proof still present, a rotating sample re-hashed |
 
 All three are GitHub Actions that `curl` an endpoint guarded by
@@ -208,6 +208,33 @@ started; the driver app has no offline support; there is no route optimisation;
 the assistant is keyword-routed rather than a language model; the Xero push is
 built and switched off; and the image bytes behind proof of delivery are in no
 backup — the record of each proof is, the photographs are not.
+
+**The third retailer is not a gap in this build. It is a dead credential on the
+client's side, and it took their own system down first.** The Harris Farm pull
+is built and tested. `HARRIS_FARM_USERNAME` and `HARRIS_FARM_PASSWORD` were set
+in Netlify on 9 September and are present in all four deploy contexts —
+verified, not assumed. The job still fails every morning, with
+`400 {"message":"Login failed"}` from `partnerapi.harrisfarm.com.au`.
+
+It is the credential, and the proof is in Jesse's own Azure. His pipeline
+`ExtractHarrisFarmSourceAPI` succeeded daily until **1 September** and has
+failed every day since with `Authenticate HFM failed: {"message":"Login
+failed"}` — the identical error. `Load_Woolworths_Data_Excel` runs in the same
+Data Factory off the same Key Vault and succeeds daily, so it is not Azure and
+not the vault. Our own puller was written on 9 September, a week after the
+credential died, and has never once authenticated.
+
+The credential was created 23 August 2024, has no expiry and was never rotated.
+A replacement set was asked for on 26 August and never obtained. **Only Harris
+Farm can issue a new partner API login for vendor `6086`.** Nothing in this
+repository fixes it, and the pull starts by itself the morning a working
+credential goes into Netlify.
+
+Two consequences worth stating plainly. Jesse's existing system has had no
+Harris Farm sales since 1 September and nothing flagged it — the automated feed
+and Simona's manual portal login are different credentials, so the manual
+fallback kept working and hid the outage. And a feed can be built, tested and
+correct and still be worth nothing without a credential somebody else owns.
 
 One of those gaps is a permission rather than a feature, so it is stated
 separately. **The mail poller's Entra app can read every mailbox in the
