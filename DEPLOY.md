@@ -19,6 +19,14 @@ There are two ways to do it. Either gets you a real, always-on URL.
 4. Go to **Project Settings → Database → Connection string → URI**. Copy it and
    put your password in place of `[YOUR-PASSWORD]`. This is your `DATABASE_URL`.
 
+   > ⚠️ **Demo only.** That URI connects as Supabase's `postgres` role, which has
+   > `rolbypassrls = true` — it skips row-level security entirely, so every
+   > table's policies stop applying. Fine for the open demo, **not for
+   > a live site holding Jesse's data.** Before going live, create the
+   > non-owner `jbo_app` role and use its pooled connection string instead:
+   > see [`db/RLS-AUDIT-2026-09-10.md`](db/RLS-AUDIT-2026-09-10.md) finding 1,
+   > and step 5 of [`db/AUTH-RLS-SETUP.md`](db/AUTH-RLS-SETUP.md).
+
 ### 2. App (Vercel) — ~4 min
 1. Put this repo on GitHub (create a repo, push it) — or use the Vercel CLI from
    the `apps/web` folder: `npm i -g vercel && vercel`.
