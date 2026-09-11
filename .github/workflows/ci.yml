@@ -109,6 +109,14 @@ jobs:
       - name: Xero invoice — what bills and what refuses
         run: npx tsx scripts/xero-invoice-check.ts
 
+      # A wrong AWS signature fails as 403. So does a wrong key, a wrong
+      # secret, a wrong bucket, and a bucket that does not exist -- five
+      # different people's problems behind one identical response. This proves
+      # the one of the five that is ours, against AWS's own published
+      # key-derivation vector, with no credentials and no network.
+      - name: R2 — the signature is not the thing that is wrong
+        run: npx tsx scripts/test-r2.ts
+
       # A dummy connection string, not a secret. lib/db.ts throws at module
       # load if DATABASE_URL is unset, and Next evaluates modules while
       # collecting page data, so the build cannot start without one. Nothing
