@@ -3,7 +3,8 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Launches, LaunchCohort, LaunchTrial, LiveLaunch, PipelineStore, ProductLaunch, TrialVerdict } from "@/lib/queries";
-import StatusTag from "@/components/StatusTag";
+import StatusTag, { type TagKind } from "@/components/StatusTag";
+import { scoreStore, isMeasured } from "@/lib/store-scoring";
 import { markStoreLive } from "@/app/launches/actions";
 
 /* ------------------------------------------------------------------ *
@@ -338,6 +339,19 @@ function ProductRow({ p }: { p: ProductLaunch }) {
   );
 }
 
+// One rule, imported rather than restated. `Scored` carries three different
+// reasons a store cannot be scored and they are three different people's
+// problems -- see the module header.
+function tagFor(l: LiveLaunch): TagKind {
+  const v = scoreStore({
+    retailer: l.retailer, has_sales_feed: l.has_sales_feed,
+    sent: l.total_sent, sold: l.total_sold, status: l.status,
+  });
+  if (isMeasured(v)) return v;
+  if (v === "invoice") return "invoice";
+  return v === "no-delivery" ? "nodelivery" : "nodata";
+}
+
 function LiveRow({ l }: { l: LiveLaunch }) {
   const st = sellThrough(l);
   return (
@@ -353,7 +367,19 @@ function LiveRow({ l }: { l: LiveLaunch }) {
         <div className="met"><div className="mv">{l.waste_pct != null ? `${l.waste_pct}%` : "—"}</div><div className="ml">Waste</div></div>
       </div>
       <div className="lr-act">
-        {l.total_sent > 0 || l.total_sold > 0 ? <StatusTag status={l.status} /> : <StatusTag status="nodata" />}
+        {/* This row used to decide for itself whether a store was scoreable,
+            by asking whether anything had been sent OR sold. That is the rule
+            lib/store-scoring.ts was written to delete, and the sold half is
+            the hole: a store with sales and no delivery record has no
+            denominator for waste, so waste_pct is NULL, and jb_status's CASE
+            falls past every comparison to green.
+
+            This page is the newly-launched stores. The thirteen metro shops
+            that went live on 9 September are exactly these rows, and on
+            10 September every one of them showed a green "On track" tag off a
+            NULL. Measured that morning: 273 stores, 218 with a sales feed,
+            none with a delivery record, none with a waste figure, 273 green. */}
+        <StatusTag status={tagFor(l)} />
         <Link prefetch={false} href={`/store/${l.store_id}`} className="lr-open">Open store →</Link>
       </div>
     </div>

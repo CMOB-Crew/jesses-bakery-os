@@ -44,12 +44,16 @@ export default function StoreWeekPanel({
   schedule,
   storeId,
   runs = [],
+  countedShelf = true,
 }: {
   days: StoreDay[];
   sellouts: StoreSellout[];
   schedule: StoreSchedule | null;
   storeId: string;
   runs?: RunPick[];
+  // Was the shelf counted at all this week? Defaults true so the component
+  // behaves as before wherever it is rendered without the flag.
+  countedShelf?: boolean;
 }) {
   const [openDay, setOpenDay] = useState<string | null>(null);
 
@@ -134,9 +138,27 @@ export default function StoreWeekPanel({
             {totalOut > 0 && <span><i className="sw out" />Ran out</span>}
           </div>
 
-          {/* SOLD OUT — the thing she has never been able to see */}
+          {/* SOLD OUT — the thing she has never been able to see.
+              And for eighteen days it told her the opposite of the truth.
+
+              "Nothing ran out this week." was printed on every store in the
+              network whether or not anything had run out, because
+              v_store_week.stockout_days coalesced a missing shelf count to
+              zero and this panel read the zero as an answer. The on_hand_ledger
+              stops at 22 August; jb_asof() is 9 September. Nobody has counted a
+              shelf in between.
+
+              This is the 26 August bug in a third place. That day's note asks
+              of any new metric: what does zero mean here, and can it mean two
+              different things? Here it meant "the shelf never emptied" and
+              "nobody looked", and the screen said the first one. */}
           <div className="swp-out">
-            {totalOut === 0 ? (
+            {!countedShelf ? (
+              <div className="oz">
+                No shelf counts for this store this week, so we can&apos;t say whether anything
+                ran out. This fills in once the on-hand ledger is being written again.
+              </div>
+            ) : totalOut === 0 ? (
               <div className="oz">Nothing ran out this week.</div>
             ) : (
               <>

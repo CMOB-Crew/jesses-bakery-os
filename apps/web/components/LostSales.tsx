@@ -71,10 +71,22 @@ export default function LostSales({ data }: { data: LostSales }) {
           <div className="panel intro">
             <div className="itxt">
               The mirror of waste — where stores <b>sell out early</b> and turn demand away, the sales the reports never
-              show because retailers only send what <i>sold</i>, never what someone wanted and couldn&apos;t get. This page
-              is <b>built and ready</b>; it fills in the moment your full sales history is loaded. On today&apos;s snapshot
-              alone there are no sell-outs to flag — once there&apos;s history behind it, every store that runs dry before
-              its next drop shows up here with a sized fix.
+              show because retailers only send what <i>sold</i>, never what someone wanted and couldn&apos;t get.
+              {/* This paragraph used to end "it fills in the moment your full
+                  sales history is loaded", and the sales history IS loaded --
+                  sales_daily runs to the current as-of date and every other
+                  page on the site reads it. What this page needs is the ON-HAND
+                  LEDGER, which stops on 22 August because nothing writes it.
+                  Blaming the feed for a gap the feed cannot close is the same
+                  mistake the Overview made on 9 September. */}
+              {data.countedShelf ? (
+                <> On this week&apos;s shelf counts there are no sell-outs to flag.</>
+              ) : (
+                <> <b>Nothing has counted a shelf this week</b>, so this page has nothing to read.
+                  Sell-outs are worked out from the on-hand ledger, not from the sales feed, and the
+                  ledger has had no new readings since 22 August. Loading more sales history will not
+                  fill this page in; writing the ledger will.</>
+              )}
             </div>
           </div>
           <div className="strip">
@@ -83,7 +95,9 @@ export default function LostSales({ data }: { data: LostSales }) {
             <div className="tile"><div className="tn dim">$ —</div><div className="tl">Lost revenue / wk · lights up with the price feed</div></div>
             <div className="tile"><div className="tn dim">—</div><div className="tl">Repeat sellouts · 3+ days out</div></div>
           </div>
-          <div className="emptyhint">Waiting on data, not on more building — sell-outs and their sized fixes appear here the moment your historical sales are loaded.</div>
+          <div className="emptyhint">{data.countedShelf
+            ? "Sell-outs and their sized fixes appear here as soon as a store runs dry before its next drop."
+            : "Waiting on the on-hand ledger, not on more building — this page is finished and fills itself in the moment shelf readings resume."}</div>
         </>
       ) : (
       <>

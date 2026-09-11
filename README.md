@@ -1,50 +1,121 @@
 # Jesse's Bakery Operating System
 
-The real build — a live, running application, not a prototype. Waste,
-forecasting and distribution for a handmade bakery supplying 300+ (soon 600+)
-Coles / Woolworths / Harris Farm stores on pay-on-scan, where every unsold loaf
-is waste.
+Waste, forecasting and distribution for a handmade bakery supplying supermarkets
+on pay-on-scan, where every unsold loaf is waste. It replaces the legacy Azure
+spreadsheet system.
 
-This repo replaces the legacy Azure spreadsheet system. It is built on the
-recommended stack: **Postgres (Supabase) + Next.js + a Python forecasting
-service**. Everything here runs today against a local Postgres seeded with a
-realistic 84-store Sydney network; pointing it at the hosted Supabase project is
-a connection-string change, nothing more.
+**This is a live production system.** It runs at `app.jessesbakery.com.au`
+against a hosted Supabase project, with authentication enforced and row-level
+security applied to every request. It is not a prototype and there is no demo
+mode running in front of it.
+
+Stack: **Postgres (Supabase) + Next.js 16 + a Python forecasting service**,
+deployed on Netlify.
+
+---
+
+## Read this before you change anything
+
+This section exists because the version of this file it replaces was written in
+the first week of the build and then went untouched for a month. It told you to
+apply two migrations, said the app ran against a local 84-store seed, and
+described going live on Supabase as future work. All of that stopped being true
+and nobody noticed, because a README is the one file no test covers.
+
+So: **every number below was measured on 10 September 2026, not remembered.**
+The distinction is the whole point; a table where you cannot tell a measurement
+from a recollection is worth about as much as the README it replaces. If you
+find a claim here that is no longer true, that is a defect — fix it in the same
+commit as whatever made it untrue.
+
+The Accounts row is why the distinction earns its keep. It was the one row that
+carried a **Not re-measured today** marker, holding a breakdown copied from a 7
+September note. Running the query showed the total was right and the breakdown
+was wrong in two directions at once — and turned up a switched-off rehearsal
+account still holding the `manager` role, which is one flip of a boolean away
+from full write access to a live business. A stale line in a README found that,
+because it was labelled as stale instead of blending in.
+
+| | |
+|---|---|
+| Migrations | 94 files. 91 apply to an empty Postgres, 3 are skipped by name with a stated reason. |
+| Schema | 48 tables, 14 views. RLS enabled on every public base table. |
+| Network | 273 active stores; 218 of them report scan sales. |
+| Auth | `AUTH_ENFORCED` is **on** — set in Netlify since 24 August. A signed-out request to any non-public path is redirected to `/login`. |
+| Database role | The app connects as `jbo_app`, which does **not** bypass RLS. This is the "RLS flip" the 4 September runbook describes, and it has happened. |
+| Accounts | 11 rows in `public.users`, **9 of them live**: 4 driver, 3 packer, 1 manager, 1 admin. The other two are rehearsal accounts, both now switched off with no role. |
+
+`db/checks/rebuild-from-migrations.sh` is what keeps the first two rows honest —
+it drops the schema and applies every migration in order, and CI runs it on every
+push. If it fails, this repository can no longer rebuild the database it
+describes.
+
+---
 
 ## What's in the box
 
 ```
 jesses-bakery-os/
-├── apps/web/            Next.js 16 (App Router, TS) — the operator dashboard
-│   ├── app/             Overview, Stores, region + store drill-downs
-│   ├── components/      Sidebar, WasteChart (curve + hover), RecCard, StatusTag…
-│   └── lib/             db.ts (Postgres client) + queries.ts (typed reads)
+├── apps/web/            Next.js 16 (App Router, TS) — the whole application
+│   ├── app/             Overview, Stores, Packing, Driver, Feeds, Launches…
+│   │   └── api/         machine-called endpoints (feed pulls, proof audit)
+│   ├── components/      the screens
+│   ├── lib/             db.ts (Postgres + runAsUser), queries.ts (typed reads)
+│   └── scripts/         the checks CI runs — see "What CI actually proves"
 ├── db/
-│   ├── migrations/      001_init.sql (22 tables) · 002_views.sql (reporting)
-│   └── seed/seed.py     deterministic FIFO shelf-life simulation → realistic data
+│   ├── migrations/      001…094, applied in numeric order
+│   ├── checks/          rebuild-from-migrations.sh, authorisation-tests.sh
+│   └── seed/seed.py     local fixture data only. NOT what production holds.
 └── services/forecast/   FastAPI newsvendor / critical-fractile engine
 ```
 
-The heart of the system is the **on-hand ledger** (what the legacy system never
-had) and **replenishment_plans** (the engine's auditable output). Retailers only
-report what *sold* — waste is inferred from the ledger, never reported.
+---
 
-## Design system
+## Four things that will mislead you
 
-The warm-premium identity (Fraunces + Inter, exception-first layout, paper
-grain, status = colour + icon + label) lives as CSS custom properties in
-`apps/web/app/globals.css`. Change a token there and it flows through every
-screen — deliberately evolvable, not frozen.
+**1. `on_hand_ledger` is not the heart of the system today.** It was designed to
+be, and the older version of this file said so. In practice nothing writes it —
+the rows in production are the legacy load and stop at 22 August 2026 — and
+migration 037 gates the engine's use of it behind
+`app_settings.use_on_hand = {"enabled": false}` because the ledger did not
+reconcile. Migration 093 makes the screens say "not counted" rather than
+"nothing ran out". Do not switch it on without reading 037 and 093.
+
+**2. A missing row and a zero are different, and the codebase is opinionated
+about it.** Several columns carry a deliberate NULL meaning "we cannot see this":
+`v_store_week.waste_pct` where `has_sales_feed` is false, and
+`v_store_week.stockout_days` where `has_on_hand` is false. Reading either as
+zero produces a confident false statement on a screen. `lib/store-scoring.ts` is
+the single rule for whether a store can be scored at all, and
+`scripts/test-store-scoring.mjs` scans the source to stop a sixth copy of that
+rule appearing.
+
+**3. `app_users` is the legacy identity table and is not the one in use.**
+Application identity is `public.users`, keyed on `auth.uid()`, and
+`public.current_app_role()` is what every policy reads. `app_users` survives
+because older columns still reference it.
+
+**4. `is_active = false` locks the data, not the door.** There is no sign-in
+check for it anywhere in the app — the account still authenticates. What it does
+is make `public.current_app_role()` return null (`select role from public.users
+where id = auth.uid() and is_active`), so every policy evaluates false and the
+person sees an empty application. That is genuine enforcement and it is where
+the enforcement lives, but two things follow. A deactivated account is not a
+closed account, so anyone still holding its password can still log in. And
+deactivating **without clearing `role`** leaves the account one boolean away from
+whatever it used to be — which is how a rehearsal account sat on the `manager`
+role until 10 September. Do both.
+
+---
 
 ## Run it locally
 
-Prereqs: Postgres 16, Node 20+, Python 3.11+.
+Prereqs: Postgres 16, Node 22 (see `.nvmrc`), Python 3.11+.
 
 ```bash
-# 1. Database
+# 1. Database — every migration, in order, not just the first two.
 createdb jesses
-psql jesses -f db/migrations/001_init.sql
-psql jesses -f db/migrations/002_views.sql
+DATABASE_URL=postgres://localhost/jesses bash db/checks/rebuild-from-migrations.sh
 pip install "psycopg[binary]"
 DATABASE_URL=postgres://localhost/jesses python db/seed/seed.py
 
@@ -55,38 +126,124 @@ curl -X POST localhost:8088/plan        # writes replenishment_plans
 
 # 3. Web app
 cd apps/web && npm install
-cp .env.local.example .env.local        # set DATABASE_URL
 npm run build && npm run start          # http://localhost:3000
 ```
 
-## Going live on Supabase
+`rebuild-from-migrations.sh` **drops and recreates the schema** and refuses to
+run against anything that looks like Supabase. Point it at a throwaway.
 
-1. Create the Supabase project; run `001_init.sql` then `002_views.sql` in the
-   SQL editor (add `003_postgis.sql` later for route optimisation).
-2. Set `DATABASE_URL` (pooled connection string) in `apps/web/.env.local` and in
-   the forecast service environment.
-3. Replace the seed with the real ingestion: the three retailer feeds land in
-   `sales_daily`, Xero customers map via `stores.xero_contact_id`, store IDs are
-   `STO###` in `stores.retailer_store_id`.
-4. Wire `app_users.auth_user_id` to Supabase auth and enable RLS policies.
+---
+
+## What CI actually proves
+
+Not "the tests pass" — these are the specific claims each check defends, and
+most exist because the thing they check was once wrong in production.
+
+| Check | What it stops |
+|---|---|
+| `rebuild-from-migrations.sh` | the repository silently losing the ability to rebuild the database |
+| `authorisation-tests.sh` | a driver writing where they should not, **and** a driver being unable to write where they must |
+| `test-store-scoring.mjs` | an unmeasured store reading "On track" — including a source scan for the superseded rule |
+| `test-proof-audit.ts` | the proof-of-delivery audit going green over data it cannot see |
+| `proxy-matcher-check.ts` | widening the auth-proxy exclusion and quietly unauthenticating the site |
+| `workflows-keep-secrets…-check.ts` | a secret reaching a shell command or a URL, in a public repo |
+| `dates-name-their-timezone-check.ts` | a date rendered without saying which clock it is on, **and** a file that parses on one clock and reads back on another |
+| `xero-invoice-check.ts` | an unpriced or uncoded line billing anyway, a partial invoice going out, and the billing week being decided on the drafter's own laptop clock |
+| `test-provision-rotation.mjs` | a password rotation reaching an account it was not asked to touch, or silently skipping one it was |
+
+The authorisation suite reports one condition as an **open design gap** rather
+than passing it: there is no driver-to-run assignment anywhere in the system, so
+no policy can express "another driver's run". That is stated in its output, not
+quietly counted as done.
+
+---
+
+## What runs on a schedule
+
+| When | What |
+|---|---|
+| Weekday mornings | mailbox poller pulls the Coles and Woolworths reports out of the inbox |
+| Weekday mornings | Harris Farm vendor-sales pull — **red every morning since 2 September.** The credentials are set; Harris Farm rejects them. See Status. |
+| Mondays 06:10 UTC | proof-of-delivery audit: every recorded proof still present, a rotating sample re-hashed |
+
+All three are GitHub Actions that `curl` an endpoint guarded by
+`FEED_POLL_SECRET`. **No workflow holds a Supabase credential**, and a CI check
+refuses any that tries.
+
+---
+
+## Design system
+
+The warm-premium identity (Fraunces + Inter, exception-first layout, paper
+grain, status = colour + icon + label) lives as CSS custom properties in
+`apps/web/app/globals.css`. Change a token there and it flows through every
+screen. Status is never colour alone — always colour, icon and label.
+
+---
 
 ## The forecasting engine
 
 `services/forecast` implements a newsvendor order-up-to policy. On pay-on-scan an
 unsold unit is ~100% waste while a stockout costs only the margin, so the optimal
 stocking point is the **critical ratio** `Cu / (Cu + Co)` of the demand
-distribution — deliberately below the mean. Every recommendation is capped hard
-at `shelf_max` (the "139 loaves into a 45-capacity store" fix) and written with
-its reasoning so the dashboard and assistant can explain *why 25, not 45*.
+distribution — deliberately below the mean. Every recommendation is capped at
+`shelf_max` (the "139 loaves into a 45-capacity store" fix) and written with its
+reasoning so the dashboard can explain *why 25, not 45*.
 
-Known tuning items (honest list, not hidden): demand is currently the observed
-(censored) sold quantity — the roadmap swaps in a censored-demand estimator using
-the ledger's stockout flags; coverage uses lead time and can be tuned per product;
-on-hand should later net out imminent-expiry stock.
+Honest tuning list: demand is the observed (censored) sold quantity, so a
+sold-out line teaches the engine to send less next time — the fix is a
+censored-demand estimator, and two guard rails in the `store_reco` layer hold the
+line meanwhile. Coverage uses lead time and can be tuned per product. On-hand
+netting is off, per the note above.
+
+---
 
 ## Status
 
-Phase 0/1 foundation is running: schema, ledger, reporting views, the operator
-dashboard (Overview + drill-downs, all live), and the forecasting engine. Next:
-the driver/packing PWAs (design already locked in the prototypes), live feed
-ingestion, and the deterministic NL assistant.
+The operator dashboard, packing, driver, feeds, launches and invoicing screens
+are built and live. Feed ingestion runs itself for two of three retailers.
+
+Known gaps, all written down rather than discovered: the factory model was never
+started; the driver app has no offline support; there is no route optimisation;
+the assistant is keyword-routed rather than a language model; the Xero push is
+built and switched off; and the image bytes behind proof of delivery are in no
+backup — the record of each proof is, the photographs are not.
+
+**The third retailer is not a gap in this build. It is a dead credential on the
+client's side, and it took their own system down first.** The Harris Farm pull
+is built and tested. `HARRIS_FARM_USERNAME` and `HARRIS_FARM_PASSWORD` were set
+in Netlify on 9 September and are present in all four deploy contexts —
+verified, not assumed. The job still fails every morning, with
+`400 {"message":"Login failed"}` from `partnerapi.harrisfarm.com.au`.
+
+It is the credential, and the proof is in Jesse's own Azure. His pipeline
+`ExtractHarrisFarmSourceAPI` succeeded daily until **1 September** and has
+failed every day since with `Authenticate HFM failed: {"message":"Login
+failed"}` — the identical error. `Load_Woolworths_Data_Excel` runs in the same
+Data Factory off the same Key Vault and succeeds daily, so it is not Azure and
+not the vault. Our own puller was written on 9 September, a week after the
+credential died, and has never once authenticated.
+
+The credential was created 23 August 2024, has no expiry and was never rotated.
+A replacement set was asked for on 26 August and never obtained. **Only Harris
+Farm can issue a new partner API login for vendor `6086`.** Nothing in this
+repository fixes it, and the pull starts by itself the morning a working
+credential goes into Netlify.
+
+Two consequences worth stating plainly. Jesse's existing system has had no
+Harris Farm sales since 1 September and nothing flagged it — the automated feed
+and Simona's manual portal login are different credentials, so the manual
+fallback kept working and hid the outage. And a feed can be built, tested and
+correct and still be worth nothing without a credential somebody else owns.
+
+One of those gaps is a permission rather than a feature, so it is stated
+separately. **The mail poller's Entra app can read every mailbox in the
+tenant.** `Mail.Read` was granted as an application permission on 9 September,
+which is tenant-wide by definition; the code only ever asks for `accounts@`, but
+nothing stops it asking for more. Narrowing it is App RBAC in Exchange Online
+PowerShell **plus** removing the Entra consent afterwards — Microsoft takes the
+union of the two, so doing one half achieves nothing. It needs Global
+Administrator, which on this tenant is Jesse Meguideche and nobody else.
+`lib/feeds/graph.ts` used to describe this scope as already in place. It was
+not, and a comment asserting a control that does not exist is worse than
+silence.

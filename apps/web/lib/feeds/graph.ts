@@ -5,18 +5,50 @@ import "server-only";
 // of Jesse's mailbox so nobody has to forward them by hand.
 //
 // The app registration is "Jesse's Bakery Sales Ingest" in Jesse's tenant, with
-// Mail.Read (application) and an App RBAC scope restricting it to accounts@ and
-// systemadmin@ and nothing else in the tenant. Application permissions, not
-// delegated: there is no signed-in user at 9am.
+// Mail.Read as an APPLICATION permission, not delegated: there is no signed-in
+// user at 9am.
+//
+// THIS APP CAN READ EVERY MAILBOX IN THE TENANT.
+//
+// That is not a design decision, it is an outstanding job. Until 10 September
+// these lines said the app had "an App RBAC scope restricting it to accounts@
+// and systemadmin@ and nothing else in the tenant". No such scope was ever
+// created. Mail.Read as an application permission is tenant-wide the moment
+// consent is granted, and consent was granted on 9 September.
+//
+// A comment that states a security control as done is worse than no comment,
+// because this file is the first place anyone would look to check it.
+//
+// Narrowing it is App RBAC -- New-ManagementScope, New-ServicePrincipal,
+// New-ManagementRoleAssignment -- and the Entra consent has to come OFF
+// afterwards, because Microsoft takes the UNION of the Entra grant and the
+// Exchange scope. Doing only the Exchange half changes nothing at all.
+// Application Access Policies are the older mechanism and Microsoft's own
+// documentation says not to use them for new configuration.
+//
+// Whoever does it needs Global Administrator or Exchange Administrator. That
+// is JESSE MEGUIDECHE and, as far as anyone has checked, only Jesse --
+// systemadmin@ cannot even grant consent, the button is disabled for it. Worth
+// stating precisely, because this file said Simona, a message went to the team
+// on 8 September repeating it, and it had to be corrected in the channel. A
+// quote about "admin" is not a quote about Global Administrator.
 //
 // CREDENTIALS LIVE IN THE ENVIRONMENT, NEVER IN THIS REPO. The repo is public.
 // Set them in Netlify (live scope):
 //   GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, FEED_MAILBOX
 //
-// THE CLIENT SECRET EXPIRES 01/09/2028. When it lapses this stops and nothing
-// announces it -- the feed just quietly goes stale, which is the exact failure
-// mode that let Coles report Success 259,303 times into silence. isStale on the
-// /feeds page is what catches it; this file only makes the noise honest.
+// THE CLIENT SECRET LAPSES AND NOTHING ANNOUNCES IT. The feed simply goes
+// stale, which is the exact failure mode that let Coles report Success 259,303
+// times into silence. isStale on the /feeds page is what catches it; this file
+// only makes the noise honest.
+//
+// The expiry date is deliberately NOT written here any more. It said
+// 01/09/2028, which belonged to a secret created on 2 September that was never
+// used. The secret actually in Netlify was created on 9 September, and the old
+// one still exists beside it. Two secrets, one date, and no way to tell from
+// here which the date described. Entra > App registrations > Jesse's Bakery
+// Sales Ingest > Certificates & secrets is the only thing that answers it;
+// deleting the unused one is still open.
 // ---------------------------------------------------------------------------
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -49,14 +81,27 @@ export class GraphError extends Error {
 /** Say what actually went wrong, in words that point at the fix.
  *
  *  The two failures that will actually happen here are consent never being
- *  granted and the 2028 secret lapsing, and Azure's own messages for both are
- *  opaque enough that someone would go looking in the wrong place. */
+ *  granted and the client secret lapsing, and Azure's own messages for both
+ *  are opaque enough that someone would go looking in the wrong place.
+ *
+ *  None of these name an expiry date. The old ones said 01/09/2028 three
+ *  times, and that date belonged to a secret that was created on 2 September
+ *  and never used -- the one in Netlify was made on 9 September. A date
+ *  printed to a person at 9am has to be right or it sends them away from the
+ *  problem, and this file cannot know it. Entra > App registrations > Jesse's
+ *  Bakery Sales Ingest > Certificates & secrets can. */
 function explain(status: number, code: string, raw: string): string {
   if (code === "Authorization_RequestDenied" || status === 403) {
-    return "Microsoft refused the request. The most likely cause is that admin consent for Mail.Read was never granted, or the mailbox is outside the app's allowed scope. Simona holds Global Administrator and can grant it.";
+    // NAMES THE RIGHT PERSON. This used to end "Simona holds Global
+    // Administrator and can grant it". She does not. The portal was checked on
+    // 3 September: the tenant has exactly one Global Administrator, Jesse
+    // Meguideche, and the consent button is disabled for systemadmin@. Sending
+    // whoever reads this at 9am to the wrong person costs a morning, and this
+    // is the one message they will act on.
+    return "Microsoft refused the request. Either admin consent for Mail.Read was never granted, or the app is not scoped to this mailbox. Only Jesse Meguideche holds Global Administrator on this tenant — systemadmin@ cannot grant it.";
   }
   if (code === "InvalidAuthenticationToken" || status === 401) {
-    return "Microsoft rejected our credentials. If this started on its own, the client secret has expired -- it was set to lapse 01/09/2028 and renewing it takes two minutes in the portal.";
+    return "Microsoft rejected our credentials. If this started on its own, the client secret has expired. Entra > App registrations > Jesse's Bakery Sales Ingest > Certificates & secrets — renewing it takes two minutes, and note there are two secrets on this app, one of which was never used.";
   }
   if (code === "ResourceNotFound" || status === 404) {
     return "That mailbox does not exist, or the app is not scoped to it. FEED_MAILBOX should be accounts@jessesbakery.com.au.";
@@ -99,7 +144,7 @@ export async function graphToken(cfg: GraphConfig): Promise<string> {
     // The token endpoint speaks AADSTS codes rather than Graph codes.
     if (/AADSTS7000215|invalid_client/i.test(raw)) {
       throw new GraphError(
-        "Microsoft rejected the client secret. If this began on its own, it has expired -- it was set to lapse 01/09/2028.",
+        "Microsoft rejected the client secret. If this began on its own, it has expired. Check Entra > App registrations > Jesse's Bakery Sales Ingest > Certificates & secrets for the real expiry — there are two secrets on this app.",
         401, "invalid_client",
       );
     }

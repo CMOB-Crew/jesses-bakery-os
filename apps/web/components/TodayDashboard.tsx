@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { StoreWeek, NetworkWeek } from "@/lib/queries";
 import { isCapStale, type ShelfCapOverride } from "@/lib/shelfcap";
+import { scoreStore, isMeasured } from "@/lib/store-scoring";
 import { listEmptyReason, hasLossToShow, type ListRow } from "@/lib/today-lists";
 
 const nf = (n: number) => n.toLocaleString("en-AU");
@@ -71,7 +72,15 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
     const stockouts = Number(s.stockout_days) || 0;
     const sellThrough = sent > 0 ? (sold / sent) * 100 : null;
     const growth = prev > 0 ? ((sold - prev) / prev) * 100 : null;
-    return { s, sold, sent, wasted, waste, stockouts, sellThrough, growth, band: bandOf(s.size_category) };
+    // The one rule, same module the Overview headline above this component
+    // uses. Reading s.status raw is what put "0 stores need attention" under a
+    // headline that said nothing had been measured -- two sentences on one
+    // screen, contradicting each other.
+    const score = scoreStore({
+      retailer: s.retailer, has_sales_feed: s.has_sales_feed,
+      sent, sold, status: s.status,
+    });
+    return { s, score, sold, sent, wasted, waste, stockouts, sellThrough, growth, band: bandOf(s.size_category) };
   });
 
   // ---- headline ----
@@ -166,9 +175,25 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
   const stockOuts = rows.filter(
     (r) => r.stockouts > 0 && (r.waste == null || r.waste < 20),
   ).length;
+  // Has anything counted a shelf this week? The stockout row is computed only
+  // from the on-hand ledger, and when the ledger is empty the row read
+  // "0 stores -- lines selling out ... fills as the sales history loads". The
+  // sales history is loaded. What is missing is the ledger, and no amount of
+  // sales data produces it. Migration 093.
+  const countedShelf = rows.some((r) => r.s.has_on_hand);
   const salesDecline = rows.filter((r) => r.growth != null && r.growth < -10).length;
   const strongSellers = rows.filter((r) => r.sellThrough != null && r.sellThrough >= 95 && (r.waste == null || r.waste < 12)).length;
-  const needAttention = rows.filter((r) => r.s.status === "red").length;
+  // Red only where the store was actually assessed. v_store_week.status is
+  // 'green' for anything jb_status could not judge -- a NULL waste_pct falls
+  // past every comparison in its CASE -- so a raw read cannot tell "nothing is
+  // wrong" from "nothing was measured". On 10 September that was all 273
+  // stores: 218 with a sales feed, none with a delivery record, none with a
+  // waste figure, every one of them green.
+  const needAttention = rows.filter((r) => r.score === "red").length;
+  // NOT the same as measuredStores above, which counts stores whose SALES
+  // we can see. This counts stores that came out of the scoring rule with a
+  // real red/amber/green -- sales AND a delivery record.
+  const assessedStores = rows.filter((r) => isMeasured(r.score)).length;
 
   // Shelf caps that can't be true. Simona asked for this one twice on the 26 Aug
   // call: once as a colour on the store page so she can spot it, and once here —
@@ -187,7 +212,8 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
 
   const actions = [
     { key: "waste", tone: "red", n: highWastage, issue: "high wastage", action: "Reduce production", href: "/stores?view=waste30", pending: false },
-    { key: "stock", tone: "amber", n: stockOuts, issue: "lines selling out", action: "Increase allocation", href: "/stores?view=stockouts", pending: true },
+    { key: "stock", tone: "amber", n: stockOuts, issue: "lines selling out", action: "Increase allocation", href: "/stores?view=stockouts", pending: true,
+      note: countedShelf ? undefined : "no shelf counts this week — needs the on-hand ledger, not more sales history" },
     { key: "cap", tone: "violet", n: capStale, issue: "shelf cap smaller than a day's sales", action: "Check the real shelf size", href: "/stores?view=capstale", pending: false },
     { key: "decline", tone: "blue", n: salesDecline, issue: "sudden sales decline", action: "Investigate", href: "/stores?view=declines", pending: true },
     { key: "growth", tone: "green", n: strongSellers, issue: "strong sellers", action: "Consider expanding range", href: "/stores?view=expandrange", pending: false },
@@ -338,7 +364,12 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
       <div className="t-actions">
         <div className="ta-h">
           <span className="ta-t">📋 Today&apos;s action list</span>
-          <span className="ta-c"><b>{needAttention}</b> {needAttention === 1 ? "store needs" : "stores need"} attention</span>
+          {/* "0 stores need attention" is a reassurance, and it must not be
+              printed when the reason for the zero is that nothing was
+              measured. */}
+          <span className="ta-c">{assessedStores === 0
+            ? <>no stores measured this week</>
+            : <><b>{needAttention}</b> {needAttention === 1 ? "store needs" : "stores need"} attention</>}</span>
         </div>
         {actions.map((a) => {
           const inner = (
@@ -353,7 +384,7 @@ export default function TodayDashboard({ stores, net, asOf, revenue = null, thre
           return a.n > 0 ? (
             <Link prefetch={false} key={a.key} href={a.href} className="ta-row lk">{inner}<span className="ta-go">›</span></Link>
           ) : (
-            <div key={a.key} className="ta-row off">{inner}<span className="ta-note">{a.pending ? "fills as the sales history loads" : "none flagged"}</span></div>
+            <div key={a.key} className="ta-row off">{inner}<span className="ta-note">{("note" in a && a.note) || (a.pending ? "fills as the sales history loads" : "none flagged")}</span></div>
           );
         })}
       </div>

@@ -42,6 +42,31 @@
  *   node scripts/provision-users.mjs people.csv           # dry run, changes nothing
  *   node scripts/provision-users.mjs people.csv --commit  # actually create
  *
+ * ROTATING PASSWORDS -- a different job, added 10 September.
+ *
+ *   node scripts/provision-users.mjs people.csv --rotate driver,packer
+ *   node scripts/provision-users.mjs people.csv --rotate driver,packer --commit
+ *
+ * Five passwords for this system sit in plain text in a Slack channel, and
+ * more sit in a text file on a desktop. You cannot hand somebody a business
+ * whose passwords are in a chat log. Creating accounts and rotating them are
+ * deliberately different verbs: the code above will NEVER reset a password
+ * somebody may already be using, and this will only ever touch the roles you
+ * name.
+ *
+ *   * --rotate takes a LIST OF ROLES, never a bare flag. "Rotate the drivers"
+ *     and "rotate everything" should not be one keystroke apart, and the
+ *     manager account is the one Simona is signed into right now.
+ *   * It refuses an address in the file that has no account -- rotating what
+ *     does not exist is a typo, not a no-op.
+ *   * Dry run first, like everything else here.
+ *   * Rotating a password can end that person's signed-in sessions. Do it when
+ *     they are not mid-shift, and have the new one ready to send.
+ *
+ * DO NOT PIPE THE OUTPUT TO A FILE. account-passwords-7Sept.txt exists on
+ * somebody's Desktop because a previous run was tee'd, and that file is now
+ * one of the things this mode exists to clean up after.
+ *
  * people.csv -- header required, order does not matter:
  *
  *   email,role,name
@@ -172,11 +197,60 @@ function validate(people) {
 }
 
 // ---------------------------------------------------------------------------
+// WHO GETS A NEW PASSWORD. Pulled out of main() and exported so it can be
+// tested without a Supabase project, because "which accounts does this touch"
+// is the only question here worth being certain about. main() does the talking
+// and the writing; this decides.
+//
+//   targets  in the file, role is one we were asked to rotate, account exists
+//   orphans  in the file and asked for, with NO account behind the address.
+//            A caller must refuse on these rather than skip them: an address
+//            that does not exist is a typo, and silently rotating the other
+//            four while one person is left on their old password is the worst
+//            of the three possible outcomes.
+// ---------------------------------------------------------------------------
+export function planRotation({ people, existingEmails, roles }) {
+  const have = new Set([...existingEmails].map((e) => String(e).toLowerCase()));
+  const asked = people.filter((p) => roles.has(p.role));
+  const targets = [];
+  const orphans = [];
+  for (const p of asked) {
+    if (have.has(String(p.email).toLowerCase())) targets.push(p);
+    else orphans.push(p);
+  }
+  return { targets, orphans };
+}
+
+// ---------------------------------------------------------------------------
 async function main() {
   const args = process.argv.slice(2);
   const commit = args.includes("--commit");
-  const csvPath = args.find((a) => !a.startsWith("--"));
-  if (!csvPath) die("Usage: node scripts/provision-users.mjs people.csv [--commit]");
+
+  // --rotate takes its roles as the next argument, so it can never be a bare
+  // flag that quietly means "everything".
+  const rIdx = args.indexOf("--rotate");
+  let rotateRoles = null;
+  if (rIdx !== -1) {
+    const spec = args[rIdx + 1];
+    if (!spec || spec.startsWith("--")) {
+      die("--rotate needs the roles to rotate, e.g. --rotate driver,packer (or --rotate all).\n" +
+          "  It is deliberately not a bare flag: the manager account is the one Simona is signed into.");
+    }
+    rotateRoles = spec === "all"
+      ? new Set(VALID_ROLES)
+      : new Set(spec.split(",").map((r) => r.trim().toLowerCase()).filter(Boolean));
+    for (const r of rotateRoles) {
+      if (!VALID_ROLES.has(r)) die(`--rotate: "${r}" is not a role. Valid: ${[...VALID_ROLES].join(", ")}.`);
+    }
+  }
+
+  // rIdx + 1 is the roles token and must not be mistaken for the file. Guarded
+  // on rIdx !== -1: without --rotate, rIdx is -1 and args[0] IS the csv path,
+  // so the unguarded version threw "Usage" on the ordinary create run.
+  const rolesToken = rIdx === -1 ? null : args[rIdx + 1];
+  const csvPath = args.filter((a) => !a.startsWith("--") && a !== rolesToken)[0];
+  if (!csvPath) die("Usage: node scripts/provision-users.mjs people.csv [--commit]\n" +
+                    "       node scripts/provision-users.mjs people.csv --rotate driver,packer [--commit]");
 
   const env = loadEnv(".env.local");
   const url = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
@@ -206,6 +280,59 @@ async function main() {
 
   console.log(`\n  ${people.length} in the file, ${existing.size} accounts already exist.`);
   console.log(commit ? "  COMMITTING.\n" : "  DRY RUN — nothing will be changed. Add --commit to do it.\n");
+
+  // -------------------------------------------------------------------------
+  // ROTATE. A separate path that returns early, because it must not be able to
+  // create anything by accident -- the two jobs share a file and nothing else.
+  // -------------------------------------------------------------------------
+  if (rotateRoles) {
+    const { targets, orphans } = planRotation({
+      people,
+      existingEmails: existing.keys(),
+      roles: rotateRoles,
+    });
+    if (!targets.length && !orphans.length) {
+      die(`Nothing in ${csvPath} has any of these roles: ${[...rotateRoles].join(", ")}.`);
+    }
+
+    if (orphans.length) {
+      die("These are in the file with no account behind them:\n" +
+          orphans.map((p) => `    ${p.email}`).join("\n") +
+          "\n  Rotating an address that does not exist is a typo, not a no-op. Fix the file,\n" +
+          "  or create them first without --rotate.");
+    }
+
+    console.log(`  ROTATING ${targets.length} password(s) for role(s): ${[...rotateRoles].join(", ")}\n`);
+
+    const rotated = [];
+    for (const p of targets) {
+      const acct = existing.get(p.email);
+      if (!commit) { rotated.push({ ...p, password: "(generated on commit)" }); continue; }
+      const password = makePassword();
+      const { error } = await sb.auth.admin.updateUserById(acct.id, { password });
+      if (error) die(`${p.email}: could not rotate — ${error.message}`);
+      rotated.push({ ...p, password });
+    }
+
+    const padr = (x, n) => String(x).padEnd(n);
+    console.log("  NEW PASSWORDS — shown once, and nowhere else:\n");
+    console.log(`    ${padr("email", 38)} ${padr("role", 9)} password`);
+    console.log(`    ${"-".repeat(38)} ${"-".repeat(9)} ${"-".repeat(19)}`);
+    for (const r of rotated) console.log(`    ${padr(r.email, 38)} ${padr(r.role, 9)} ${r.password}`);
+    console.log("");
+
+    if (commit) {
+      console.log("  Send each one to that person directly, and to nobody else.");
+      console.log("  DO NOT paste them into Slack and DO NOT pipe this output to a file --");
+      console.log("  account-passwords-7Sept.txt exists on a Desktop because a previous run");
+      console.log("  was tee'd, and cleaning that up is part of why this mode exists.\n");
+      console.log("  Rotating can end a signed-in session, so anyone mid-shift will be asked");
+      console.log("  to sign in again with the new password.\n");
+    } else {
+      console.log("  DRY RUN. Add --commit to actually change them.\n");
+    }
+    return;
+  }
 
   const created = [];
   const rolefixed = [];
@@ -269,11 +396,21 @@ async function main() {
   }
 
   if (commit) {
-    console.log("  Check every one of them can sign in BEFORE the RLS flip, while");
-    console.log("  the policies are still dormant. That separates 'the password is");
-    console.log("  wrong' from 'the policies are wrong', and you do not want to be");
-    console.log("  telling those two apart at 4am.\n");
+    // This used to say "check they can sign in BEFORE the RLS flip, while the
+    // policies are still dormant". Measured on production on 10 September: the
+    // app connects as jbo_app and rolbypassrls is false, so the flip has
+    // happened and the policies are NOT dormant. Advice that tells you to do
+    // something in a window that has already closed is worse than no advice.
+    console.log("  Check every one of them can actually sign in AND see a screen with");
+    console.log("  rows on it, not just sign in. The policies are live -- the app");
+    console.log("  connects as jbo_app, which does not bypass RLS -- so a missing role");
+    console.log("  on public.users now shows as an empty screen and no error at all.");
+    console.log("  That is the failure you do not want to be diagnosing at 4am.\n");
   }
 }
 
-main().catch((e) => die(e?.message ?? String(e)));
+// Only run when invoked as a script. The test imports planRotation from here,
+// and importing must not start talking to Supabase.
+if (process.argv[1] && process.argv[1].endsWith("provision-users.mjs")) {
+  main().catch((e) => die(e?.message ?? String(e)));
+}

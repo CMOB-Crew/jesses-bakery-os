@@ -3,6 +3,7 @@ import { q as sql } from "./db";
 import type { DriverDayCounts } from "./driver-day";
 import { dayShare, dowMultipliers, dayIndexFromISO } from "./dayshare";
 import { stripPack } from "./bake";
+import { scoreStore } from "./store-scoring";
 
 export type Status = "red" | "amber" | "green";
 
@@ -23,9 +24,17 @@ export type StoreWeek = {
   total_sold: number;
   total_sold_prev: number;
   total_wasted: number;
-  stockout_days: number;
+  // NULL means the shelf was not counted this week -- the on_hand_ledger has no
+  // reading for this store in the window. 0 means it WAS counted and never hit
+  // empty. Migration 093 stopped the view collapsing the two into 0, because
+  // every screen downstream was reporting the second while the first was true.
+  stockout_days: number | null;
   waste_pct: number | null;
   status: Status;
+  // False when nothing counted this store's shelf this week. Read it before
+  // printing a stockout figure, exactly as has_sales_feed is read before
+  // printing a waste figure.
+  has_on_hand?: boolean;
 };
 
 export type NetworkWeek = {
@@ -1370,10 +1379,18 @@ async function getRecosForStores(ids: string[]): Promise<Map<string, StoreReco[]
 // is already half spent before any query runs.
 export async function getRecommendations(limit = 3, stores?: StoreWeek[]): Promise<Recommendation[]> {
   const all = stores ?? (await getStoreWeek());
-  // Only recommend action on stores we can actually see. Same guard as the
-  // Overview's own counting rule — these cards sit on that page.
+  // Only recommend action on stores we can actually see. This said "same guard
+  // as the Overview's own counting rule", and had not been for three days --
+  // the Overview moved to lib/store-scoring.ts on 7 September and this stayed
+  // on the copy that is missing the delivery clause. It could not produce a
+  // WRONG card, because a store that falls through the hole reads green and
+  // never green-to-red; but a comment claiming two rules match while they do
+  // not is how the five copies drifted in the first place.
   const red = all
-    .filter((s) => s.has_sales_feed !== false && s.status === "red")
+    .filter((s) => scoreStore({
+      retailer: s.retailer, has_sales_feed: s.has_sales_feed,
+      sent: s.total_sent, sold: s.total_sold, status: s.status,
+    }) === "red")
     .sort((a, b) => b.total_wasted - a.total_wasted)
     .slice(0, limit);
 
@@ -1641,6 +1658,11 @@ export type Stockout = {
 export type LostSales = {
   losses: Stockout[]; totalLostWk: number; totalLostRevenueWk: number | null;
   storesFlagged: number; repeatCount: number; hasData: boolean;
+  // Has ANY store had its shelf counted this week? This page is computed
+  // entirely from the on-hand ledger, so when the answer is no the page is
+  // empty for a reason no amount of sales history will change -- and it used
+  // to say the opposite. See migration 093.
+  countedShelf: boolean;
 };
 
 // Revenue layer (Invoice_Cost). Per-store trailing-week revenue + revenue-weighted
@@ -1770,6 +1792,7 @@ export async function getStockouts(): Promise<LostSales> {
   return {
     losses, totalLostWk: losses.reduce((a, l) => a + l.lostWk, 0), totalLostRevenueWk,
     storesFlagged: losses.length, repeatCount: losses.filter((l) => l.repeat).length, hasData: losses.length > 0,
+    countedShelf: stores.some((s) => s.has_on_hand),
   };
 }
 

@@ -51,6 +51,8 @@ check("/api/feeds/mail-poll", false,
   "the scheduled morning pull. Checks FEED_POLL_SECRET itself.");
 check("/api/feeds/harris-farm-pull", false,
   "the Harris Farm pull, same guard, same reason.");
+check("/api/proof/audit", false,
+  "the weekly proof-of-delivery audit. Same guard again — it exists as an endpoint precisely so the service-role key stays out of a public repo's Actions secrets.");
 
 console.log("\n— called by a signed-in person, must still be protected —\n");
 
@@ -58,6 +60,11 @@ check("/api/ask", true, "the assistant. Reads the database as the user.");
 check("/api/feeds/coles", true, "manual upload from the Feeds screen.");
 check("/api/feeds/coles/upload-url", true, "signed upload URL for a browser.");
 check("/api/driver/proof/upload-url", true, "a driver's proof-of-delivery upload.");
+// Neighbouring paths, so a lazily-widened exclusion is caught. `api/proof`
+// without the rest of the path would take the session check off anything
+// added under it later.
+check("/api/proof", true, "not the audit. Only the exact audit path is excluded.");
+check("/api/proof/manifest", true, "a path that does not exist yet must still be protected if it ever does.");
 check("/stores", true, "an ordinary page.");
 check("/", true, "the Overview.");
 

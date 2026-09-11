@@ -163,3 +163,54 @@ export function buildInvoice(
 export function idempotencyKey(storeId: string, periodStart: string): string {
   return `jb-${storeId}-${periodStart}`;
 }
+
+/* ------------------------------------------------------------------ *
+ * WHICH WEEK IS BEING BILLED.
+ *
+ * This moved here on 10 September 2026 because it was wrong, and because
+ * it belongs beside the rules it feeds. The header of this file says every
+ * rule about what gets billed lives in this module. The period an invoice
+ * covers is one of those rules, and it was being decided in a browser
+ * component -- four lines that looked like ordinary date arithmetic:
+ *
+ *   const d = new Date(`${today}T00:00:00`);          // the BROWSER'S zone
+ *   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));  // the browser's clock
+ *   return d.toISOString().slice(0, 10);              // read back in UTC
+ *
+ * A bare "YYYY-MM-DDT00:00:00" carries no zone, so it is midnight on the
+ * viewer's laptop. toISOString() then reads that same instant in UTC. In
+ * Sydney that is ten hours earlier -- the day before -- so periodStart was
+ * always the SUNDAY of the week it claimed to be the Monday of.
+ *
+ *   today = 2026-09-10  ->  2026-09-06     the Monday is 2026-09-07
+ *
+ * Measured, not reasoned: run the old four lines under TZ=Australia/Sydney
+ * and TZ=UTC and they disagree. Two things followed, and the second is
+ * much worse than the first.
+ *
+ *   1. The reference on the invoice Simona sends a customer named the
+ *      wrong week.
+ *   2. idempotencyKey() is built from it. Xero dedupes on that header, so
+ *      it is the one thing standing between a customer and being billed
+ *      twice for the same week -- and it was returning a different answer
+ *      depending on which laptop drafted the invoice. Sydney and UTC would
+ *      each happily create their own draft for the same store and week.
+ *
+ * The fix is to never let a local clock into it. Date.UTC fixes the
+ * instant, every step after it is UTC, so the answer is identical on every
+ * machine on earth. That is asserted under four timezones in
+ * scripts/xero-invoice-check.ts, because a test that runs only under the
+ * runner's UTC clock would have passed on the broken version.
+ *
+ * Safe to change now precisely because no invoice has ever been sent: the
+ * Xero push is built and switched off. Doing this after go-live would have
+ * meant reconciling keys against drafts already sitting in Jesse's books.
+ * ------------------------------------------------------------------ */
+export function weekStart(ymd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) throw new Error(`weekStart: expected YYYY-MM-DD, got ${JSON.stringify(ymd)}`);
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (Number.isNaN(d.getTime())) throw new Error(`weekStart: not a real date: ${ymd}`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); // getUTCDay: 0 = Sunday
+  return d.toISOString().slice(0, 10);
+}

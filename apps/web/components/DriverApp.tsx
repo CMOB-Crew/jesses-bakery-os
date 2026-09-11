@@ -5,6 +5,8 @@ import type { PackRun, DriverState, PackFinal } from "@/lib/queries";
 import { setDriverState } from "@/app/run-state-actions";
 import { saveDeliveryProof, recordDelivery } from "@/app/driver-proof-actions";
 import { uploadProof } from "@/lib/driver-proof";
+import { uploadLicence } from "@/lib/driver-licence";
+import { saveDriverLicence } from "@/app/driver-licence-actions";
 import { driverDayMode, driverDayNote, driverDayBanner, showsSampleStops, type DriverDayCounts } from "@/lib/driver-day";
 
 // Sydney, named. This carries a TIME, so the no-time exemption in
@@ -18,10 +20,22 @@ const finTime = (iso: string) => {
   }).format(new Date(t));
 };
 
-// Driver app — phone prototype. The build that matters for drivers: dead simple,
-// big taps, live-capture only (no gallery), works down the run stop by stop.
-// Camera uses getUserMedia when granted, else a simulated capture so the flow
-// always demos. Nothing persists yet — the offline queue + upload is next phase.
+// Driver app. The build that matters for drivers: dead simple, big taps,
+// live-capture only (no gallery), works down the run stop by stop.
+//
+// "Nothing persists yet — the offline queue + upload is next phase" is what this
+// comment said until 11 September, written in August when it was true. It stopped
+// being true the day deliveries, photographs and signatures started saving, and
+// nobody came back to it. A stale comment on the file everyone reads first is how
+// the licence below went a fortnight without anyone noticing it kept nothing.
+//
+// What actually persists now: the delivery, the photograph, the signature, the
+// shelf count and, from this commit, the licence. There is still NO OFFLINE
+// QUEUE — a stop recorded with no signal is lost, and that one is real.
+//
+// Camera uses getUserMedia when granted, else a drawn placeholder watermarked
+// "(simulated capture)". On a live run that placeholder is currently filed as
+// proof of delivery, which is its own problem and not this commit's.
 
 type Status = "done" | "next" | "pending" | "circle";
 // sid is the real store id. Optional because the sample stops have none -- they
@@ -48,7 +62,13 @@ const INITIAL: Stop[] = [
   { id: 7, name: "Harris Farm Rose Bay", addr: "744 New South Head Rd", items: [{ pid: "", name: "Rye Sourdough", qty: 5 }, { pid: "", name: "Plain Bagel", qty: 6 }, { pid: "", name: "Poppy Bagel", qty: 4 }], status: "pending" },
 ];
 
-const WPRODS = ["Sourdough", "Bagels", "Challah", "Pita"];
+// The wastage screen used to offer these four names. They are categories, not
+// products -- a store that carries Rye Sourdough and Poppy Bagels could count
+// neither -- and being strings they could never be written anywhere, because
+// wastage is keyed on product_id. The screen now lists the store's own lines.
+// Kept only as the fallback for the signed-out walkthrough, where a stop has
+// no real products behind it.
+const WPRODS_SAMPLE = ["Sourdough", "Bagels", "Challah", "Pita"];
 const REASONS = ["Truck at loading dock", "Store closed", "No room on shelf", "No one to receive"];
 
 export default function DriverApp({
@@ -172,6 +192,9 @@ export default function DriverApp({
     } catch { /* no stored licence; the driver photographs it again */ }
   }, [dayIso]);
   const [licBusy, setLicBusy] = useState(false);
+  // Why the licence did not keep, shown under the box. Never a blocker: the
+  // Start button is gated on the photo existing, not on it having stored.
+  const [licNote, setLicNote] = useState<string | null>(null);
   const licRef = useRef<HTMLInputElement>(null);
   function onPickLicence(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -196,6 +219,25 @@ export default function DriverApp({
           window.localStorage.setItem("jb.driver.licence", JSON.stringify({ day: dayIso, img: dataUrl }));
         } catch { /* storage full or blocked -- the shift still starts */ }
         setLicBusy(false);
+
+        // And now the part that was missing. Until 11 September the line above
+        // was the end of it: the photograph lived in this browser, keyed to the
+        // day, and expired the next morning. Simona asked for this because
+        // drivers get fines and have accidents and there was no record of
+        // licences -- and there still was not, while every driver paid thirty
+        // seconds a morning for it.
+        //
+        // Deliberately not awaited, and deliberately not able to fail the shift.
+        // The gate is on the photo existing, which it now does; whether it
+        // stored is a separate question and the answer appears under the box.
+        if (live && dayIso) {
+          void (async () => {
+            const up = await uploadLicence(dataUrl, { day: dayIso });
+            if (!up.ok) { setLicNote(up.error); return; }
+            const rec = await saveDriverLicence({ day: dayIso, path: up.path, sha256: up.sha256 });
+            setLicNote(rec.ok ? null : rec.error);
+          })();
+        }
       };
       img.onerror = () => { setLicBusy(false); };
       img.src = reader.result as string;
@@ -217,6 +259,24 @@ export default function DriverApp({
   // Both are shown on the proof screen and both are stored. null fix means the
   // phone would not give one, which the screen says rather than hiding.
   const [shotAt, setShotAt] = useState<Date | null>(null);
+  // Whether `photo` is a photograph or a drawing of one.
+  //
+  // shutter() has always had two branches: the camera frame when getUserMedia
+  // was granted, and a drawn beige placeholder reading "(simulated capture)"
+  // when it was not, so the flow could be demonstrated without a camera. Until
+  // 11 September nothing downstream could tell them apart, and the placeholder
+  // was uploaded and written into delivery_photos as the proof of that drop.
+  //
+  // It carried its own watermark, so anyone who opened it saw what it was. But
+  // nothing ever opens it. The weekly proof audit checks that objects exist and
+  // that checksums match; neither question is "is this a photograph". A driver
+  // who taps Don't Allow on the camera prompt once, at 4am, filed a drawing for
+  // every stop that day and the system reported proof of delivery complete.
+  //
+  // The photographs are the thing that settles a retailer dispute. A drawing
+  // that says "delivered" is worse than no photograph at all, because the
+  // absence would at least have been countable.
+  const [shotReal, setShotReal] = useState(false);
   const [fix, setFix] = useState<{ lat: number; lng: number; acc: number } | null>(null);
 
   const cur = stops.find((s) => s.id === curId) ?? null;
@@ -239,6 +299,7 @@ export default function DriverApp({
   async function openCam() {
     setScreen("cam");
     setPhoto(null);
+    setShotReal(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
       streamRef.current = stream;
@@ -279,7 +340,14 @@ export default function DriverApp({
     c.width = 600; c.height = 800;
     const x = c.getContext("2d")!;
     const v = videoRef.current;
-    if (realCam && v && v.videoWidth) {
+    // The single condition that decides whether this is evidence. It used to be
+    // written inline on the `if` below, where nothing else could read it.
+    const fromCamera = Boolean(realCam && v && v.videoWidth);
+    setShotReal(fromCamera);
+    // `&& v` again because Boolean() throws the narrowing away: to TypeScript,
+    // fromCamera says nothing about whether v is null, and the branch below
+    // draws from it. Cheaper than restructuring the draw.
+    if (fromCamera && v) {
       const cr = 600 / 800;
       let sw = v.videoWidth, sh = v.videoHeight, sx = 0, sy = 0;
       const vr = v.videoWidth / v.videoHeight;
@@ -318,11 +386,13 @@ export default function DriverApp({
     setScreen("photo");
   }
 
-  function wstep(p: string, d: number) {
+  // Keyed by product id now, not by name. A name cannot be written to wastage,
+  // which is keyed on (store_id, product_id, waste_date).
+  function wstep(pid: string, d: number) {
     setWaste((w) => {
-      const nv = Math.max(0, (w[p] || 0) + d);
+      const nv = Math.max(0, (w[pid] || 0) + d);
       if (nv > 0) setNil(false);
-      return { ...w, [p]: nv };
+      return { ...w, [pid]: nv };
     });
   }
   function toggleNil() {
@@ -357,12 +427,20 @@ export default function DriverApp({
   // is called from the sign screen and the canvas unmounts the moment the screen
   // changes to "done".
   const sendProof = useCallback(
-    async (sid: string, sig: string | null, shot: string | null) => {
+    async (sid: string, sig: string | null, shot: string | null, shotIsReal: boolean) => {
       if (!dayIso || !live) return;
       const jobs: [("photo" | "signature"), string][] = [];
-      if (shot) jobs.push(["photo", shot]);
+      // A drawn placeholder is fine to show the driver and is never filed. The
+      // signature is not affected: it is drawn by a finger on a pad and is the
+      // real thing whether or not a camera was available.
+      if (shot && shotIsReal) jobs.push(["photo", shot]);
       if (sig) jobs.push(["signature", sig]);
-      if (!jobs.length) return;
+      // An honest gap, said out loud. Dropping the upload silently would swap
+      // one invisible problem for another.
+      const cameraNote = shot && !shotIsReal
+        ? "No camera, so no photograph was kept for this stop. The delivery and the signature are recorded."
+        : null;
+      if (!jobs.length) { setProofNote(cameraNote); return; }
 
       const failed: string[] = [];
       for (const [kind, dataUrl] of jobs) {
@@ -378,8 +456,9 @@ export default function DriverApp({
         if (!rec.ok) failed.push(rec.error);
       }
       // One line, not a stack of them. The driver needs to know something did
-      // not keep, not to read a log.
-      setProofNote(failed.length ? failed[0] : null);
+      // not keep, not to read a log. An upload failure outranks the missing
+      // camera, because it is the one that might come good on a retake.
+      setProofNote(failed.length ? failed[0] : cameraNote);
     },
     [dayIso, live, fix],
   );
@@ -400,10 +479,22 @@ export default function DriverApp({
       // lose the drop because the upload was slow. A failure says so in the
       // same banner the proof uploads use.
       if (dayIso && live) {
+        // nil confirmed sends an explicit zero for every line, because a
+        // driver saying "none" has to beat the inference v_store_week falls
+        // back on. Neither answered leaves waste undefined, and nothing is
+        // written.
+        const lines = stop?.items ?? [];
+        const wasteOut =
+          nil ? lines.map((i) => ({ productId: i.pid, qty: 0 }))
+          : Object.keys(waste).length
+            ? lines.filter((i) => waste[i.pid] != null).map((i) => ({ productId: i.pid, qty: waste[i.pid] }))
+            : null;
+
         void recordDelivery({
           storeId: sid,
           day: dayIso,
-          items: (stop?.items ?? []).map((i) => ({ productId: i.pid, qty: i.qty })),
+          items: lines.map((i) => ({ productId: i.pid, qty: i.qty })),
+          waste: wasteOut,
         }).then((r) => {
           if (!r.ok) setProofNote(r.error);
           else if (r.dropped > 0) {
@@ -412,7 +503,11 @@ export default function DriverApp({
         });
       }
 
-      void sendProof(sid, sig, photo);
+      void sendProof(sid, sig, photo, shotReal);
+      // The next store starts from nothing. Carrying one store's counts onto
+      // the next is how a shelf count becomes fiction.
+      setWaste({});
+      setNil(false);
     }
     setStops((ss) => {
       const updated = ss.map((s) => (s.id === curId ? { ...s, status: "done" as Status } : s));
@@ -423,7 +518,7 @@ export default function DriverApp({
   }
 
   function resetForNextStop() {
-    setPhoto(null); setNil(false); setWaste({}); setReason(null);
+    setPhoto(null); setShotReal(false); setNil(false); setWaste({}); setReason(null);
     sigDrawn.current = false;
     setScreen("run");
   }
@@ -481,7 +576,7 @@ export default function DriverApp({
             (mode === "rest-day" || mode === "demo" ? "" : "\u26A0 ") +
             (driverDayBanner(mode, day || "today") ?? "")}
       </div>
-      <div className="cap">Driver app · phone prototype. Live-capture only (no gallery) via the camera — grant access to see your real camera, otherwise it falls back to a simulated capture so the flow always runs.</div>
+      <div className="cap">Driver app, shown here in a phone frame. Live-capture only (no gallery) via the camera — grant access to see your real camera, otherwise it falls back to a capture marked &ldquo;simulated&rdquo; so the flow always runs.</div>
       <div className="phone">
         <div className="notch" />
 
@@ -514,6 +609,11 @@ export default function DriverApp({
                     {licBusy ? "Working…" : "📷  Photograph licence"}
                   </button>
                 )}
+                {licNote ? (
+                  <div style={{ marginTop: 10, fontSize: 12.5, lineHeight: 1.45, color: "var(--amber-t)", background: "var(--amber-b)", borderRadius: 8, padding: "8px 10px" }}>
+                    {licNote}
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="actions">
@@ -649,7 +749,7 @@ export default function DriverApp({
               {realCam ? (
                 <video ref={videoRef} autoPlay playsInline muted />
               ) : (
-                <div className="fb"><div className="ic">◉</div>Camera preview<br /><small style={{ opacity: 0.7 }}>(grant access for live camera)</small></div>
+                <div className="fb"><div className="ic">◉</div>No camera access<br /><small style={{ opacity: 0.7 }}>Allow the camera to photograph this drop. Without it the delivery is still recorded, but no photo is kept.</small></div>
               )}
               <div className="shutwrap"><div className="shutter" onClick={shutter} /></div>
             </div>
@@ -660,9 +760,16 @@ export default function DriverApp({
         {screen === "photo" && (
           <div className="screen">
             <div className="bar"><div className="back" onClick={openCam}>←</div><div><h1>Use this photo?</h1></div></div>
-            {/* eslint-disable-next-line @next/next/no-img-element -- runtime camera data URL, not a static asset */}
-            <div className="content">{photo && <img src={photo} className="thumb" style={{ height: "auto", aspectRatio: "3 / 4" }} alt="delivery" />}</div>
-            <div className="actions"><button className="big green" onClick={() => setScreen("waste")}>Looks good — next</button><button className="big ghost" onClick={openCam}>Retake</button></div>
+            <div className="content">
+              {/* eslint-disable-next-line @next/next/no-img-element -- runtime camera data URL, not a static asset */}
+              {photo && <img src={photo} className="thumb" style={{ height: "auto", aspectRatio: "3 / 4" }} alt="delivery" />}
+              {photo && !shotReal ? (
+                <div style={{ marginTop: 12, fontSize: 13, lineHeight: 1.45, color: "var(--amber-t)", background: "var(--amber-b)", borderRadius: 8, padding: "10px 12px" }}>
+                  This is a placeholder, not a photograph. The camera was not available, so nothing will be kept for this stop. Go back and allow the camera if you can.
+                </div>
+              ) : null}
+            </div>
+            <div className="actions"><button className="big green" onClick={() => setScreen("waste")}>{shotReal ? "Looks good — next" : "Continue without a photo"}</button><button className="big ghost" onClick={openCam}>Retake</button></div>
           </div>
         )}
 
@@ -673,13 +780,13 @@ export default function DriverApp({
             <div className="content">
               <button className={`nilbtn ${nil ? "on" : ""}`} onClick={toggleNil}>{nil ? "✓ Nil confirmed" : "✓ No wastage — nil"}</button>
               <div className="box"><div className="bh">Or count what&apos;s being pulled</div>
-                {WPRODS.map((p) => (
-                  <div className="step" key={p}>
-                    <span className="p">{p}</span>
+                {(cur?.items.length ? cur.items : WPRODS_SAMPLE.map((n) => ({ pid: "", name: n, qty: 0 }))).map((p) => (
+                  <div className="step" key={p.pid || p.name}>
+                    <span className="p">{p.name}</span>
                     <div className="stepper">
-                      <button onClick={() => wstep(p, -1)}>−</button>
-                      <span className="v">{waste[p] || 0}</span>
-                      <button onClick={() => wstep(p, 1)}>+</button>
+                      <button onClick={() => wstep(p.pid || p.name, -1)}>−</button>
+                      <span className="v">{waste[p.pid || p.name] || 0}</span>
+                      <button onClick={() => wstep(p.pid || p.name, 1)}>+</button>
                     </div>
                   </div>
                 ))}

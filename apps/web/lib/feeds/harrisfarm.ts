@@ -32,9 +32,19 @@
  *
  * CREDENTIALS
  *
- * Supabase secrets, never the repo -- the repo is public. Fred flagged on
- * 26 August that the Key Vault credential was created 23 Aug 2024, has no
- * expiry and has never been rotated. Nothing here logs or returns the
+ * NETLIFY ENVIRONMENT VARIABLES, never the repo -- the repo is public. This
+ * header said "Supabase secrets" until 11 September and it cost a round trip:
+ * Fred loaded them into Supabase on 9 September because that is what he was
+ * told, and this route is a Next.js handler on Netlify, so it reads
+ * process.env and saw nothing. Supabase only ever shows a SHA256 digest of a
+ * secret, so they could not be copied across either -- they had to be pulled
+ * out of Key Vault a second time. A comment naming the wrong home for a
+ * credential is not a small error.
+ *
+ * Fred flagged on 26 August that the Key Vault credential was created
+ * 23 Aug 2024, has no expiry and has never been rotated. It stopped working on
+ * 2 September and Jesse's own Azure pipeline has failed on it every day since;
+ * see the Status section of the README. Nothing here logs or returns the
  * username or the password, including in an error.
  * ------------------------------------------------------------------ */
 

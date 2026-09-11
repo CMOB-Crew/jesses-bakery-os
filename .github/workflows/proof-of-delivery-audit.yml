@@ -1,0 +1,110 @@
+name: Proof of delivery audit
+
+# Supabase's documentation, verbatim: "Database backups do not include objects
+# you store via the Storage API." The shelf photos and the customers'
+# signatures live in the driver-proof bucket and are in no backup.
+#
+# This does NOT back them up, and does not pretend to. What it closes is the
+# gap nothing else covers: today, if an object vanished from that bucket,
+# nobody would ever find out. The database would still hold a row with a
+# checksum, the store page would still show a proof badge, and the file would
+# be gone.
+#
+# WHY THIS CURLS AN ENDPOINT RATHER THAN RUNNING THE CHECK ITSELF
+#
+# The first version of this workflow ran node here and wanted DATABASE_URL and
+# SUPABASE_SERVICE_ROLE_KEY as repository secrets. The service-role key
+# bypasses RLS entirely and DATABASE_URL carries the database password, and
+# this repository is public. Putting a client's production credentials into it
+# to run a weekly read-only check is the wrong trade, and it was avoidable:
+# morning-feeds.yml has never held a Supabase credential. It curls an endpoint
+# with FEED_POLL_SECRET and Netlify holds the real keys. This is that pattern,
+# and it needs no new secret at all.
+#
+# The same reasoning killed the build artifact. The manifest carries signer
+# names and GPS fixes for every drop, and a public repository's artifacts are
+# downloadable by anyone. It is available at ?manifest=1 to a person holding
+# the key, and it is not published here.
+#
+# Mondays, 06:10 UTC = 16:10 Sydney (AEST). After the morning feeds, well clear
+# of the run.
+
+on:
+  schedule:
+    - cron: "10 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      sample:
+        description: "How many objects to re-download and re-hash. Existence is checked for every object regardless — this is the contents check. 0 skips it."
+        required: false
+        default: "25"
+        type: string
+
+concurrency:
+  group: proof-of-delivery-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Is every proof of delivery still there
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the site
+        env:
+          FEED_POLL_SECRET: ${{ secrets.FEED_POLL_SECRET }}
+          # Through env, never pasted into the script. GitHub expands ${{ }} by
+          # text substitution before bash sees the line.
+          SAMPLE_INPUT: ${{ inputs.sample }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${FEED_POLL_SECRET:-}" ]; then
+            echo "FEED_POLL_SECRET is not set as a repository secret."
+            echo "Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 1
+          fi
+
+          # Digits only, from this workflow's own input box. Not a secret, so
+          # the query string is where it belongs. The KEY is, and stays in the
+          # header -- these run logs are public.
+          sample="${SAMPLE_INPUT:-25}"
+          case "$sample" in
+            ''|*[!0-9]*) sample=25 ;;
+          esac
+          echo "Checking every recorded proof, and re-hashing $sample of them."
+
+          body=$(curl -sS --max-time 120 \
+            -H "x-feed-poll-key: ${FEED_POLL_SECRET}" \
+            "https://app.jessesbakery.com.au/api/proof/audit?sample=${sample}")
+          rc=$?
+
+          echo "$body"
+
+          if [ "$rc" -ne 0 ]; then
+            echo "curl failed with exit code $rc. The site did not answer."
+            exit 1
+          fi
+
+          # ok:false here means a signature or a shelf photo is missing or is
+          # not the file we recorded. It is meant to be loud. Orphans -- bytes
+          # with no row behind them -- are reported in the body and do NOT set
+          # ok:false: untidy is not the same as lost evidence.
+          case "$body" in
+            *'"ok":true'*) echo "Every recorded proof of delivery is present and unchanged." ;;
+            *) echo "Proof of delivery has changed or gone missing. See the body above."; exit 1 ;;
+          esac
+
+          # Not a failure, and printed after the verdict so it cannot be
+          # mistaken for one. read_as.bypasses_rls says whether the connection
+          # this audit used is subject to row-level security at all -- which is
+          # the difference between "the policies work" and "the policies have
+          # never been tested against the live app", and both look identical in
+          # every other number above.
+          case "$body" in
+            *'"bypasses_rls":true'*)
+              echo
+              echo "NOTE: this ran on a connection that BYPASSES row-level security."
+              echo "      Every read the live app makes is therefore unfiltered, and the"
+              echo "      policies in 075, 078, 091, 092 and 093 are not being exercised."
+              echo "      Worth settling before AUTH_ENFORCED is turned on, not after." ;;
+          esac

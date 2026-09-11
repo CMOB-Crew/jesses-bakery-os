@@ -3,6 +3,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setStoreOverride, clearStoreOverride, setStorePrice, setStoreDay, clearStoreDays } from "@/app/store/actions";
 import { draftXeroInvoice } from "@/app/store/xero-actions";
+import { weekStart } from "@/lib/xero-invoice";
 import type { StandingLine, ProductPick } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -74,13 +75,16 @@ export default function StandingOrderPanel({ storeId, storeName, xeroContactId =
   const [invoice, setInvoice] = useState<{ ok: boolean; text: string; url?: string } | null>(null);
   const [invoicing, setInvoicing] = useState(false);
 
-  // Monday of the week being billed, in Sydney. `today` is already that.
-  const periodStart = (() => {
-    const d = new Date(`${today}T00:00:00`);
-    const back = (d.getDay() + 6) % 7; // 0 = Monday
-    d.setDate(d.getDate() - back);
-    return d.toISOString().slice(0, 10);
-  })();
+  // Monday of the week being billed. `today` is already Sydney's date.
+  //
+  // This used to be four lines of date arithmetic right here, and it was
+  // wrong on every machine in Sydney -- it returned the Sunday, and it
+  // returned a DIFFERENT day depending on the viewer's timezone, which made
+  // the invoice's idempotency key depend on whose laptop drafted it. The
+  // comment above says nothing in this file decides what gets billed; the
+  // week being billed is part of that, so it now lives with the rest of the
+  // billing rules and is asserted under four timezones. See weekStart.
+  const periodStart = weekStart(today);
 
   function makeInvoice() {
     setInvoice(null);

@@ -25,6 +25,36 @@
  *
  * Any `new Intl.DateTimeFormat(...)` names an explicit `timeZone`.
  *
+ * THE SECOND RULE, ADDED 10 SEPTEMBER, AND WHY THE FIRST ONE WAS NOT ENOUGH
+ *
+ * A sixth wrong date turned up, and this check could not see it -- not
+ * because the rule was too loose but because the bug never went near a
+ * formatter. StandingOrderPanel computed the Monday of the week being billed
+ * like this:
+ *
+ *   const d = new Date(`${today}T00:00:00`);          // the BROWSER'S zone
+ *   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+ *   return d.toISOString().slice(0, 10);              // read back in UTC
+ *
+ * Two clocks in four lines. A bare "T00:00:00" has no zone, so it is midnight
+ * on the viewer's laptop; toISOString() then reads that instant in UTC. In
+ * Sydney that is the day before, so the invoice's period start was always the
+ * SUNDAY, and it differed between two people drafting on different machines --
+ * which is how the idempotency key that stops a customer being billed twice
+ * came to depend on whose laptop it was.
+ *
+ * So: A FILE MAY NOT BOTH PARSE A DATE FROM TEXT WITH A ZONELESS "T00:00:00"
+ * AND CALL toISOString(). Pick a clock and stay on it.
+ *
+ * Both halves are legitimate on their own and both are in use here. Parsing
+ * "2026-09-07T00:00:00" as local midnight is the right way to show a reader
+ * the day written in the data (FeedUpload, SeasonalityCalendar, StoreProfile).
+ * toISOString() is the right way to record an instant (DriverApp stamping when
+ * a stop was delivered). It is the pair that is a bug, every time, and the
+ * pair is what this looks for.
+ *
+ * "T00:00:00Z" is not caught, correctly: the Z is a zone.
+ *
  * THE EXEMPTION, AND WHY IT EXISTS
  *
  * A browser component rendering a date with no time in it is the one honest
@@ -105,11 +135,75 @@ for (const f of bad) {
   console.log(`FAIL  no timeZone and no tz-ok marker  ${f.file}:${f.line}\n        ${f.excerpt}`);
 }
 
-if (bad.length) {
+/* ------------------------------------------------------------------ *
+ * RULE 2 — nothing parses on the local clock and reads back on UTC.
+ *
+ * Deliberately file-level and deliberately blunt. A scope-accurate version
+ * would need to follow the Date through assignments, and the thing being
+ * defended is not subtle: two clocks in one file, one of which is whatever
+ * the viewer's laptop happens to be set to.
+ *
+ * Zoned literals ("...T00:00:00Z", "...T00:00:00+10:00") are not local
+ * parses and are not counted.
+ * ------------------------------------------------------------------ */
+const LOCAL_PARSE = /T00:00:00(?!Z|[+-]\d)/;
+const UTC_READ = ".toISOString()";
+
+type Mixed = { file: string; parses: number[]; reads: number[]; exempt: boolean };
+const mixed: Mixed[] = [];
+
+for (const root of ROOTS) {
+  for (const file of walk(root)) {
+    const lines = readFileSync(file, "utf8").split("\n");
+
+    // A line that is only a comment is describing the problem, not doing it.
+    // This check's own explanation quotes the broken code, and so does
+    // xero-invoice.ts -- a rule that forces you to delete the explanation in
+    // order to go green is a rule that makes the codebase worse.
+    const code = lines.map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l));
+
+    const parses: number[] = [];
+    const reads: number[] = [];
+    code.forEach((l, i) => {
+      if (LOCAL_PARSE.test(l)) parses.push(i + 1);
+      if (l.includes(UTC_READ)) reads.push(i + 1);
+    });
+    if (!parses.length || !reads.length) continue;
+    mixed.push({
+      file, parses, reads,
+      exempt: lines.some((l) => l.includes("tz-mix-ok:")),
+    });
+  }
+}
+
+const badMix = mixed.filter((m) => !m.exempt);
+
+console.log(`\n${mixed.length} file(s) mix a local date parse with a UTC read.`);
+for (const m of mixed.filter((x) => x.exempt)) {
+  console.log(`PASS  exempt, marked tz-mix-ok  ${m.file}`);
+}
+for (const m of badMix) {
   console.log(
-    `\n${bad.length} formatter(s) do not say which clock they are on.\n` +
-      `Add timeZone: "Australia/Sydney", or a // tz-ok: comment above saying why not.`,
+    `FAIL  two clocks in one file  ${m.file}\n` +
+      `        parsed on the local clock at line(s) ${m.parses.join(", ")}\n` +
+      `        read back as UTC at line(s) ${m.reads.join(", ")}`,
   );
+}
+
+if (bad.length || badMix.length) {
+  if (bad.length) {
+    console.log(
+      `\n${bad.length} formatter(s) do not say which clock they are on.\n` +
+        `Add timeZone: "Australia/Sydney", or a // tz-ok: comment above saying why not.`,
+    );
+  }
+  if (badMix.length) {
+    console.log(
+      `\n${badMix.length} file(s) parse a date as local midnight and then read it back in UTC.\n` +
+        `In Sydney that is the day before. Do the arithmetic in UTC (Date.UTC and\n` +
+        `the setUTC*/getUTC* pair), or keep it local and never call toISOString().`,
+    );
+  }
   process.exit(1);
 }
-console.log("\nEvery date says which clock it is on.");
+console.log("\nEvery date says which clock it is on, and no file is on two.");

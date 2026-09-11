@@ -57,7 +57,7 @@ jobs:
       - name: Lint
         run: npx eslint . --max-warnings 0
 
-      # The five suites that need no database. Each imports the real module
+      # The six suites that need no database. Each imports the real module
       # through tsx, so a change to the source is a change to what is tested.
       # test-day-grid-seed.mts is deliberately absent: it writes, and it needs
       # a throwaway database rather than a CI runner.
@@ -66,6 +66,14 @@ jobs:
 
       - name: Driver day — a driver is never shown fabricated stops
         run: node scripts/test-driver-day.mjs
+
+      # provision-users.mjs writes to the live authentication system. This does
+      # not call it -- it exercises the pure function that decides WHICH
+      # accounts --rotate touches. Too generous and Simona is signed out of the
+      # account she runs the business from; too mean and a driver keeps a
+      # password that is sitting in a Slack channel.
+      - name: Password rotation — which accounts it touches
+        run: node scripts/test-provision-rotation.mjs
 
       - name: Coles parser — old and new layouts parse identically
         run: npx tsx scripts/coles-parser-check.ts
@@ -100,6 +108,21 @@ jobs:
       # sends a partial invoice.
       - name: Xero invoice — what bills and what refuses
         run: npx tsx scripts/xero-invoice-check.ts
+
+      # A wrong AWS signature fails as 403. So does a wrong key, a wrong
+      # secret, a wrong bucket, and a bucket that does not exist -- five
+      # different people's problems behind one identical response. This proves
+      # the one of the five that is ours, against AWS's own published
+      # key-derivation vector, with no credentials and no network.
+      - name: R2 — the signature is not the thing that is wrong
+        run: npx tsx scripts/test-r2.ts
+
+      # The phone never names the object it writes. This is the check that
+      # enforces it, and a path check is the easiest control in the world to
+      # write almost-correctly -- drop one anchor and traversal walks through
+      # while every honest path still passes.
+      - name: Driver licence — the path is one we issued
+        run: npx tsx scripts/test-driver-licence.ts
 
       # A dummy connection string, not a secret. lib/db.ts throws at module
       # load if DATABASE_URL is unset, and Next evaluates modules while
@@ -161,6 +184,26 @@ jobs:
       # the three tests as the application's own database role.
       - name: Condition 15 — the three authorisation tests
         run: bash db/checks/authorisation-tests.sh
+
+      # The proof-of-delivery audit is the only thing that would ever notice a
+      # signature going missing from Storage, which is in no backup. A check
+      # like that fails silently when IT breaks -- it goes green, nobody looks,
+      # and the thing it was watching rots -- so every answer it can give is
+      # asserted against a real Postgres. Last, because it needs the schema the
+      # two steps above have just built, including the storage.objects stub.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install (for the audit test)
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Does the proof-of-delivery audit still detect a loss?
+        working-directory: apps/web
+        run: npx tsx scripts/test-proof-audit.ts
 
   secrets:
     name: Secret scanning
