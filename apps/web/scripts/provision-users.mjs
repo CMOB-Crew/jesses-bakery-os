@@ -119,7 +119,12 @@ function die(msg) {
 // ---------------------------------------------------------------------------
 // A password somebody has to read off a text message and type on a phone at 4am.
 //
-// WHAT THIS USED TO BE, AND WHY IT CHANGED
+// THERE ARE TWO SHAPES HERE, AND THEY ARE NOT THE SAME STRENGTH.
+//
+//     driver          BDriver93!
+//     everyone else   bread-oven-tray-42
+//
+// WHAT BOTH REPLACED
 //
 // Sixteen characters from a 32-character alphabet: 5ptq-ymi2-4kib-pq8h. Eighty
 // bits, legible in the sense that no character is ambiguous, and unusable in
@@ -127,35 +132,45 @@ function die(msg) {
 // accounts have no mailbox behind them, so there is no self-serve reset -- every
 // mistyped password is a phone call to whoever provisioned it.
 //
-// THE FIX THAT WAS NOT TAKEN
+// THE DRIVER SHAPE, AND THE RISK THAT COMES WITH IT
 //
-// One shared base plus a couple of digits -- BDrivers47! -- was proposed on
-// 14 September and rejected. Two digits is a hundred possibilities, all six
-// drivers would know the pattern, and condition 7 of the August decision record
-// (rate limiting on login, five attempts per minute per identifier) IS NOT
-// IMPLEMENTED. A hundred guesses would be a hundred free guesses, and any
-// driver could sign in as any other.
+// BDriver<nn>! was asked for on 14 September, after the three-word form was
+// shipped that morning, on the grounds that the floor will not remember three
+// random words either. It is a deliberate, informed trade and it is recorded
+// here rather than argued about again:
 //
-// That is not an abstract worry here. saveDeliveryProof stamps
-// deliveries.driver_sig_name from the session, and that name is what settles a
-// retailer dispute. A login one colleague can guess is a signature that proves
-// nothing -- the same failure as the drawn placeholder that was being filed as
-// proof of delivery until 11 September.
+//   * A hundred possibilities. About 6.6 bits.
+//   * Every driver knows the pattern, because every driver has one.
+//   * Condition 7 of the August decision record -- rate limiting on login, five
+//     attempts per minute per identifier -- IS NOT IMPLEMENTED. Verified
+//     11 September. So the hundred guesses are currently free.
 //
-// WHAT IT IS NOW
+// Taken together that means one driver can sign in as another. It matters
+// because saveDeliveryProof stamps deliveries.driver_sig_name from the session,
+// and that name is what settles a retailer dispute -- the same failure as the
+// drawn placeholder that was being filed as proof of delivery until
+// 11 September. Closing condition 7 is what makes this shape defensible; until
+// then it is exposed.
 //
-//     bread-oven-tray-42
+// TWO THINGS THIS DOES ANYWAY, BECAUSE THEY COST NOTHING
 //
-// Three words from the 512-word list below, plus two digits. Still random,
-// still different for every person, and knowing one tells you nothing about
-// another.
+//   * No two drivers in one run get the same number. Six people drawing from a
+//     hundred is roughly a one-in-seven chance of a collision, and a collision
+//     means two drivers who can sign in as each other by accident rather than
+//     on purpose.
+//   * The digits are rejection-sampled, so 00-99 are equally likely.
 //
-// ABOUT 33.6 BITS, or 1.3e10 combinations. That is a deliberate drop from 80.
-// Against the realistic threat -- a driver trying a colleague's login, online,
-// one guess at a time -- it is nearly three years at a hypothetical hundred
-// attempts a second. It is weaker against an offline attack on a leaked hash,
-// which is the trade being made: Supabase stores bcrypt, and a database breach
-// is a different problem with different answers.
+// KNOWN HOLE: uniqueness is per run. Rotating one driver later cannot see the
+// numbers the other five already hold, because passwords are stored hashed and
+// nothing here can read them back. Rotate the whole role together and it does
+// not arise.
+//
+// THE WORD SHAPE, FOR EVERY OTHER ROLE
+//
+// Three words from the 512-word list below plus two digits: about 33.6 bits,
+// 1.3e10 combinations. Packers keep this. packer1/2/3 are shared floor slots
+// handed out by the office rather than a person typing at a loading dock, so
+// the argument for a memorable one does not apply to them.
 //
 // The word list is 3 to 7 letters, lowercase, no ambiguity, spread across the
 // alphabet rather than clustered at the start of it. 512 is a power of two on
@@ -229,7 +244,35 @@ const WORDS = [
   "yard", "yarrow", "yellow", "yew", "zebra", "zenith", "zipper", "zither",
 ];
 
-function makePassword() {
+// Two digits, rejection-sampled. 256 is not a multiple of 100, so a bare modulo
+// would make 00-55 slightly likelier than 56-99.
+function twoDigits() {
+  let n;
+  do { n = randomBytes(1)[0]; } while (n >= 200);
+  return String(n % 100).padStart(2, "0");
+}
+
+// One process is one run, which is what the uniqueness above is scoped to.
+const driverNumbersUsedThisRun = new Set();
+
+const DRIVER_BASE = "BDriver";
+
+function makeDriverPassword() {
+  if (driverNumbersUsedThisRun.size >= 100) {
+    // Unreachable at six drivers, and it is here because the alternative when
+    // it is reached is an infinite loop at 4am rather than a message.
+    die(
+      `${DRIVER_BASE}<nn>! has only 100 possible passwords and this run has used all of them.\n` +
+      "  It cannot give everyone a different one. The format has to get longer.",
+    );
+  }
+  let nn;
+  do { nn = twoDigits(); } while (driverNumbersUsedThisRun.has(nn));
+  driverNumbersUsedThisRun.add(nn);
+  return `${DRIVER_BASE}${nn}!`;
+}
+
+function makeWordPassword() {
   if (WORDS.length !== 512) {
     // The unbiased-modulo argument above depends on this. If somebody edits the
     // list, they should find out here and not in a subtle skew nobody measures.
@@ -240,12 +283,14 @@ function makePassword() {
     const b = randomBytes(2);
     parts.push(WORDS[((b[0] << 8) | b[1]) % 512]);
   }
-  // Two digits, rejection-sampled. 256 is not a multiple of 100, so a bare
-  // modulo would make 00-55 slightly likelier than 56-99.
-  let n;
-  do { n = randomBytes(1)[0]; } while (n >= 200);
-  parts.push(String(n % 100).padStart(2, "0"));
+  parts.push(twoDigits());
   return parts.join("-");
+}
+
+// Role decides the shape. Anything that is not a driver gets the strong one,
+// so a role added later is safe by default rather than weak by default.
+function makePassword(role) {
+  return role === "driver" ? makeDriverPassword() : makeWordPassword();
 }
 
 // ---------------------------------------------------------------------------
@@ -423,7 +468,7 @@ async function main() {
     for (const p of targets) {
       const acct = existing.get(p.email);
       if (!commit) { rotated.push({ ...p, password: "(generated on commit)" }); continue; }
-      const password = makePassword();
+      const password = makePassword(p.role);
       const { error } = await sb.auth.admin.updateUserById(acct.id, { password });
       if (error) die(`${p.email}: could not rotate — ${error.message}`);
       rotated.push({ ...p, password });
@@ -471,7 +516,7 @@ async function main() {
 
     if (!commit) { created.push({ ...p, password: "(generated on commit)" }); continue; }
 
-    const password = makePassword();
+    const password = makePassword(p.role);
     const { data, error } = await sb.auth.admin.createUser({
       email: p.email,
       password,

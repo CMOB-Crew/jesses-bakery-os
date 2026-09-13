@@ -11,10 +11,14 @@
  * visible by reading three sample outputs, which is exactly how long anybody
  * looks at a password generator.
  *
- * So: the list is checked as a set, and the output is checked over enough
- * samples that a broken draw shows up as coverage rather than as a hunch.
+ * There are two shapes now, BDriver93! for drivers and bread-oven-tray-42 for
+ * everyone else, and the weaker one is weak ON PURPOSE. So the job here is not
+ * to assert that passwords are strong. It is to assert that the weak shape is
+ * exactly as weak as it was agreed to be and no weaker: right format, all
+ * hundred numbers reachable, and never the same number twice in one run.
  */
 import { readFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 
 const SRC = readFileSync(new URL("./provision-users.mjs", import.meta.url), "utf8");
 
@@ -26,7 +30,7 @@ const is = (label: string, got: unknown, want: unknown) => {
 };
 const ok = (label: string, cond: boolean) => is(label, cond, true);
 
-// --- the list itself ---------------------------------------------------------
+// --- the word list, which packers and every future role still use ------------
 const block = SRC.split("const WORDS = [")[1]?.split("];")[0] ?? "";
 const words = [...block.matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
 
@@ -37,37 +41,89 @@ ok("every entry is 3 to 7 lowercase letters",
 ok("it spans the alphabet rather than clustering at the start",
    new Set(words.map((w) => w[0])).size >= 20);
 
-// --- the generator, over enough draws to see a bad one -----------------------
+// --- the two shapes ----------------------------------------------------------
 // makePassword is not exported -- provision-users.mjs is a script, not a module,
 // and exporting it would mean loading a file that reads .env.local and talks to
-// Supabase at import. The shape is re-derived here from the same list.
-const SHAPE = /^[a-z]{3,7}-[a-z]{3,7}-[a-z]{3,7}-[0-9]{2}$/;
+// Supabase at import. The shapes are re-derived here and the source is checked
+// separately, below, for the properties they depend on.
+const WORD_SHAPE = /^[a-z]{3,7}-[a-z]{3,7}-[a-z]{3,7}-[0-9]{2}$/;
+const DRIVER_SHAPE = /^BDriver[0-9]{2}!$/;
 
-is("the documented example matches the shape", SHAPE.test("bread-oven-tray-42"), true);
-ok("and the old style no longer would", !SHAPE.test("5ptq-ymi2-4kib-pq8h"));
+ok("the documented driver example matches", DRIVER_SHAPE.test("BDriver93!"));
+ok("so does the second one", DRIVER_SHAPE.test("BDriver81!"));
+ok("the documented word example matches", WORD_SHAPE.test("bread-oven-tray-42"));
+ok("the old sixteen-character style matches neither",
+   !DRIVER_SHAPE.test("5ptq-ymi2-4kib-pq8h") && !WORD_SHAPE.test("5ptq-ymi2-4kib-pq8h"));
 
-// Things that must NOT pass, because each is a plausible bug.
-ok("a two-word password is refused", !SHAPE.test("bread-oven-42"));
-ok("a missing digit group is refused", !SHAPE.test("bread-oven-tray"));
-ok("one digit is not two", !SHAPE.test("bread-oven-tray-4"));
-ok("three digits is not two", !SHAPE.test("bread-oven-tray-421"));
-ok("an eight-letter word is out of range", !SHAPE.test("eucalypt-oven-tray-42"));
-ok("uppercase is refused", !SHAPE.test("Bread-oven-tray-42"));
-ok("a shared base with digits is refused", !SHAPE.test("BDrivers47!"));
+// Things that must NOT pass as a driver password, because each is a plausible
+// bug and each one would go out by text message to six people.
+ok("the plural base is refused, it is BDriver not BDrivers", !DRIVER_SHAPE.test("BDrivers93!"));
+ok("one digit is not two", !DRIVER_SHAPE.test("BDriver9!"));
+ok("three digits is not two", !DRIVER_SHAPE.test("BDriver931!"));
+ok("no digits at all is refused", !DRIVER_SHAPE.test("BDriver!"));
+ok("a missing exclamation mark is refused", !DRIVER_SHAPE.test("BDriver93"));
+ok("lowercase b is refused", !DRIVER_SHAPE.test("bdriver93!"));
+ok("trailing whitespace is refused, it survives a copy and paste",
+   !DRIVER_SHAPE.test("BDriver93! "));
+ok("a word password is not a driver password", !DRIVER_SHAPE.test("bread-oven-tray-42"));
 
-// --- the properties the header claims ---------------------------------------
-ok("the generator draws three words and two digits",
-   /for \(let i = 0; i < 3; i\+\+\)/.test(SRC) && /padStart\(2, "0"\)/.test(SRC));
+// And the word shape has to stay intact for packers.
+ok("a two-word password is refused", !WORD_SHAPE.test("bread-oven-42"));
+ok("one digit is not two", !WORD_SHAPE.test("bread-oven-tray-4"));
+ok("an eight-letter word is out of range", !WORD_SHAPE.test("eucalypt-oven-tray-42"));
+ok("uppercase is refused", !WORD_SHAPE.test("Bread-oven-tray-42"));
+
+// --- the properties the source has to actually have --------------------------
+ok("role decides the shape, and only 'driver' gets the weak one",
+   /role === "driver" \? makeDriverPassword\(\) : makeWordPassword\(\)/.test(SRC));
+ok("both call sites pass the role in",
+   (SRC.match(/makePassword\(p\.role\)/g) ?? []).length === 2 &&
+   !/makePassword\(\)/.test(SRC.replace(/^\s*\/\/.*$/gm, "")));
+ok("the base is the singular BDriver, declared once",
+   (SRC.match(/const DRIVER_BASE = "BDriver";/g) ?? []).length === 1);
+ok("no driver number is reused inside one run",
+   /driverNumbersUsedThisRun\.has\(nn\)/.test(SRC) &&
+   /driverNumbersUsedThisRun\.add\(nn\)/.test(SRC));
+ok("running out of numbers dies rather than looping forever",
+   /driverNumbersUsedThisRun\.size >= 100/.test(SRC));
+ok("the digit draw rejects rather than skewing", /while \(n >= 200\)/.test(SRC));
 ok("word draws use a 16-bit sample against a 512 list",
    /\(\(b\[0\] << 8\) \| b\[1\]\) % 512/.test(SRC));
-ok("the digit draw rejects rather than skewing",
-   /while \(n >= 200\)/.test(SRC));
 ok("the list length is asserted at run time, not just here",
    /WORDS\.length !== 512/.test(SRC));
 
-// The whole point of the change.
-ok("no shared base is hardcoded anywhere",
-   !/BDrivers|Driver[0-9]/.test(SRC.replace(/^\s*\/\/.*$/gm, "")));
+// --- the draw itself, exercised ----------------------------------------------
+// Re-derived from the source above rather than imported, for the reason given
+// there. Run enough times that a bad rejection range shows up as missing
+// coverage instead of as a hunch.
+function twoDigits(): string {
+  let n: number;
+  do { n = randomBytes(1)[0]; } while (n >= 200);
+  return String(n % 100).padStart(2, "0");
+}
+
+const seen = new Set<string>();
+for (let i = 0; i < 40000; i++) seen.add(twoDigits());
+is("all one hundred numbers are reachable, including 00 and 99", seen.size, 100);
+ok("00 is drawn", seen.has("00"));
+ok("99 is drawn", seen.has("99"));
+ok("every draw is two characters", [...seen].every((s) => /^[0-9]{2}$/.test(s)));
+
+// The uniqueness rule, over the six drivers it exists for. Run it many times:
+// a collision is a 1-in-7 event per run, so a single run proves nothing.
+let worstRun = 6;
+for (let run = 0; run < 2000; run++) {
+  const used = new Set<string>();
+  const out: string[] = [];
+  for (let d = 0; d < 6; d++) {
+    let nn: string;
+    do { nn = twoDigits(); } while (used.has(nn));
+    used.add(nn);
+    out.push(`BDriver${nn}!`);
+  }
+  worstRun = Math.min(worstRun, new Set(out).size);
+}
+is("six drivers never collide, over two thousand runs", worstRun, 6);
 
 // ---------------------------------------------------------------------------
 if (fails.length) {
@@ -75,4 +131,4 @@ if (fails.length) {
   for (const f of fails) console.error("  " + f + "\n");
   process.exit(1);
 }
-console.log(`\n  ${pass} cases pass. ${words.length} words, ~33.6 bits.\n`);
+console.log(`\n  ${pass} cases pass. Driver ~6.6 bits by decision, everyone else ~33.6.\n`);
