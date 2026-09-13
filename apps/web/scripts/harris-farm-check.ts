@@ -11,7 +11,7 @@
  */
 import { readFileSync } from "node:fs";
 import { parseColesWorkbook } from "../lib/feeds/coles";
-import { rowsToCsv, weekEndingsToPull } from "../lib/feeds/harrisfarm";
+import { renameApiFields, rowsToCsv, weekEndingsToPull } from "../lib/feeds/harrisfarm";
 
 const [portalCsv] = process.argv.slice(2);
 
@@ -51,6 +51,89 @@ function csvToRows(text: string): Record<string, unknown>[] {
   const sundays = weekEndingsToPull(new Date("2026-09-09T00:00:00Z"), 3);
   const ok = sundays.join(",") === "20260913,20260906,20260830";
   console.log(ok ? "PASS — week maths" : `FAIL — week maths gave ${sundays.join(",")}`);
+
+  // -------------------------------------------------------------------------
+  // THE REAL RESPONSE, WHICH NOBODY HAD SEEN UNTIL 14 SEPTEMBER.
+  //
+  // This runs with no argument, so CI covers it. It has to: the tall check
+  // further down was written before anyone had seen the API answer, so it
+  // invented friendly headers -- Date, Sales Qty, Invoice Cost -- and passed
+  // for a fortnight while the actual response used timeID, quantity and
+  // salesIncTax, two of which are required columns the matcher does not know.
+  // A test that makes up the input is a test that agrees with itself.
+  //
+  // These nine fields and these values are copied from a live response.
+  // -------------------------------------------------------------------------
+  const apiRows: Record<string, unknown>[] = [
+    { vendorCode: 6086, timeID: 20260824, weekEndingDate: 20260830, storeNumber: 40, storeName: "HFM Erina",
+      itemNo: 20781, itemDescription: "JESSES WHITE SOURDOUGH 900G", quantity: 3, salesIncTax: 23.07 },
+    { vendorCode: 6086, timeID: 20260824, weekEndingDate: 20260830, storeNumber: 40, storeName: "HFM Erina",
+      itemNo: 20782, itemDescription: "JESSES W/M S'DOUGH BREAD 900G", quantity: 1, salesIncTax: 7.69 },
+    { vendorCode: 6086, timeID: 20260825, weekEndingDate: 20260830, storeNumber: 57, storeName: "HFM Bondi Beach",
+      itemNo: 80515, itemDescription: "JESSE'S MINI CHALLAH 4P 400G", quantity: 2, salesIncTax: 12.98 },
+  ];
+
+  let apiFailures = 0;
+  const apiFail = (why: string) => { apiFailures++; console.log("FAIL — " + why); };
+
+  // Untouched, this is what the pull used to hand the loader. It does not come
+  // back with zero rows -- it THROWS, naming the columns it could not find,
+  // which is what the morning of a new credential would actually have looked
+  // like. Asserted so that if anyone widens the shared matcher later, this
+  // fails loudly rather than the rename quietly becoming untested.
+  let rawRefused = "";
+  try {
+    const rawParse = await parseColesWorkbook(Buffer.from(rowsToCsv(apiRows), "utf8"));
+    if (rawParse.rows.length === 0) rawRefused = "no rows";
+  } catch (e) {
+    rawRefused = e instanceof Error ? e.message : String(e);
+  }
+  if (!rawRefused) {
+    apiFail("the API's own field names load without the rename, so the rename is now untested");
+  } else if (!/salesqty|day/i.test(rawRefused) && rawRefused !== "no rows") {
+    apiFail(`the unrenamed rows were refused, but not for the missing columns: ${rawRefused}`);
+  } else {
+    console.log("  unrenamed, the loader refuses it:", rawRefused.split("\n")[0].slice(0, 120));
+  }
+
+  const named = renameApiFields(apiRows);
+  if (Object.keys(named[0]).some((k) => k === "timeID" || k === "quantity" || k === "salesIncTax")) {
+    apiFail("renameApiFields left one of the three unmapped names in place");
+  }
+  if (named[0].storeNumber !== 40 || named[0].itemNo !== 20781) {
+    apiFail("renameApiFields changed a field the matcher already understood");
+  }
+
+  const apiParse = await parseColesWorkbook(Buffer.from(rowsToCsv(named), "utf8"));
+  if (apiParse.rejects.length !== 0) {
+    apiFail(`the renamed API rows were rejected: ${apiParse.rejects.map((r) => r.reason).join("; ")}`);
+  }
+  if (apiParse.rows.length !== 3) {
+    apiFail(`expected 3 rows from the API shape, got ${apiParse.rows.length}`);
+  } else {
+    const first = apiParse.rows.find((r) => r.sellItem === "20781");
+    if (!first) apiFail("item 20781 did not come through");
+    else {
+      if (first.saleDate !== "2026-08-24") apiFail(`timeID 20260824 became ${first.saleDate}, not 2026-08-24`);
+      if (first.location !== "40") apiFail(`storeNumber 40 became ${first.location}`);
+      if (first.salesQty !== 3) apiFail(`quantity 3 became ${first.salesQty}`);
+      if (first.invoiceCost !== 23.07) apiFail(`salesIncTax 23.07 became ${String(first.invoiceCost)}`);
+    }
+  }
+
+  // A WIDE response has none of the three keys and must pass through untouched,
+  // or the portal's own export shape breaks on its way through the same code.
+  const wideish = [{ StoreNo: 40, "2026-08-24 Qty": 3, "2026-08-24 Sales": 23.07 }];
+  if (JSON.stringify(renameApiFields(wideish)) !== JSON.stringify(wideish)) {
+    apiFail("renameApiFields altered a wide response, which it must leave alone");
+  }
+
+  console.log(apiFailures === 0
+    ? "PASS — the API's real field names load, and a wide response is left alone"
+    : `FAIL — ${apiFailures} problem(s) with the API field names`);
+  console.log();
+
+  if (apiFailures) process.exitCode = 1;
 
   if (!portalCsv) return;
 

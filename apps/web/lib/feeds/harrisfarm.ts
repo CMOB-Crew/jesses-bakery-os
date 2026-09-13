@@ -216,6 +216,58 @@ export function rowsToCsv(rows: Record<string, unknown>[]): string {
   return out.join("\n");
 }
 
+/* ------------------------------------------------------------------ *
+ * THE API'S OWN FIELD NAMES, AND WHY THEY ARE RENAMED HERE.
+ *
+ * Read off the live response on 14 September, the first time anyone had
+ * seen one. Until then this file said, honestly, "Fred's note gave us
+ * the URL and the parameters, not the response body". One row:
+ *
+ *   { vendorCode: 6086, timeID: 20260824, weekEndingDate: 20260830,
+ *     storeNumber: 40, storeName: "HFM Erina", itemNo: 20781,
+ *     itemDescription: "JESSES WHITE SOURDOUGH 900G",
+ *     quantity: 3, salesIncTax: 23.07 }
+ *
+ * Four of those the shared header matcher already knows: storeNumber,
+ * storeName, itemNo, itemDescription. THREE OF THEM IT DOES NOT --
+ * timeID, quantity and salesIncTax -- and two of those three are
+ * REQUIRED columns. So the pull would have run, authenticated, fetched
+ * the week, and had every row rejected for a missing date and a missing
+ * quantity. It would have failed on its first real run, the morning a
+ * new credential finally landed, and looked like the credential's fault.
+ *
+ * WHY RENAME HERE RATHER THAN WIDEN THE MATCHER. Adding `quantity` to
+ * the shared salesQty list would apply to every retailer's file. The
+ * matcher takes the FIRST header that matches, in column order, so a
+ * Coles or Woolworths file carrying both a `Quantity` column and a
+ * `Sales Qty` column would bind whichever came first -- silently, and
+ * possibly to the wrong one. One feed's known field names do not justify
+ * that risk across all three feeds.
+ *
+ * The three targets are exactly the headers the portal's own wide export
+ * is already unpivoted into (see unpivotWideDaily in coles.ts, which
+ * emits Date / Sales Qty / Invoice Cost), so both shapes now arrive at
+ * the parser identically. salesIncTax -> Invoice Cost matches what that
+ * unpivot already does with PartnerHub's daily Sales column; the two
+ * shapes disagreeing about the same number would be the worse bug.
+ *
+ * Only keys that are present are touched, so a WIDE response -- which
+ * has neither timeID nor quantity -- passes through untouched.
+ * ------------------------------------------------------------------ */
+const API_FIELD_ALIASES: Record<string, string> = {
+  timeID: "Date",
+  quantity: "Sales Qty",
+  salesIncTax: "Invoice Cost",
+};
+
+export function renameApiFields(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows.map((r) => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(r)) out[API_FIELD_ALIASES[k] ?? k] = v;
+    return out;
+  });
+}
+
 /**
  * One week, as the bytes of a CSV ready for ingestWorkbook().
  *
@@ -274,7 +326,7 @@ export async function fetchVendorSalesCsv(
 
   return {
     name: `harrisfarm-week-${weekEndingDate}.csv`,
-    bytes: toArrayBuffer(rowsToCsv(rows)),
+    bytes: toArrayBuffer(rowsToCsv(renameApiFields(rows))),
     rows: rows.length,
   };
 }

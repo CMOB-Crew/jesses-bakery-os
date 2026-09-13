@@ -81,7 +81,12 @@ jobs:
       - name: Feed alarm — including the two silent cases
         run: npx tsx scripts/feed-alarm-check.ts
 
-      - name: Harris Farm — week maths
+      # Week maths, and -- since 14 September -- that the API's own field
+      # names survive the loader. They did not: timeID and quantity are not
+      # names the shared header matcher knows, and both are required columns,
+      # so the pull would have failed on its first real run and looked like
+      # the new credential's fault.
+      - name: Harris Farm — week maths, and the API's real field names
         run: npx tsx scripts/harris-farm-check.ts
 
       # The one test here that guards whether the site is authenticated at
