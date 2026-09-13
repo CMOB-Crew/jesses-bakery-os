@@ -122,6 +122,7 @@ function die(msg) {
 // THERE ARE TWO SHAPES HERE, AND THEY ARE NOT THE SAME STRENGTH.
 //
 //     driver          BDriver93!
+//     packer          BPacker49!
 //     everyone else   bread-oven-tray-42
 //
 // WHAT BOTH REPLACED
@@ -132,32 +133,38 @@ function die(msg) {
 // accounts have no mailbox behind them, so there is no self-serve reset -- every
 // mistyped password is a phone call to whoever provisioned it.
 //
-// THE DRIVER SHAPE, AND THE RISK THAT COMES WITH IT
+// THE FLOOR SHAPE, AND THE RISK THAT COMES WITH IT
 //
 // BDriver<nn>! was asked for on 14 September, after the three-word form was
 // shipped that morning, on the grounds that the floor will not remember three
-// random words either. It is a deliberate, informed trade and it is recorded
-// here rather than argued about again:
+// random words either. BPacker<nn>! followed the same afternoon for the same
+// reason. It is a deliberate, informed trade and it is recorded here rather
+// than argued about again:
 //
-//   * A hundred possibilities. About 6.6 bits.
-//   * Every driver knows the pattern, because every driver has one.
+//   * A hundred possibilities per role. About 6.6 bits.
+//   * Everyone in the role knows the pattern, because everyone in it has one.
 //   * Condition 7 of the August decision record -- rate limiting on login, five
 //     attempts per minute per identifier -- IS NOT IMPLEMENTED. Verified
 //     11 September. So the hundred guesses are currently free.
 //
-// Taken together that means one driver can sign in as another. It matters
-// because saveDeliveryProof stamps deliveries.driver_sig_name from the session,
-// and that name is what settles a retailer dispute -- the same failure as the
-// drawn placeholder that was being filed as proof of delivery until
-// 11 September. Closing condition 7 is what makes this shape defensible; until
-// then it is exposed.
+// Taken together that means one person on the floor can sign in as another in
+// the same role. It matters most for drivers, because saveDeliveryProof stamps
+// deliveries.driver_sig_name from the session and that name is what settles a
+// retailer dispute -- the same failure as the drawn placeholder that was being
+// filed as proof of delivery until 11 September. For the bench the equivalent
+// is packing_records, which is who says a store's order was picked. Closing
+// condition 7 is what makes this shape defensible; until then it is exposed.
+//
+// THE BASES ARE SEPARATE NAMESPACES. BDriver49! and BPacker49! are different
+// passwords on different accounts, so a driver drawing 49 does not take 49 away
+// from the bench. Uniqueness is tracked per base for that reason.
 //
 // TWO THINGS THIS DOES ANYWAY, BECAUSE THEY COST NOTHING
 //
-//   * No two drivers in one run get the same number. Six people drawing from a
-//     hundred is roughly a one-in-seven chance of a collision, and a collision
-//     means two drivers who can sign in as each other by accident rather than
-//     on purpose.
+//   * No two people in one role, in one run, get the same number. Six drivers
+//     drawing from a hundred is roughly a one-in-seven chance of a collision,
+//     and a collision means two people who can sign in as each other by
+//     accident rather than on purpose.
 //   * The digits are rejection-sampled, so 00-99 are equally likely.
 //
 // KNOWN HOLE: uniqueness is per run. Rotating one driver later cannot see the
@@ -168,9 +175,11 @@ function die(msg) {
 // THE WORD SHAPE, FOR EVERY OTHER ROLE
 //
 // Three words from the 512-word list below plus two digits: about 33.6 bits,
-// 1.3e10 combinations. Packers keep this. packer1/2/3 are shared floor slots
-// handed out by the office rather than a person typing at a loading dock, so
-// the argument for a memorable one does not apply to them.
+// 1.3e10 combinations. admin, manager and office keep this, and so does any
+// role added later -- the memorable shape is opt-in by name, so a new role is
+// strong by default rather than weak by default. Those accounts have a mailbox
+// behind them and a person at a desk, which is the whole reason the floor
+// needed something else.
 //
 // The word list is 3 to 7 letters, lowercase, no ambiguity, spread across the
 // alphabet rather than clustered at the start of it. 512 is a power of two on
@@ -252,24 +261,31 @@ function twoDigits() {
   return String(n % 100).padStart(2, "0");
 }
 
+// The roles that get the memorable shape, and the base each one gets. Opt-in by
+// name on purpose: a role added later is not in here, so it gets the strong
+// word shape by default rather than the weak one by accident.
+const MEMORABLE_BASE = { driver: "BDriver", packer: "BPacker" };
+
 // One process is one run, which is what the uniqueness above is scoped to.
-const driverNumbersUsedThisRun = new Set();
+// Keyed by base, because BDriver49! and BPacker49! are different passwords on
+// different accounts and neither should crowd the other out.
+const numbersUsedThisRun = new Map();
 
-const DRIVER_BASE = "BDriver";
-
-function makeDriverPassword() {
-  if (driverNumbersUsedThisRun.size >= 100) {
-    // Unreachable at six drivers, and it is here because the alternative when
-    // it is reached is an infinite loop at 4am rather than a message.
+function makeMemorablePassword(base) {
+  const used = numbersUsedThisRun.get(base) ?? new Set();
+  numbersUsedThisRun.set(base, used);
+  if (used.size >= 100) {
+    // Unreachable at six drivers and three packers, and it is here because the
+    // alternative when it is reached is an infinite loop at 4am, not a message.
     die(
-      `${DRIVER_BASE}<nn>! has only 100 possible passwords and this run has used all of them.\n` +
+      `${base}<nn>! has only 100 possible passwords and this run has used all of them.\n` +
       "  It cannot give everyone a different one. The format has to get longer.",
     );
   }
   let nn;
-  do { nn = twoDigits(); } while (driverNumbersUsedThisRun.has(nn));
-  driverNumbersUsedThisRun.add(nn);
-  return `${DRIVER_BASE}${nn}!`;
+  do { nn = twoDigits(); } while (used.has(nn));
+  used.add(nn);
+  return `${base}${nn}!`;
 }
 
 function makeWordPassword() {
@@ -287,10 +303,11 @@ function makeWordPassword() {
   return parts.join("-");
 }
 
-// Role decides the shape. Anything that is not a driver gets the strong one,
-// so a role added later is safe by default rather than weak by default.
+// Role decides the shape. Anything not listed in MEMORABLE_BASE gets the strong
+// one, so a role added later is safe by default rather than weak by default.
 function makePassword(role) {
-  return role === "driver" ? makeDriverPassword() : makeWordPassword();
+  const base = MEMORABLE_BASE[role];
+  return base ? makeMemorablePassword(base) : makeWordPassword();
 }
 
 // ---------------------------------------------------------------------------
