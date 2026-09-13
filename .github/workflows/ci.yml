@@ -129,6 +129,13 @@ jobs:
       - name: Passwords — memorable, and still individual
         run: npx tsx scripts/test-password-shape.ts
 
+      # A driver saw the overview, and a feed alarm he could not act on, before
+      # being bounced to his own screen. Both were server-side mistakes fixed
+      # server-side, and both are the kind that creep back the next time
+      # somebody edits a layout.
+      - name: The floor lands on its own screen, and only sees its own screen
+        run: npx tsx scripts/test-the-floor-lands-on-its-own-screen.ts
+
       # A dummy connection string, not a secret. lib/db.ts throws at module
       # load if DATABASE_URL is unset, and Next evaluates modules while
       # collecting page data, so the build cannot start without one. Nothing

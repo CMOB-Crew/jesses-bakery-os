@@ -7,6 +7,7 @@ import DemoTour from "@/components/DemoTour";
 import RouteFrame from "@/components/RouteFrame";
 import RouteGuard from "@/components/RouteGuard";
 import { getAppRole } from "@/lib/app-role";
+import { hasFullAccess } from "@/lib/nav-access";
 
 // Demo build only: the guided pop-up tour. NEXT_PUBLIC_DEMO is unset on the live
 // site, so this is stripped/never mounts there.
@@ -72,8 +73,20 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           {/* A stopped feed is the state of the business, not a notification,
               so it sits above every page rather than on the one page nobody
               opens when things look fine. Silent at 2 days or less.
-              See components/FeedAlarm.tsx. */}
-          <main className="main"><FeedAlarm /><RouteFrame>{children}</RouteFrame></main>
+              See components/FeedAlarm.tsx.
+
+              BUT NOT FOR THE FLOOR. On 14 September a driver signed in and got
+              "Harris Farm 6 days behind -- every waste, sell-through and
+              lost-sales figure for those stores is stale" across the top of his
+              own shift screen. He cannot act on it, it is not his job, and its
+              one control is a link to /feeds, which RouteGuard bounces him
+              straight back out of. An alarm you cannot answer is noise, and
+              noise above a Start shift button is worse than nothing.
+
+              Gating on the role also stops the query running at all on a
+              driver's phone, which is one fewer Sydney round trip on the
+              slowest connection in the fleet. */}
+          <main className="main">{hasFullAccess(appRole) && <FeedAlarm />}<RouteFrame>{children}</RouteFrame></main>
           {DEMO && <DemoTour />}
         </div>
       </body>

@@ -1,5 +1,8 @@
 import { withUser } from "@/lib/db";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getAppRole } from "@/lib/app-role";
+import { homeFor } from "@/lib/nav-access";
 import { getNetwork, getRegions, getRecommendations, getAsOf, getFeedStatus, getEngineProjection, getStoreWeek, getStoreRevenueWeek, getAppSettings, getStoreStates, getShelfCapOverrides, getPeakDaySold, getEngineHealth } from "@/lib/queries";
 import type { StoreWeek } from "@/lib/queries";
 import { scoreStore, isMeasured, overviewHeadline, SCORE_HREF, type Scored } from "@/lib/store-scoring";
@@ -44,6 +47,26 @@ function fmtDate(d: Date) {
 }
 
 export default async function Overview() {
+  // THE FLOOR DOES NOT LAND HERE.
+  //
+  // Reported from a real phone on 14 September: a driver signs in, watches the
+  // overview render for a second or two, and is then thrown to /driver.
+  // RouteGuard is what throws them, and it cannot do it any sooner -- it is a
+  // client component running in an effect, so the whole of this page has to be
+  // built on the server, shipped and hydrated before the bounce can happen.
+  //
+  // Deciding it here, before anything is fetched, means the redirect leaves the
+  // server AS a redirect. No flash. And none of the thirteen queries below run
+  // on a phone that was never going to be allowed to see their results -- this
+  // is the heaviest page in the app and the driver is on the worst connection.
+  //
+  // RouteGuard stays. This covers the one route the floor actually lands on,
+  // that covers every stale bookmark, and neither is a security control. Row
+  // level security is.
+  const floorRole = await getAppRole().catch(() => null);
+  const floorHome = homeFor(floorRole);
+  if (floorHome) redirect(floorHome);
+
   // The store-week rows are started once and shared. getRecommendations used to
   // fetch the same 265 rows a second time and then run three more per-store
   // lookups, so this page made 14 round trips to Singapore where 10 would do —

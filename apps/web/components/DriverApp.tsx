@@ -594,7 +594,14 @@ export default function DriverApp({
               <div className="box">
                 <div className="bh">Driver licence</div>
                 <div style={{ fontSize: 13.5, color: "var(--ink2)", lineHeight: 1.5, marginBottom: 12 }}>
-                  Snap your licence to start your shift. One quick photo, kept on this phone for today.
+                  {/* This said "kept on this phone for today" until 14 September. That
+                      was true when the licence was a prototype that kept nothing.
+                      Migration 095 shipped on 11 September and the photo now goes to
+                      Jesse's Bakery's records and stays there. Telling a driver their
+                      ID photo does not leave the handset, while uploading it, is not a
+                      wording problem. */}
+                  Snap your licence to start your shift. One photo, saved to Jesse&apos;s Bakery&apos;s
+                  records, and kept on this phone for today so you do not have to do it twice.
                 </div>
                 <input ref={licRef} type="file" accept="image/*" capture="environment" onChange={onPickLicence} hidden aria-hidden="true" />
                 {licence ? (
