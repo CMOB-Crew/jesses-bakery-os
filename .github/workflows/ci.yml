@@ -124,6 +124,11 @@ jobs:
       - name: Driver licence — the path is one we issued
         run: npx tsx scripts/test-driver-licence.ts
 
+      # A password generator fails quietly: it keeps producing plausible output
+      # while the distribution underneath is wrong. Three samples never show it.
+      - name: Passwords — memorable, and still individual
+        run: npx tsx scripts/test-password-shape.ts
+
       # A dummy connection string, not a secret. lib/db.ts throws at module
       # load if DATABASE_URL is unset, and Next evaluates modules while
       # collecting page data, so the build cannot start without one. Nothing

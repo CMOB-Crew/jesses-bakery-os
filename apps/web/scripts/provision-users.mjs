@@ -117,20 +117,135 @@ function die(msg) {
 }
 
 // ---------------------------------------------------------------------------
-// A password somebody has to read off a screen and type on a phone at 4am.
-// No l/I/1/O/0, no symbols that move around on a phone keyboard. 4 groups of 4
-// from a 30-character alphabet is ~78 bits, which is far beyond anything that
-// matters here, and it is legible.
+// A password somebody has to read off a text message and type on a phone at 4am.
+//
+// WHAT THIS USED TO BE, AND WHY IT CHANGED
+//
+// Sixteen characters from a 32-character alphabet: 5ptq-ymi2-4kib-pq8h. Eighty
+// bits, legible in the sense that no character is ambiguous, and unusable in
+// the sense that nobody types it correctly at 4am with cold hands. These
+// accounts have no mailbox behind them, so there is no self-serve reset -- every
+// mistyped password is a phone call to whoever provisioned it.
+//
+// THE FIX THAT WAS NOT TAKEN
+//
+// One shared base plus a couple of digits -- BDrivers47! -- was proposed on
+// 14 September and rejected. Two digits is a hundred possibilities, all six
+// drivers would know the pattern, and condition 7 of the August decision record
+// (rate limiting on login, five attempts per minute per identifier) IS NOT
+// IMPLEMENTED. A hundred guesses would be a hundred free guesses, and any
+// driver could sign in as any other.
+//
+// That is not an abstract worry here. saveDeliveryProof stamps
+// deliveries.driver_sig_name from the session, and that name is what settles a
+// retailer dispute. A login one colleague can guess is a signature that proves
+// nothing -- the same failure as the drawn placeholder that was being filed as
+// proof of delivery until 11 September.
+//
+// WHAT IT IS NOW
+//
+//     bread-oven-tray-42
+//
+// Three words from the 512-word list below, plus two digits. Still random,
+// still different for every person, and knowing one tells you nothing about
+// another.
+//
+// ABOUT 33.6 BITS, or 1.3e10 combinations. That is a deliberate drop from 80.
+// Against the realistic threat -- a driver trying a colleague's login, online,
+// one guess at a time -- it is nearly three years at a hypothetical hundred
+// attempts a second. It is weaker against an offline attack on a leaked hash,
+// which is the trade being made: Supabase stores bcrypt, and a database breach
+// is a different problem with different answers.
+//
+// The word list is 3 to 7 letters, lowercase, no ambiguity, spread across the
+// alphabet rather than clustered at the start of it. 512 is a power of two on
+// purpose: 65536 / 512 = 128 exactly, so the modulo below is provably unbiased
+// against a 16-bit sample rather than approximately so.
 // ---------------------------------------------------------------------------
-const ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
+const WORDS = [
+  "acorn", "alley", "anchor", "angle", "apple", "apron", "arch", "arena",
+  "aspen", "atlas", "attic", "axle", "bacon", "bagel", "baker", "ballad",
+  "bamboo", "banjo", "barley", "barn", "basin", "basket", "beach", "beacon",
+  "bean", "bear", "beech", "bell", "belt", "berry", "birch", "bison",
+  "blade", "blaze", "bloom", "blossom", "boat", "bolt", "bonus", "boot",
+  "bottle", "boulder", "bowl", "brace", "braid", "brass", "bread", "bridge",
+  "broom", "bubble", "bucket", "buckle", "bugle", "bulb", "bunker", "burrow",
+  "butler", "button", "cable", "cactus", "camel", "canal", "candle", "canoe",
+  "canvas", "cape", "carbon", "carrot", "cart", "carve", "cattle", "cave",
+  "cellar", "cement", "chain", "chalk", "chapel", "chart", "cheese", "chest",
+  "chime", "church", "cider", "circle", "clam", "clamp", "cliff", "cloak",
+  "closet", "clover", "coal", "coast", "cobble", "cocoa", "collar", "column",
+  "comet", "copper", "coral", "cork", "corner", "cottage", "council", "county",
+  "cradle", "craft", "crate", "crayon", "creek", "crest", "cricket", "crumb",
+  "crystal", "curb", "curl", "cushion", "cymbal", "dahlia", "daisy", "dam",
+  "dawn", "deck", "deer", "delta", "depot", "desert", "desk", "diary",
+  "dime", "ditch", "dock", "dome", "donkey", "dove", "dragon", "drain",
+  "dress", "drift", "drum", "dune", "eagle", "earth", "echo", "eclipse",
+  "elbow", "elk", "elm", "emerald", "engine", "estate", "ether", "fabric",
+  "fan", "farm", "feather", "fence", "ferry", "fiddle", "fig", "filter",
+  "finch", "flag", "flame", "fleet", "flint", "flour", "flower", "foam",
+  "foil", "forest", "fork", "fossil", "frame", "frost", "funnel", "furnace",
+  "gallery", "garden", "garlic", "gazelle", "gecko", "ghost", "ginger", "glass",
+  "globe", "glove", "gold", "goose", "grain", "granite", "grass", "gravel",
+  "grid", "grill", "grove", "gulf", "gully", "hammer", "hamper", "harbor",
+  "harvest", "hawk", "hay", "hazel", "hedge", "helmet", "heron", "hill",
+  "hive", "hollow", "honey", "hoop", "hopper", "horse", "hostel", "hound",
+  "house", "ice", "icicle", "igloo", "ink", "inlet", "iron", "island",
+  "ivy", "jacket", "jaguar", "jar", "jasmine", "jetty", "jewel", "journal",
+  "juniper", "kelp", "kernel", "kettle", "kiln", "kingdom", "kitten", "knight",
+  "koala", "lace", "lagoon", "lake", "lamb", "lantern", "larch", "laurel",
+  "lava", "leaf", "leather", "lemon", "lentil", "leopard", "lever", "lichen",
+  "lily", "lime", "lion", "lobby", "locker", "lotus", "lumber", "magnet",
+  "magpie", "mallet", "mango", "mantle", "maple", "marble", "market", "marsh",
+  "mast", "meadow", "melon", "mesa", "meteor", "midge", "milk", "mint",
+  "mirror", "moat", "model", "monkey", "moon", "moor", "motel", "mound",
+  "muffin", "mule", "museum", "music", "nectar", "needle", "nest", "nickel",
+  "night", "north", "notch", "nutmeg", "oak", "oat", "ocean", "octave",
+  "onion", "opal", "orchard", "orchid", "osprey", "otter", "outpost", "owl",
+  "oyster", "pagoda", "palm", "panda", "pantry", "parcel", "parrot", "parsley",
+  "path", "pear", "pebble", "pelican", "penguin", "pepper", "petal", "pewter",
+  "pier", "pillar", "pilot", "pipe", "pitcher", "plateau", "plum", "pollen",
+  "pond", "pony", "poppy", "porch", "possum", "pottery", "prawn", "pretzel",
+  "prism", "puffin", "pulley", "purse", "quail", "quartz", "quiver", "raccoon",
+  "radish", "raft", "rain", "rake", "rapid", "raven", "razor", "reed",
+  "relay", "ribbon", "ridge", "river", "road", "rocket", "rope", "rowan",
+  "rudder", "rug", "rune", "saddle", "sail", "salmon", "sand", "sapling",
+  "satchel", "saucer", "scarf", "scissor", "scone", "screw", "scroll", "seed",
+  "shale", "shed", "sheep", "shelf", "shore", "shovel", "shrub", "shutter",
+  "silk", "silo", "silver", "skiff", "skull", "slate", "sled", "slope",
+  "smoke", "snow", "socket", "sofa", "solar", "sorrel", "spark", "sparrow",
+  "spider", "spinach", "sponge", "spool", "spoon", "spruce", "square", "stable",
+  "stag", "stamp", "starch", "statue", "steel", "stem", "stone", "stool",
+  "storm", "stove", "straw", "stream", "street", "sugar", "summit", "swallow",
+  "swamp", "sweater", "swift", "table", "tack", "tadpole", "talon", "tandem",
+  "tavern", "teal", "temple", "tender", "tennis", "thicket", "thimble", "thorn",
+  "thread", "thunder", "tide", "tile", "timber", "tin", "toffee", "tomato",
+  "tower", "town", "train", "tram", "tray", "treacle", "treble", "tribe",
+  "trolley", "trowel", "truffle", "trunk", "tulip", "tunnel", "turban", "turbine",
+  "turret", "turtle", "twig", "umber", "valley", "valve", "vanilla", "vault",
+  "velvet", "vine", "vinegar", "viper", "volcano", "wagon", "walnut", "walrus",
+  "warren", "wasp", "wave", "weasel", "web", "wedge", "wharf", "wheat",
+  "wheel", "willow", "window", "winter", "wolf", "wood", "wool", "wren",
+  "yard", "yarrow", "yellow", "yew", "zebra", "zenith", "zipper", "zither",
+];
+
 function makePassword() {
-  const bytes = randomBytes(16);
-  let s = "";
-  for (let i = 0; i < 16; i++) {
-    if (i > 0 && i % 4 === 0) s += "-";
-    s += ALPHABET[bytes[i] % ALPHABET.length];
+  if (WORDS.length !== 512) {
+    // The unbiased-modulo argument above depends on this. If somebody edits the
+    // list, they should find out here and not in a subtle skew nobody measures.
+    die(`The word list must be exactly 512 entries, it has ${WORDS.length}.`);
   }
-  return s;
+  const parts = [];
+  for (let i = 0; i < 3; i++) {
+    const b = randomBytes(2);
+    parts.push(WORDS[((b[0] << 8) | b[1]) % 512]);
+  }
+  // Two digits, rejection-sampled. 256 is not a multiple of 100, so a bare
+  // modulo would make 00-55 slightly likelier than 56-99.
+  let n;
+  do { n = randomBytes(1)[0]; } while (n >= 200);
+  parts.push(String(n % 100).padStart(2, "0"));
+  return parts.join("-");
 }
 
 // ---------------------------------------------------------------------------
