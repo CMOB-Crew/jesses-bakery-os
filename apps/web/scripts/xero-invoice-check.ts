@@ -8,7 +8,7 @@
  *
  * Run:  npx tsx scripts/xero-invoice-check.ts
  */
-import { buildInvoice, weekQty, idempotencyKey, weekStart } from "../lib/xero-invoice";
+import { buildInvoice, weekQty, idempotencyKey, weekStart, invoiceBody } from "../lib/xero-invoice";
 import type { StandingLine } from "../lib/queries";
 
 const line = (p: Partial<StandingLine> & { name: string }): StandingLine => ({
@@ -177,6 +177,73 @@ const k3 = idempotencyKey("store-1", "2026-09-15");
 check("the same customer and week gives the same key", k1 === k2, k1);
 check("a different week gives a different key", k1 !== k3);
 check("within Xero's 128 character limit", k1.length <= 128);
+
+console.log("\n— the payload, against a real legacy invoice —\n");
+
+/* @Fred pulled one of the actual invoice files out of Jesse's Data Factory on
+ * 11 September. Sixteen months of invoices to these same customers look like
+ * this and nothing else:
+ *
+ *   Type, Contact.ContactID, Date, DueDate, Reference, Status
+ *   LineItems[]: Description, Quantity, UnitAmount, ItemCode, LineAmount
+ *
+ * Two of those we were sending that production never has, and several we do
+ * not send yet. Both directions are asserted, because "Xero accepted it" is
+ * not the bar -- Xero would accept a payload that quietly re-files a
+ * customer's sales under a different account. */
+const PRODUCTION_INVOICE_FIELDS = ["Type", "Contact", "Date", "DueDate", "Reference", "Status"];
+const PRODUCTION_LINE_FIELDS = ["Description", "Quantity", "UnitAmount", "ItemCode", "LineAmount"];
+
+const body = invoiceBody({
+  contactId: STORE.xero_contact_id,
+  reference: "KRINSKYS",
+  idempotencyKey: "jb-store-1-2026-09-14",
+  lines: [{ itemCode: "BAGEL5", description: "Bagel 5 Pack", quantity: 12, unitAmount: 4.95 }],
+});
+const inv = body.Invoices[0] as Record<string, unknown>;
+const lineKeys = Object.keys((inv.LineItems as Record<string, unknown>[])[0]);
+const invKeys = Object.keys(inv).filter((k) => k !== "LineItems");
+
+// The two that were wrong. Xero fills the account and the tax from the item,
+// so ours would have overridden the customer's own accounting.
+check("no AccountCode on the line, production sends none",
+  !lineKeys.includes("AccountCode"), lineKeys.join(", "));
+check("no TaxType on the line, production sends none",
+  !lineKeys.includes("TaxType"), lineKeys.join(", "));
+
+// Nothing invented, in either place. A field production has never sent is a
+// field nobody has checked the effect of.
+const strayInv = invKeys.filter((k) => !PRODUCTION_INVOICE_FIELDS.includes(k));
+const strayLine = lineKeys.filter((k) => !PRODUCTION_LINE_FIELDS.includes(k));
+check("the invoice sends nothing production does not", strayInv.length === 0, strayInv.join(", "));
+check("the lines send nothing production does not", strayLine.length === 0, strayLine.join(", "));
+
+// And the gap in the other direction, recorded by name and asserted to be
+// EXACTLY this size. Not a TODO -- a TODO cannot fail. Each of these is
+// blocked on one of two questions with @Fred as of 14 September: what the
+// Reference string actually reads, and whether the Sunday run bills the week
+// ahead or the week behind. Close either and this list must shrink, and this
+// check is what makes forgetting impossible.
+const KNOWN_MISSING_INVOICE = ["Date", "DueDate"];
+const KNOWN_MISSING_LINE = ["LineAmount"];
+const missingInv = PRODUCTION_INVOICE_FIELDS.filter((k) => !invKeys.includes(k));
+const missingLine = PRODUCTION_LINE_FIELDS.filter((k) => !lineKeys.includes(k));
+check("the invoice fields still missing are exactly the ones we know about",
+  JSON.stringify(missingInv) === JSON.stringify(KNOWN_MISSING_INVOICE),
+  `missing: [${missingInv.join(", ")}]  expected: [${KNOWN_MISSING_INVOICE.join(", ")}]`);
+check("the line fields still missing are exactly the ones we know about",
+  JSON.stringify(missingLine) === JSON.stringify(KNOWN_MISSING_LINE),
+  `missing: [${missingLine.join(", ")}]  expected: [${KNOWN_MISSING_LINE.join(", ")}]`);
+
+check("it is still a draft, and still ACCREC",
+  inv.Status === "DRAFT" && inv.Type === "ACCREC");
+
+// The per-customer price is the whole invoicing module. Bagel 5 Pack goes out
+// at 4.50, 4.95, 5.00 and 5.20 to different customers on the same ItemCode --
+// production data, not the spec.
+const line0 = (inv.LineItems as Record<string, unknown>[])[0];
+check("UnitAmount rides alongside ItemCode rather than being derived from it",
+  line0.ItemCode === "BAGEL5" && line0.UnitAmount === 4.95);
 
 console.log(fails === 0 ? "\nAll cases pass." : `\n${fails} case(s) FAILED.`);
 process.exit(fails === 0 ? 0 : 1);

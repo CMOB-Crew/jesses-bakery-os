@@ -164,6 +164,50 @@ export function idempotencyKey(storeId: string, periodStart: string): string {
   return `jb-${storeId}-${periodStart}`;
 }
 
+export type XeroInvoiceInput = {
+  contactId: string;
+  reference: string;
+  dueDate?: string;
+  idempotencyKey: string;
+  lines: { itemCode: string; description: string; quantity: number; unitAmount: number }[];
+};
+
+/**
+ * The request body, on its own so it can be checked without a network call.
+ *
+ * It is pinned field for field against a real invoice the legacy system sent,
+ * because the thing that matters here is not that Xero accepts the payload --
+ * it would accept several wrong ones -- but that these customers keep getting
+ * the invoice they have had since May 2025.
+ *
+ * See scripts/xero-invoice-check.ts, which asserts the exact key set and
+ * records, by name, which of production's fields we do not send yet.
+ */
+export function invoiceBody(input: XeroInvoiceInput) {
+  return {
+    Invoices: [
+      {
+        Type: "ACCREC",
+        Status: "DRAFT",
+        Contact: { ContactID: input.contactId },
+        Reference: input.reference,
+        ...(input.dueDate ? { DueDate: input.dueDate } : {}),
+        // No AccountCode and no TaxType. Deliberate, and the reasoning is on
+        // xeroNotReady above: production sends neither and Xero fills both
+        // from the item. Sending ours would override sixteen months of the
+        // customer's own accounting.
+        LineItems: input.lines.map((l) => ({
+          ItemCode: l.itemCode,
+          Description: l.description,
+          Quantity: l.quantity,
+          UnitAmount: l.unitAmount,
+        })),
+      },
+    ],
+  };
+}
+
+
 /* ------------------------------------------------------------------ *
  * WHICH WEEK IS BEING BILLED.
  *

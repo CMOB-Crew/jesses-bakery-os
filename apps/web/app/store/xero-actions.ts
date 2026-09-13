@@ -65,7 +65,7 @@ export async function draftXeroInvoice(input: {
   try {
     const token = await xeroToken(cfg);
     const tenantId = await xeroTenantId(token);
-    const res = await createDraftInvoice(cfg, token, tenantId, {
+    const res = await createDraftInvoice(token, tenantId, {
       contactId: draft.contactId,
       reference: `${input.storeName} — week of ${input.periodStart}`,
       idempotencyKey: idempotencyKey(input.storeId, input.periodStart),

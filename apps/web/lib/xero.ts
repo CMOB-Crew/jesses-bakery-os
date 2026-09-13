@@ -36,14 +36,11 @@
  * ------------------------------------------------------------------ */
 
 import "server-only";
+import { invoiceBody, type XeroInvoiceInput } from "@/lib/xero-invoice";
 
 export type XeroConfig = {
   clientId: string;
   clientSecret: string;
-  /** Chart-of-accounts code sales post to. Jesse's, not a guess. */
-  accountCode: string;
-  /** OUTPUT is GST on Income (10%) for an AU org. EXEMPTOUTPUT is GST Free. */
-  taxType: string;
 };
 
 export class XeroError extends Error {
@@ -60,43 +57,45 @@ export function xeroConfig(): XeroConfig | null {
   const clientId = process.env.XERO_CLIENT_ID ?? "";
   const clientSecret = process.env.XERO_CLIENT_SECRET ?? "";
   if (!clientId || !clientSecret) return null;
-  return {
-    clientId,
-    clientSecret,
-    accountCode: process.env.XERO_ACCOUNT_CODE ?? "",
-    taxType: process.env.XERO_TAX_TYPE ?? "",
-  };
+  return { clientId, clientSecret };
 }
 
 /**
  * What is still missing before an invoice can be sent, in plain words.
  *
- * The account code and tax type have NO DEFAULT on purpose. A line's
- * TaxType has to be compatible with its AccountCode's own tax rate or
- * Xero rejects the line -- it does not silently default -- and guessing
- * either would either fail loudly or, worse, post a customer's sales to
- * the wrong account in their books. Nobody has told us Jesse's yet.
+ * THIS USED TO DEMAND TWO MORE THINGS, AND IT WAS WRONG TO.
+ *
+ * It refused to send anything without XERO_ACCOUNT_CODE and XERO_TAX_TYPE,
+ * on the reasoning that a line's TaxType has to be compatible with its
+ * AccountCode's own tax rate or Xero rejects the line, and that guessing
+ * either would post a customer's sales to the wrong place in their books.
+ * The second half of that is true. The conclusion was not.
+ *
+ * @Fred pulled a real invoice file out of Jesse's Data Factory on
+ * 11 September. The old system has been invoicing these same customers
+ * since May 2025 and it sends NEITHER FIELD. The whole payload is:
+ *
+ *   Type, Contact.ContactID, Date, DueDate, Reference, Status
+ *   LineItems[]: Description, Quantity, UnitAmount, ItemCode, LineAmount
+ *
+ * Xero fills the account and the tax from the ITEM. Which means sending
+ * them was not the safe option, it was the dangerous one: our value would
+ * have overridden whatever the item says, and put the same customers on a
+ * different account and a different tax rate than every invoice they have
+ * had for sixteen months. The guard was blocking the build to protect
+ * against a risk it was itself creating.
+ *
+ * It also makes the ItemCode lookup load-bearing, which is where the real
+ * risk now sits -- ProductXeroItems is 590 items pulled out of Xero's API
+ * Explorer by hand in September 2024 and never refreshed. With no
+ * AccountCode in the payload, a stale ItemCode is a FAILED LINE, not a
+ * cosmetic problem.
  */
 export function xeroNotReady(cfg: XeroConfig | null): string | null {
   if (!cfg) {
     return (
       "Xero is not connected. XERO_CLIENT_ID and XERO_CLIENT_SECRET come from a " +
       "Xero Custom Connection and belong in Supabase secrets, never the repo."
-    );
-  }
-  if (!cfg.accountCode) {
-    return (
-      "XERO_ACCOUNT_CODE is not set. It is the chart-of-accounts code Jesse's sales " +
-      "post to, and it cannot be guessed — the wrong one puts a customer's sales in " +
-      "the wrong place in their books. It is readable off any existing invoice in " +
-      "their Xero."
-    );
-  }
-  if (!cfg.taxType) {
-    return (
-      "XERO_TAX_TYPE is not set. For an AU organisation OUTPUT is GST on Income (10%) " +
-      "and EXEMPTOUTPUT is GST Free Income. It has to match the tax rate on the account " +
-      "above or Xero refuses the line."
     );
   }
   return null;
@@ -193,36 +192,11 @@ export type XeroInvoiceResult = {
  * invoice to a real customer is a phone call from Jesse.
  */
 export async function createDraftInvoice(
-  cfg: XeroConfig,
   token: string,
   tenantId: string,
-  input: {
-    contactId: string;
-    reference: string;
-    dueDate?: string;
-    idempotencyKey: string;
-    lines: { itemCode: string; description: string; quantity: number; unitAmount: number }[];
-  },
+  input: XeroInvoiceInput,
 ): Promise<XeroInvoiceResult> {
-  const body = {
-    Invoices: [
-      {
-        Type: "ACCREC",
-        Status: "DRAFT",
-        Contact: { ContactID: input.contactId },
-        Reference: input.reference,
-        ...(input.dueDate ? { DueDate: input.dueDate } : {}),
-        LineItems: input.lines.map((l) => ({
-          ItemCode: l.itemCode,
-          Description: l.description,
-          Quantity: l.quantity,
-          UnitAmount: l.unitAmount,
-          AccountCode: cfg.accountCode,
-          TaxType: cfg.taxType,
-        })),
-      },
-    ],
-  };
+  const body = invoiceBody(input);
 
   const res = await fetch("https://api.xero.com/api.xro/2.0/Invoices", {
     method: "POST",
