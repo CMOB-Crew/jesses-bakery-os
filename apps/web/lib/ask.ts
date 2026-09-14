@@ -1,5 +1,5 @@
 import "server-only";
-import { q as sql } from "./db";
+import { aq as sql, withAssistant } from "./db";
 import { scoreStore, isMeasured, SCORE_LABEL, scoreNote } from "./store-scoring";
 
 /**
@@ -32,7 +32,26 @@ function matchStore<T extends { name: string }>(q: string, stores: T[]): T | nul
   return bestScore >= 4 ? best : null;
 }
 
+/**
+ * The assistant's one entry point.
+ *
+ * CONDITION 2. Everything below runs inside a READ ONLY transaction with
+ * the signed-in user's RLS claims injected transaction-locally. Postgres
+ * refuses a write in one, so no branch of this file can become a write --
+ * including a branch nobody has written yet.
+ *
+ * Wrapped HERE and not in app/api/ask/route.ts on purpose. A wrapper at
+ * the route protects the route; a wrapper here protects the function, and
+ * the next caller cannot forget it. The unwrapped body is not exported.
+ *
+ * See lib/db.ts (withAssistant) for why, and
+ * scripts/assistant-is-read-only-check.ts for the proof.
+ */
 export async function answerQuestion(qRaw: string): Promise<Answer> {
+  return withAssistant(() => answerQuestionInner(qRaw));
+}
+
+async function answerQuestionInner(qRaw: string): Promise<Answer> {
   const q = (qRaw || "").toLowerCase().trim();
   if (!q) return { headline: "Ask about waste, sell-outs, sales, or which stores need attention." };
 

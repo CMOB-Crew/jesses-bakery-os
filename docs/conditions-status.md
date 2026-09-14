@@ -32,7 +32,7 @@ re-verified since. Treat it as a lead, not a fact.
 | # | Condition | State | How, and when |
 |---|---|---|---|
 | 1 | RLS deny-by-default on every table | **met** | **Checked 14 Sept** on the live database: 50 tables in `public`, 50 with RLS enabled, 90 policies, no table uncovered. This is the first time it was asked as one query. |
-| 2 | Assistant on a dedicated read-only role | **not met** | Carried from 11 Sept. `lib/ask.ts` imports the same `jbo_app` connection as every other query. Not the service role, so RLS does apply — but the role can write to all 50 tables. |
+| 2 | Assistant on a dedicated read-only role | **partly** | **Changed 14 Sept.** Every assistant query now runs inside a `read only` transaction, so it cannot write to anything whatever role the connection uses — Postgres refuses the write by transaction mode, not by permission. Asserted structurally and against a real database in `scripts/assistant-is-read-only-check.ts`. The dedicated `jbo_assistant` role is the remaining half and needs a password that must not live in this repo (condition 10): `docs/condition-2-the-assistant-role.md`, three steps. |
 | 3 | Service-role key never in client code | met | Carried from 11 Sept. |
 | 4 | Supabase Pro, `ap-southeast-2`, org Jesse owns | **partly** | Carried from 11 Sept. Pro: yes, since 1 September. No auto-pausing: yes. Region: **`ap-southeast-1`, Singapore, not Sydney.** Organisation: **CMOB's, with no bakery member.** The last two need a decision, not a build. |
 | 5 | New accounts default to no role | met | Carried from 11 Sept. |
@@ -47,7 +47,7 @@ re-verified since. Treat it as a lead, not a fact.
 | 14 | Lead times and configuration are data, not code | met | Carried from 11 Sept. |
 | 15 | Three authorisation tests in CI | met | Carried from 11 Sept. `ci.yml` runs them by name. |
 
-**Ten met. Three not met (2, 7, 9). Two partly met (4, 8).**
+**Ten met. Two not met (7, 9). Three partly met (2, 4, 8).**
 
 On 11 September it was seven met, four not met, three partly and one unverified.
 

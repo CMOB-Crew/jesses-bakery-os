@@ -215,3 +215,138 @@ export function q<T = unknown>(
     return runAsUser(claims, (tx) => run(tx));
   })();
 }
+
+/* ------------------------------------------------------------------ *
+ * CONDITION 2: THE ASSISTANT CANNOT WRITE.
+ *
+ * The condition, in @Fred's words: "The AI assistant runs on a dedicated
+ * read-only Postgres role with RLS applied. Never the service role."
+ *
+ * WHAT IT ACTUALLY WAS. lib/ask.ts imported `q` -- the same connection as
+ * every other query in the app, on the `jbo_app` role. Not the service
+ * role, so RLS did apply and the audit was right to say so. But `jbo_app`
+ * can INSERT, UPDATE and DELETE on all 50 tables, and the assistant is the
+ * one surface in this system that turns a sentence typed by a person into
+ * a database call. "It only ever runs parameterised SELECTs" was true and
+ * was the only thing standing between a typed question and a write.
+ *
+ * TWO HALVES, AND THIS IS THE HALF THAT CLOSES THE RISK.
+ *
+ *   1. Every assistant query now runs inside a READ ONLY transaction.
+ *      Postgres rejects any write in one -- not the role, the transaction.
+ *      It holds even if the connection is `jbo_app`, even if someone
+ *      later points it at the service role by mistake, and even if a
+ *      future branch of answerQuestion() is written carelessly. It needs
+ *      no new credential, so it is true the moment this deploys.
+ *
+ *   2. A dedicated `jbo_assistant` role with nothing but SELECT granted.
+ *      That needs a password created in Supabase and an env var set, so
+ *      it is queued rather than shipped: see
+ *      docs/condition-2-the-assistant-role.md. When ASSISTANT_DATABASE_URL
+ *      is set this module picks it up with no further change.
+ *
+ * Half 1 without half 2 is a real closure, not a placeholder. Half 2
+ * without half 1 would not be -- a SELECT-only role still leaves the app
+ * one bad import away from the read-write connection, and the read-only
+ * transaction is what makes that import harmless.
+ *
+ * RLS STILL APPLIES. The claims are injected transaction-locally exactly
+ * as withUser() does it, with the same `true` third argument -- @Fred's
+ * first gotcha, and the reason a pooled connection cannot leak one user's
+ * identity into the next request. No claims and AUTH_ENFORCED on means no
+ * rows, never an unscoped read.
+ * ------------------------------------------------------------------ */
+
+const assistantUrl = process.env.ASSISTANT_DATABASE_URL;
+
+declare global {
+  var __assistantSql: ReturnType<typeof postgres> | undefined;
+}
+
+const assistantSql: ReturnType<typeof postgres> | null = assistantUrl
+  ? global.__assistantSql ??
+    postgres(assistantUrl, {
+      max: 4,
+      idle_timeout: 20,
+      ssl: /@(localhost|127\.0\.0\.1)/.test(assistantUrl) ? undefined : "require",
+      prepare: /@(localhost|127\.0\.0\.1)/.test(assistantUrl) ? undefined : false,
+      transform: { undefined: null },
+    })
+  : null;
+
+if (assistantSql && process.env.NODE_ENV !== "production") {
+  global.__assistantSql = assistantSql;
+}
+
+/**
+ * Whether the assistant is on its own role yet, or still borrowing the
+ * app's connection inside a read-only transaction. Reported by
+ * scripts/assistant-is-read-only-check.ts so the difference is visible
+ * rather than assumed.
+ */
+export const ASSISTANT_HAS_OWN_ROLE = assistantSql != null;
+
+/**
+ * Either the open read-only transaction, or a refusal.
+ *
+ * `denied` is the fail-closed case, and it is a distinct state on purpose:
+ * AUTH_ENFORCED with no signed-in user must return no rows, and it must do
+ * that WITHOUT opening a transaction -- the same shape q() uses.
+ */
+type AskCtx = { tx: typeof sql } | { denied: true };
+
+const askStore = new AsyncLocalStorage<AskCtx>();
+
+function openReadOnly<T>(claimsJson: string | null, work: () => Promise<T>): Promise<T> {
+  const client = assistantSql ?? sql;
+  // postgres.js appends this string to BEGIN, so the transaction is read
+  // only from its first statement -- before anything has taken a snapshot.
+  return client.begin("read only", async (tx) => {
+    if (claimsJson) {
+      await tx`select set_config('request.jwt.claims', ${claimsJson}, true)`;
+    }
+    return askStore.run({ tx: tx as unknown as typeof sql }, work);
+  }) as Promise<T>;
+}
+
+/**
+ * Run the assistant's work inside ONE read-only transaction per question.
+ *
+ * One per question, not one per query, for the reason documented at length
+ * above withUser(): Netlify is in us-east-1 and Supabase is in
+ * ap-southeast-1, and a transaction per statement costs four Pacific
+ * crossings each. answerQuestion() issues up to three queries per answer.
+ */
+export async function withAssistant<T>(work: () => Promise<T>): Promise<T> {
+  if (askStore.getStore()) return work(); // already inside one; never nest
+  if (!AUTH_ENFORCED) return openReadOnly(null, work);
+  const claims = await getSessionClaims();
+  if (!claims) return askStore.run({ denied: true }, work);
+  return openReadOnly(JSON.stringify(claims), work);
+}
+
+/**
+ * The assistant's query function. Same tagged-template signature as q(),
+ * so lib/ask.ts changed one import line and not one of its fifteen call
+ * sites.
+ *
+ * A statement issued outside withAssistant() opens its own read-only
+ * transaction rather than falling through to the read-write connection.
+ * That is slower and deliberately so: there is no path from here to a
+ * write, including the one a future caller forgets to wrap.
+ */
+export function aq<T = unknown>(
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): Promise<T> {
+  const ctx = askStore.getStore();
+  if (ctx && "denied" in ctx) return Promise.resolve([] as unknown as T);
+  if (ctx) {
+    return (ctx.tx as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<T>)(
+      strings,
+      ...values,
+    );
+  }
+  return withAssistant(() => aq<T>(strings, ...values));
+}
+
