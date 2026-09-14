@@ -66,7 +66,8 @@ jesses-bakery-os/
 │   ├── migrations/      001…094, applied in numeric order
 │   ├── checks/          rebuild-from-migrations.sh, authorisation-tests.sh
 │   └── seed/seed.py     local fixture data only. NOT what production holds.
-└── services/forecast/   FastAPI newsvendor / critical-fractile engine
+├── services/forecast/   FastAPI newsvendor / critical-fractile engine
+└── docs/                the decision record, and where its fifteen conditions stand
 ```
 
 ---
@@ -195,6 +196,25 @@ sold-out line teaches the engine to send less next time — the fix is a
 censored-demand estimator, and two guard rails in the `store_reco` layer hold the
 line meanwhile. Coverage uses lead time and can be tuned per product. On-hand
 netting is off, per the note above.
+
+---
+
+## The decision record
+
+`docs/stack-decision-record.md` is Fred's stack and architecture decision,
+v1.1.0, 11 August 2026, amended 18 August. Until 14 September it existed only as
+a Slack message and a file sitting beside the repository — so the document this
+build is measured against was not under version control and CI had never seen
+it. `docs/forecasting-engine-handover.md`, which the decision record links to by
+name, was orphaned the same way.
+
+It sets **fifteen conditions**. `docs/conditions-status.md` says where each one
+stands, when it was last checked, and how — and marks every row it did not
+re-verify as carried forward rather than letting it blend in. As at 14 September:
+ten met, three not met, two partly.
+
+The two files are deliberately separate. The decision record is Fred's and is
+**not** edited to match what we managed; the status file is ours and is dated.
 
 ---
 
