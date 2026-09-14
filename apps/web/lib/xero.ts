@@ -110,6 +110,50 @@ export function xeroNotReady(cfg: XeroConfig | null): string | null {
 }
 
 /**
+ * THE SCOPES, AND WHY THERE IS ONLY ONE LEFT.
+ *
+ * This used to ask for three:
+ *
+ *     accounting.transactions accounting.contacts.read accounting.settings.read
+ *
+ * and all three were wrong.
+ *
+ * accounting.transactions DOES NOT EXIST ANY MORE. Xero replaced it with
+ * granular scopes, and a Custom Connection created after 29 April 2026 --
+ * which includes the one made for this build on 14 September -- cannot
+ * grant it. The token endpoint answers 400 invalid_scope, before any
+ * invoice is built. So this code path had never once run against a
+ * connection anybody could make today. The only thing that has ever
+ * drafted an invoice in Xero is scripts/xero-demo-draft.ts, which carries
+ * its own list and had it right, and that is exactly why nobody noticed.
+ *
+ * accounting.settings.read is not granted on Jesse's production
+ * connection. @Fred, 14 September: "Prod scopes are narrower (no contacts
+ * write, no settings read), build to those." Asking for a scope the
+ * connection does not hold fails the WHOLE token request -- so this one
+ * line alone would have refused every invoice for every customer.
+ *
+ * accounting.contacts.read IS granted, and we still do not ask for it,
+ * because nothing in this file reads a contact. Two Xero endpoints are
+ * touched here and no others: /connections, to learn which organisation
+ * the connection is for, and /api.xro/2.0/Invoices, to create a draft. An
+ * invoice names an existing customer by ContactID. It does not read them.
+ *
+ * What is left is the single scope that does the work, and the narrowness
+ * is the point: a token minted from these credentials can draft and read
+ * invoices on Jesse's books, and it cannot read his customer list or his
+ * chart of accounts. That is worth having for a secret that has to live in
+ * an environment variable on a host we do not own.
+ *
+ * IF SOMETHING LATER NEEDS MORE -- resolving a ContactID, checking an
+ * ItemCode -- add the scope AT THE SAME TIME as the code that uses it, and
+ * have @Fred grant it on the production connection FIRST. A scope the
+ * connection does not hold does not disable the new feature. It takes down
+ * invoicing entirely.
+ */
+const XERO_SCOPES = "accounting.invoices";
+
+/**
  * An access token. Thirty minutes, re-requested silently, no refresh
  * token and no human. Not cached across requests deliberately: this runs
  * a handful of times a week, and a stale token cached in a serverless
@@ -125,15 +169,18 @@ export async function xeroToken(cfg: XeroConfig): Promise<string> {
     },
     body: new URLSearchParams({
       grant_type: "client_credentials",
-      scope: "accounting.transactions accounting.contacts.read accounting.settings.read",
+      scope: XERO_SCOPES,
     }),
   });
   const text = await res.text();
   if (!res.ok) {
     if (res.status === 401 || res.status === 400) {
       throw new XeroError(
-        "Xero refused the connection. The client id or secret is wrong, or the Custom " +
-        "Connection subscription has lapsed. Nothing has been sent.",
+        "Xero refused the connection. Either the client id or secret is wrong, the " +
+        "Custom Connection has lapsed, or the connection does not grant " +
+        `"${XERO_SCOPES}" -- a scope the connection does not hold fails the whole ` +
+        "request, so check that before you go looking at the credentials. Nothing " +
+        "has been sent.",
         res.status,
       );
     }
