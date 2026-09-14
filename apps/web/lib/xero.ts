@@ -118,14 +118,22 @@ export function xeroNotReady(cfg: XeroConfig | null): string | null {
  *
  * and all three were wrong.
  *
- * accounting.transactions DOES NOT EXIST ANY MORE. Xero replaced it with
- * granular scopes, and a Custom Connection created after 29 April 2026 --
- * which includes the one made for this build on 14 September -- cannot
- * grant it. The token endpoint answers 400 invalid_scope, before any
- * invoice is built. So this code path had never once run against a
- * connection anybody could make today. The only thing that has ever
- * drafted an invoice in Xero is scripts/xero-demo-draft.ts, which carries
- * its own list and had it right, and that is exactly why nobody noticed.
+ * accounting.transactions IS GONE FOR ANY APP CREATED SINCE 2 MARCH 2026,
+ * which includes the one made for this build on 14 September. It is not
+ * gone everywhere: Xero's granular-scopes FAQ gives apps that already
+ * existed until September 2027. New ones get granular scopes only.
+ *
+ * This comment first said "29 April 2026", which was wrong, and said the
+ * scope did not exist at all, which was also wrong. Both were written from
+ * memory. So it was MEASURED, on 15 September, against our own connection:
+ *
+ *     scope=accounting.transactions   ->   400 invalid_scope
+ *
+ * The token endpoint refuses before an invoice is built. So this code path
+ * had never once run against a connection anybody could make today. The
+ * only thing that has ever drafted an invoice in Xero is
+ * scripts/xero-demo-draft.ts, which carries its own list and had it right,
+ * and that is exactly why nobody noticed.
  *
  * accounting.settings.read is not granted on Jesse's production
  * connection. @Fred, 14 September: "Prod scopes are narrower (no contacts
@@ -140,10 +148,24 @@ export function xeroNotReady(cfg: XeroConfig | null): string | null {
  * invoice names an existing customer by ContactID. It does not read them.
  *
  * What is left is the single scope that does the work, and the narrowness
- * is the point: a token minted from these credentials can draft and read
- * invoices on Jesse's books, and it cannot read his customer list or his
- * chart of accounts. That is worth having for a secret that has to live in
- * an environment variable on a host we do not own.
+ * is the point. MEASURED on 15 September with a token holding
+ * accounting.invoices and nothing else:
+ *
+ *     GET /Items             401        GET /Contacts           401
+ *     GET /Accounts          401        GET /BankTransactions   401
+ *
+ * so a secret that has to live in an environment variable, on a host we do
+ * not own, cannot read Jesse's customer list or his chart of accounts.
+ *
+ * That last measurement also settles something that nearly went to @Fred
+ * as a non-problem. A scope mapping published outside Xero says the Items
+ * endpoint is reachable from accounting.invoices. On our connection it is
+ * NOT -- 401. Reading Items needs a settings scope, @Fred has said
+ * production will not grant one, and therefore THE 30 ITEM CODES CANNOT BE
+ * CHECKED AGAINST JESSE'S ORGANISATION BEFORE THE FIRST REAL INVOICE. A
+ * wrong code is a loud rejection on that line rather than a silent
+ * mispricing, which is the safe direction, but step 4 is where it shows
+ * up.
  *
  * IF SOMETHING LATER NEEDS MORE -- resolving a ContactID, checking an
  * ItemCode -- add the scope AT THE SAME TIME as the code that uses it, and
