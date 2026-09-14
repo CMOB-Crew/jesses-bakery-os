@@ -36,7 +36,7 @@ These rules apply to everyone and every AI agent working in this repo. They exis
 
 ## React components
 
-- The React Compiler is on (`reactCompiler: true`). Still: **rows of a long list live in their own component**, not inline JSX inside the screen. Handlers passed into rows come from `useCallback`.
+- **The React Compiler is NOT on.** `apps/web/next.config.ts` has no `reactCompiler` key and `babel-plugin-react-compiler` is not installed. Turning it on is card 2 of `PERFORMANCE-FIXES.md`; until it lands the next two rules are the only thing doing this work, not belt and braces on top of a compiler. So: **rows of a long list live in their own component**, not inline JSX inside the screen, and handlers passed into rows come from `useCallback`. When card 2 lands, correct this sentence and keep the rules -- `scripts/claude-md-agrees-with-the-code.mjs` fails until you do.
 - Search and filter inputs over more than about 50 rows pass their value through `useDeferredValue` before filtering.
 - Derived values are computed during render (or `useMemo`), never set in state from a `useEffect`.
 - After a save that only mirrors what the screen already shows, update local state (`useState` / `useOptimistic`). Do not `router.refresh()`.
