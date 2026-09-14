@@ -448,6 +448,9 @@ export default function DriverApp({
         if (!up.ok) { failed.push(up.error); continue; }
         const rec = await saveDeliveryProof({
           storeId: sid, day: dayIso, kind, path: up.path, sha256: up.sha256,
+          // Which run this stop belongs to. The server validates it against the
+          // store's own run for the weekday and writes nothing if they disagree.
+          runId,
           // The fix belongs to the moment the shutter fired, so it is stamped on
           // both objects for this stop -- the photo and the signature were taken
           // at the same place, seconds apart.
@@ -460,7 +463,10 @@ export default function DriverApp({
       // camera, because it is the one that might come good on a retake.
       setProofNote(failed.length ? failed[0] : cameraNote);
     },
-    [dayIso, live, fix],
+    // runId is in here because the callback now sends it. Leaving it out would
+    // capture the run selected when the callback was first created, which on a
+    // driver who switches run mid-shift is the previous run.
+    [dayIso, live, fix, runId],
   );
 
   function deliver() {
@@ -493,6 +499,7 @@ export default function DriverApp({
         void recordDelivery({
           storeId: sid,
           day: dayIso,
+          runId,
           items: lines.map((i) => ({ productId: i.pid, qty: i.qty })),
           waste: wasteOut,
         }).then((r) => {

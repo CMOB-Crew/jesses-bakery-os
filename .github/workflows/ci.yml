@@ -141,6 +141,14 @@ jobs:
       - name: The floor lands on its own screen, and only sees its own screen
         run: npx tsx scripts/test-the-floor-lands-on-its-own-screen.ts
 
+      # Condition 12. driver_id referenced app_users, the legacy staff
+      # directory, while everything else uses public.users -- so it could not
+      # be filled at all. Migration 098 repoints it. The rules are in SQL, so
+      # this holds the shape: both paths send a run, the server validates it,
+      # and a second call for the same stop cannot blank the first.
+      - name: Condition 12 — a delivery names its driver and its run
+        run: npx tsx scripts/test-a-delivery-names-its-driver.ts
+
       # A dummy connection string, not a secret. lib/db.ts throws at module
       # load if DATABASE_URL is unset, and Next evaluates modules while
       # collecting page data, so the build cannot start without one. Nothing

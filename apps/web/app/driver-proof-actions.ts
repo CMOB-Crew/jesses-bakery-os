@@ -11,6 +11,90 @@
 import { q as sql } from "@/lib/db";
 import { getDisplayUser } from "@/lib/supabase/server";
 
+/* ------------------------------------------------------------------ *
+ * ONE UPSERT, USED BY BOTH WRITE PATHS.
+ *
+ * There were two copies of this insert, and the comment on the second said the
+ * duplication was deliberate because either path can run first. That reason is
+ * about ORDER, not about having two copies -- migration 080's unique key on
+ * (store_id, delivery_date) is what makes either-order safe, and it still does.
+ *
+ * They are one function now because condition 12 adds two more columns to
+ * both, and two copies of a rule about who made a delivery is two places for
+ * it to drift.
+ * ------------------------------------------------------------------ */
+async function upsertDelivery(input: {
+  storeId: string;
+  day: string;
+  runId?: string | null;
+  email: string | null;
+}): Promise<string | null> {
+  const { storeId, day, email } = input;
+  // A run id that is not a uuid is not passed to the database at all.
+  const runId = input.runId && UUID.test(input.runId) ? input.runId : null;
+
+  const [d] = await sql<{ id: string }[]>`
+    insert into deliveries (store_id, delivery_date, status, delivered_at,
+                            driver_id, run_id, driver_sig_name)
+    values (${storeId}::uuid, ${day}::date, 'delivered'::delivery_status, now(),
+
+            -- WHO. public.users(id), which migration 098 made this column
+            -- point at. Until then it referenced app_users, the legacy staff
+            -- directory, and could not be filled from a signed-in account at
+            -- all -- see the migration for why that is not the same as anyone
+            -- forgetting to fill it.
+            --
+            -- Null if the account has no public.users row. A wrong driver on a
+            -- delivery record is worse than no driver, and driver_sig_name
+            -- still carries the person's name either way.
+            (select u.id from public.users u
+              where lower(u.email) = lower(${email})),
+
+            -- WHICH RUN, and this is the "run validation" half of condition 12.
+            --
+            -- The run is only written if the store really is on it for that
+            -- weekday: store_run_overrides for the day if there is one,
+            -- otherwise stores.default_run_id. The phone chooses which run the
+            -- driver is doing, and a phone is not a source of truth about
+            -- which run serves a store.
+            --
+            -- A mismatch writes NULL rather than refusing. The delivery
+            -- happened; recording it matters more than labelling it, and a
+            -- silent wrong run would be read as fact by the packing sheet.
+            (select r.id from runs r
+              where r.id = ${runId}::uuid
+                and r.id = coalesce(
+                      (select o.run_id from store_run_overrides o
+                        where o.store_id = ${storeId}::uuid
+                          and o.day = lower(to_char(${day}::date, 'Dy'))::weekday),
+                      (select s.default_run_id from stores s where s.id = ${storeId}::uuid))),
+
+            -- The signature names a PERSON, not a login.
+            --
+            -- Jesse's Microsoft tenant has eleven delivery mailboxes and all
+            -- eleven are numbered slots: delivery1@ .. delivery11@. If a
+            -- driver is ever put on one of those, stamping the raw address
+            -- here would sign the drop "delivery4@jessesbakery.com.au". A
+            -- store disputing a delivery would be answered with a mailbox.
+            coalesce(
+              (select nullif(btrim(u.full_name), '')
+                 from public.users u
+                where lower(u.email) = lower(${email})),
+              ${email}))
+      on conflict (store_id, delivery_date) do update
+     set status          = 'delivered'::delivery_status,
+         delivered_at    = coalesce(deliveries.delivered_at, now()),
+         -- coalesce keeps whatever is already there. A second call from the
+         -- same stop -- the photo then the signature -- must not blank a
+         -- driver or a run that the first call established.
+         driver_id       = coalesce(deliveries.driver_id, excluded.driver_id),
+         run_id          = coalesce(deliveries.run_id, excluded.run_id),
+         driver_sig_name = coalesce(excluded.driver_sig_name, deliveries.driver_sig_name)
+    returning id::text as id`;
+
+  return d?.id ?? null;
+}
+
 export type ProofResult = { ok: true } | { ok: false; error: string };
 
 const KINDS = new Set(["photo", "signature"]);
@@ -20,6 +104,9 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 export async function saveDeliveryProof(input: {
   storeId: string;
   day: string;
+  /** Which run the driver is doing. Validated against the store's own run for
+   *  that weekday before it is written -- see upsertDelivery. */
+  runId?: string | null;
   kind: string;
   path: string;
   sha256: string;
@@ -50,48 +137,21 @@ export async function saveDeliveryProof(input: {
     // already exist -- the photo is saved before the signature -- so this
     // upserts and only fills in what it knows.
     //
-    // status and delivered_at are set here rather than left to the caller: this
-    // action only ever runs after the driver has tapped Confirm, so the drop
-    // has happened by definition.
-    const [d] = await sql<{ id: string }[]>`
-      insert into deliveries (store_id, delivery_date, status, delivered_at, driver_sig_name)
-      values (${storeId}::uuid, ${day}::date, 'delivered'::delivery_status, now(),
-              -- The signature names a PERSON, not a login.
-              --
-              -- Jesse's Microsoft tenant has eleven delivery mailboxes and all
-              -- eleven are numbered slots: delivery1@ .. delivery11@. If a
-              -- driver is ever put on one of those, stamping the raw address
-              -- here would sign the drop "delivery4@jessesbakery.com.au". A
-              -- store disputing a delivery would be answered with a mailbox.
-              --
-              -- public.users.full_name has been in the schema since migration
-              -- 012 and nothing had ever read it. It does now.
-              --
-              -- The fallback is the email address, which is exactly what this
-              -- line used to be, so an unfilled full_name changes nothing. The
-              -- lookup is by email rather than auth.uid() so it does not depend
-              -- on how the enforced data path sets its claims; if RLS hides the
-              -- row the subquery is empty and the fallback takes over. There is
-              -- no path here that writes a worse value than before.
-              coalesce(
-                (select nullif(btrim(u.full_name), '')
-                   from public.users u
-                  where lower(u.email) = lower(${who?.email ?? null})),
-                ${who?.email ?? null}))
-        on conflict (store_id, delivery_date) do update
-       set status          = 'delivered'::delivery_status,
-           delivered_at    = coalesce(deliveries.delivered_at, now()),
-           driver_sig_name = coalesce(excluded.driver_sig_name, deliveries.driver_sig_name)
-      returning id::text as id`;
+    // status and delivered_at are set inside upsertDelivery rather than left to
+    // the caller: this action only ever runs after the driver has tapped
+    // Confirm, so the drop has happened by definition.
+    const deliveryId = await upsertDelivery({
+      storeId, day, runId: input.runId ?? null, email: who?.email ?? null,
+    });
 
-    if (!d?.id) return { ok: false, error: "Could not record the delivery." };
+    if (!deliveryId) return { ok: false, error: "Could not record the delivery." };
 
     // A retake replaces. captured_at moves with it, because the time that
     // matters is when the picture that is being kept was taken.
     await sql`
       insert into delivery_photos
         (delivery_id, kind, storage_path, sha256, captured_at, gps_lat, gps_lng, gps_accuracy_m)
-      values (${d.id}::uuid, ${kind}, ${path}, ${sha256.toLowerCase()}, now(),
+      values (${deliveryId}::uuid, ${kind}, ${path}, ${sha256.toLowerCase()}, now(),
               ${input.lat ?? null}, ${input.lng ?? null}, ${input.accuracy ?? null})
         on conflict (delivery_id, kind) do update
        set storage_path    = excluded.storage_path,
@@ -152,6 +212,8 @@ export type RecordResult =
 export async function recordDelivery(input: {
   storeId: string;
   day: string;
+  /** Which run the driver is doing. Validated before it is written. */
+  runId?: string | null;
   items: DeliveredLine[];
   /** What the driver pulled off the shelf, per product. An EMPTY ARRAY and a
    *  missing array mean different things -- see the note at the write. */
@@ -179,24 +241,15 @@ export async function recordDelivery(input: {
 
     const who = await getDisplayUser().catch(() => null);
 
-    // Same upsert as saveDeliveryProof, deliberately. Either can run first, and
-    // running both is not two deliveries -- migration 080's unique key on
-    // (store_id, delivery_date) is what makes that true.
-    const [d] = await sql<{ id: string }[]>`
-      insert into deliveries (store_id, delivery_date, status, delivered_at, driver_sig_name)
-      values (${storeId}::uuid, ${day}::date, 'delivered'::delivery_status, now(),
-              coalesce(
-                (select nullif(btrim(u.full_name), '')
-                   from public.users u
-                  where lower(u.email) = lower(${who?.email ?? null})),
-                ${who?.email ?? null}))
-        on conflict (store_id, delivery_date) do update
-       set status          = 'delivered'::delivery_status,
-           delivered_at    = coalesce(deliveries.delivered_at, now()),
-           driver_sig_name = coalesce(excluded.driver_sig_name, deliveries.driver_sig_name)
-      returning id::text as id`;
+    // The same upsert as saveDeliveryProof, and now literally the same
+    // function. Either can run first, and running both is not two deliveries --
+    // migration 080's unique key on (store_id, delivery_date) is what makes
+    // that true.
+    const deliveryId = await upsertDelivery({
+      storeId, day, runId: input.runId ?? null, email: who?.email ?? null,
+    });
 
-    if (!d?.id) return { ok: false, error: "Could not record the delivery." };
+    if (!deliveryId) return { ok: false, error: "Could not record the delivery." };
     if (!ids.length) return { ok: true, lines: 0, dropped: 0 };
 
     // The join to products is the last check: a product id the phone has and
@@ -205,7 +258,7 @@ export async function recordDelivery(input: {
     // delivery itself is already recorded above.
     const rows = await sql<{ product_id: string }[]>`
       insert into delivery_items (delivery_id, product_id, qty_sent)
-      select ${d.id}::uuid, p.id, t.qty
+      select ${deliveryId}::uuid, p.id, t.qty
         from unnest(${ids}::uuid[], ${qtys}::int[]) as t(pid, qty)
         join products p on p.id = t.pid
         on conflict (delivery_id, product_id) do update
