@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { safeNext } from "@/lib/safe-next";
+import { checkBeforeAttempt, recordOutcome } from "@/lib/login-rate-limit";
+import { limiterStore, clientIp } from "@/lib/login-rate-limit-store";
 
 // Server Actions for the login form. Cookies set by the Supabase client during
 // sign-in persist because Server Actions run where response headers can be set.
@@ -17,11 +19,32 @@ export async function signInWithPassword(formData: FormData): Promise<void> {
   const supabase = await createSupabaseServerClient();
   if (!supabase) redirect("/login?error=Sign-in%20is%20not%20configured%20yet");
 
+  // CONDITION 7. Five failures a minute per identifier, and the attempt is
+  // logged either way. Before this there was no limiter of any kind, which
+  // mattered from the morning of 14 September: the six drivers hold
+  // BDriver<nn>!, a hundred possibilities on a pattern every driver knows, so
+  // a hundred guesses were free and one driver could sign in as another.
+  //
+  // The gate goes BEFORE Supabase is asked anything. Asking first and
+  // counting after would still hand an attacker their hundred guesses, just
+  // with a record of them.
+  const store = limiterStore();
+  const ip = clientIp(await headers());
+  const gate = await checkBeforeAttempt(store, email, "signin", ip);
+  if (!gate.allowed) {
+    const q = new URLSearchParams({ error: gate.says, next });
+    redirect(`/login?${q.toString()}`);
+  }
+
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    // Recorded BEFORE the redirect: redirect() throws to unwind, so anything
+    // after it never runs and the failure would never be counted.
+    await recordOutcome(store, email, "signin", "failed", ip);
     const q = new URLSearchParams({ error: error.message, next });
     redirect(`/login?${q.toString()}`);
   }
+  await recordOutcome(store, email, "signin", "ok", ip);
   redirect(next);
 }
 
@@ -66,12 +89,32 @@ export async function requestPasswordReset(formData: FormData): Promise<void> {
   const h = await headers();
   const origin = h.get("origin") ?? `https://${h.get("host") ?? ""}`;
 
+  // CONDITION 7 covers reset as well as login, and it has to: without it this
+  // endpoint will send an unlimited number of emails to any address anybody
+  // types, which is a way to use Jesse's domain to spam a stranger.
+  //
+  // The block message says "too many attempts" and nothing else, so it still
+  // cannot be used to work out whether an address is registered -- which is
+  // the whole reason the result below is ignored.
+  const store = limiterStore();
+  const ip = clientIp(h);
+  const gate = await checkBeforeAttempt(store, email, "reset", ip);
+  if (!gate.allowed) {
+    redirect("/login/forgot?error=" + encodeURIComponent(gate.says));
+  }
+
   // The result is deliberately ignored. Telling someone whether an address is
   // registered lets anyone enumerate who works here, so the page says the same
   // thing either way. A genuine failure still shows up in Supabase's own logs.
   await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/login/reset")}`,
   });
+
+  // Counted as 'failed' regardless of what Supabase said, and that is not a
+  // mistake: this endpoint cannot tell a real address from a made-up one
+  // without leaking which is which, so every request has to count toward the
+  // limit or the limit means nothing.
+  await recordOutcome(store, email, "reset", "failed", ip);
 
   redirect("/login/forgot?sent=1");
 }
