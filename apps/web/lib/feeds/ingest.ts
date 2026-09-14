@@ -80,6 +80,20 @@ export async function ingestWorkbook(
   retailer: string,
   filename: string,
   bytes: ArrayBuffer,
+  /**
+   * The signed-in person's email, or null when a scheduler did this.
+   *
+   * REQUIRED, not optional, and that is the point of it. Three paths reach
+   * this function -- the upload screen, the mailbox poller and the Harris
+   * Farm pull -- and only one of them has a person behind it. An optional
+   * parameter would let a fourth path be added that silently records nobody,
+   * which is exactly how feed_uploads.uploaded_by came to be empty across all
+   * 80 rows in the first place.
+   *
+   * Passing null is a statement: no person did this. Not passing anything is
+   * not available.
+   */
+  uploadedByEmail: string | null,
 ): Promise<IngestResult> {
   let uploadId: string | null = null;
   try {
@@ -108,10 +122,23 @@ export async function ingestWorkbook(
     // ---- record the upload --------------------------------------------
     const [up] = await sql<{ id: string }[]>`
       insert into feed_uploads
-        (retailer, filename, sheet_name, header_row, column_map, period_from, period_to, rows_read)
+        (retailer, filename, sheet_name, header_row, column_map, period_from, period_to, rows_read,
+         uploaded_by)
       values (${retailer}::retailer_type, ${filename}, ${parsed.sheetName}, ${parsed.headerRow},
               ${JSON.stringify(parsed.columns)}::jsonb,
-              ${parsed.dateFrom}, ${parsed.dateTo}, ${parsed.rowsRead})
+              ${parsed.dateFrom}, ${parsed.dateTo}, ${parsed.rowsRead},
+
+              -- WHO. Resolved by email against public.users, which is the
+              -- pattern migration 098 established for deliveries.driver_id --
+              -- public.users.id is not the auth user id, which is why this is
+              -- a lookup and not the token's subject.
+              --
+              -- Null when nobody is signed in, and null when a scheduler did
+              -- this. A wrong uploader is worse than none, and lower(null)
+              -- is null, so an absent email quietly matches nothing rather
+              -- than needing a branch.
+              (select u.id from public.users u
+                where lower(u.email) = lower(${uploadedByEmail})))
       returning id`;
     uploadId = up.id;
 

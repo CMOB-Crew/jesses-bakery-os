@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAsUser, sql as sqlClient } from "@/lib/db";
-import { getSessionClaims } from "@/lib/supabase/server";
+import { getSessionClaims, getDisplayUser } from "@/lib/supabase/server";
 import { AUTH_ENFORCED } from "@/lib/auth";
 import { ingestWorkbook, type SqlClient } from "@/lib/feeds/ingest";
 import { supabaseAdmin, FEED_BUCKET } from "@/lib/supabase/admin";
@@ -149,7 +149,11 @@ async function handle(
     return NextResponse.json({ ok: false, error: msg }, { status: 400 });
   }
 
-  const result = await ingestWorkbook(sql, retailer, filename, bytes);
+  // The one ingest path with a person behind it. getDisplayUser reads the
+  // session whether or not AUTH_ENFORCED is on, so this records the uploader
+  // today rather than only after the flip.
+  const uploader = await getDisplayUser();
+  const result = await ingestWorkbook(sql, retailer, filename, bytes, uploader?.email ?? null);
   return result.ok
     ? NextResponse.json(result)
     : NextResponse.json({ ok: false, error: result.error }, { status: result.status });

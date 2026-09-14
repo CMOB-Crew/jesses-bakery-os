@@ -124,7 +124,8 @@ async function run(req: NextRequest) {
   for (const week of weeks) {
     try {
       const file = await fetchVendorSalesCsv(cfg, token, week);
-      const result = await db((sql) => ingestWorkbook(sql, "harris_farm", file.name, file.bytes));
+      // null: a scheduler did this, not a person.
+      const result = await db((sql) => ingestWorkbook(sql, "harris_farm", file.name, file.bytes, null));
       if (result.ok) {
         results.push({
           week, status: "loaded",

@@ -218,7 +218,9 @@ async function run(req: NextRequest) {
         // apply -- which is the whole reason this can take the 4.9MB
         // Woolworths workbook without the signed-URL detour the browser needs.
         const bytes = await downloadAttachment(cfg, token, msg.id, report.id);
-        const result = await db((sql) => ingestWorkbook(sql, rule.retailer, report.name, bytes));
+        // null: a scheduler did this, not a person. Stated rather than
+        // omitted -- see ingestWorkbook's fifth parameter.
+        const result = await db((sql) => ingestWorkbook(sql, rule.retailer, report.name, bytes, null));
 
         if (result.ok) {
           const note = `${result.rowsLoaded} loaded, ${result.rowsRejected} not loaded, from ${report.name}.`;
