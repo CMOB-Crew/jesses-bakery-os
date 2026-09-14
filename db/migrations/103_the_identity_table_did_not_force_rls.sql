@@ -1,0 +1,52 @@
+-- ---------------------------------------------------------------------------
+-- 103  THE IDENTITY TABLE WAS THE ONE THAT DID NOT FORCE RLS.
+--
+-- Measured on production, 15 September 2026: 49 base tables in public, 49 with
+-- row level security enabled, 48 forcing it. The one that does not is
+-- public.users -- the table whose rows decide everyone else's access.
+--
+-- Raised by Ian's RLS audit (db/RLS-AUDIT-2026-09-10.md, finding 4) and
+-- confirmed against the live database rather than taken on trust.
+--
+-- WHAT FORCE ACTUALLY CHANGES
+--
+-- RLS policies do not apply to a table's OWNER unless FORCE is set. So today,
+-- anything connecting as the owner of public.users reads and writes every row
+-- regardless of the three policies on it. The app connects as jbo_app, which
+-- owns nothing and has neither rolsuper nor rolbypassrls, so this is latent
+-- rather than live -- but "the app never connects as the owner" is exactly the
+-- property Ian's finding 1 shows is not guaranteed for the next environment
+-- somebody stands up from DEPLOY.md.
+--
+-- THIS LINE IS NOT AS FREE AS IT LOOKS, AND THE GATE IS IN THE APPLY SCRIPT
+--
+-- Two SECURITY DEFINER functions from migration 012 touch this table, and a
+-- definer function runs as ITS OWNER:
+--
+--   handle_new_user()  inserts into public.users on every signup. The only
+--                      write policy is users_admin_write, whose check is
+--                      jb_is_admin(). A brand new account has role NULL, so
+--                      if that policy started applying, SIGNUP WOULD BREAK.
+--
+--   jb_is_admin()      reads public.users to decide whether the caller is an
+--                      admin. It is called by admin policies across the whole
+--                      database. If that read started returning nothing, every
+--                      admin policy everywhere would quietly evaluate false.
+--
+-- Both are safe ONLY while their owner bypasses row security -- rolbypassrls
+-- is absolute and skips the machinery entirely, FORCE or not. On Supabase the
+-- postgres role has rolbypassrls = t, which is why this is expected to be a
+-- no-op for both. EXPECTED IS NOT MEASURED, so apply-103-production.sh checks
+-- the actual owner of both functions and REFUSES if either owner does not
+-- bypass. A one-line migration that silently breaks every login is worse than
+-- the gap it closes.
+--
+-- Reversible in one line:
+--
+--   alter table public.users no force row level security;
+-- ---------------------------------------------------------------------------
+
+alter table public.users force row level security;
+
+comment on table public.users is
+  'Identity table. RLS enabled since migration 012 and FORCED since 103, so the three policies on it apply to the owner as well. Two SECURITY DEFINER functions from 012 touch it -- handle_new_user() inserts on signup, jb_is_admin() is read by admin policies across the database -- and both depend on their owner holding rolbypassrls. If that ever stops being true, signup and every admin policy fail closed at the same time. See apply-103-production.sh for the check that proves it before this is turned on.';
