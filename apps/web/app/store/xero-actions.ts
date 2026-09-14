@@ -1,7 +1,7 @@
 "use server";
 
 import { withUser } from "@/lib/db";
-import { getStoreStandingOrder } from "@/lib/queries";
+import { getStoreIsActive, getStoreStandingOrder } from "@/lib/queries";
 import {
   buildWeek, idempotencyKey, type DayInvoice, type InvoiceRefusal,
 } from "@/lib/xero-invoice";
@@ -74,8 +74,42 @@ export async function draftXeroWeek(input: {
     };
   }
 
+  // The active flag is read HERE, from the database, and not taken from
+  // the caller. storeName and xeroContactId arrive from the browser
+  // because one is cosmetic and the other is checked by Xero. Whether a
+  // customer gets billed at all is not in that category.
+  let active: boolean | null;
+  try {
+    active = await withUser(() => getStoreIsActive(input.storeId));
+  } catch {
+    return {
+      ok: false,
+      weekStart: input.weekStart,
+      error: "Could not read this customer's record, so nothing has been sent.",
+    };
+  }
+  if (active === null) {
+    return {
+      ok: false,
+      weekStart: input.weekStart,
+      error: `${input.storeName} is not in the store list, so there is nothing to bill.`,
+    };
+  }
+  if (!active) {
+    // buildWeek would skip every day and the message below would then say
+    // "no deliveries this week", which is both wrong and the sort of wrong
+    // that sends somebody looking at the order book. Say the real reason.
+    return {
+      ok: false,
+      weekStart: input.weekStart,
+      error:
+        `${input.storeName} is marked inactive, so it is not invoiced. Nothing has been ` +
+        `sent. If this customer should be billed, make the store active first.`,
+    };
+  }
+
   const week = buildWeek(
-    { xero_contact_id: input.xeroContactId, name: input.storeName },
+    { xero_contact_id: input.xeroContactId, name: input.storeName, active },
     lines,
     input.weekStart,
   );

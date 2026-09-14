@@ -743,6 +743,31 @@ export async function getStoreById(id: string): Promise<StoreWeek | null> {
   }
 }
 
+/**
+ * Is this store still one we deliver to and bill?
+ *
+ * Its own query, deliberately, rather than a field read off something the
+ * page already had. draftXeroWeek is handed storeName and xeroContactId by
+ * the browser, and that is fine -- one is cosmetic and the other is
+ * checked by Xero. This one decides WHETHER A CUSTOMER GETS BILLED AT
+ * ALL, and a gate the caller can switch off by editing a prop is not a
+ * gate.
+ *
+ * null means no such store. That is not the same as inactive and the
+ * caller must not treat it as false: a store we cannot read is a store we
+ * have no business invoicing either.
+ *
+ * It does NOT swallow its errors into a default the way most queries in
+ * this file do. A database failure here has to surface as a failure --
+ * defaulting to true would bill an inactive customer the one time the
+ * database was unwell.
+ */
+export async function getStoreIsActive(id: string): Promise<boolean | null> {
+  const rows = await sql<{ active: boolean }[]>`
+    select active from stores where id = ${id} limit 1`;
+  return rows.length ? rows[0].active : null;
+}
+
 // Per-product engine order recommendation for a store — the "does Simona's job"
 // table. sold/sent are this week's real numbers; recommended is the newsvendor
 // order-up-to (balanced). Woolworths mature feed; empty for stores without a plan.

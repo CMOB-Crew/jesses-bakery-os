@@ -37,7 +37,11 @@ const line = (p: Partial<StandingLine> & { name: string }): StandingLine => ({
   days: p.days ?? null,
 } as StandingLine);
 
-const STORE = { xero_contact_id: "c0ffee00-0000-0000-0000-000000000001", name: "KRINSKYS" };
+const STORE = {
+  xero_contact_id: "c0ffee00-0000-0000-0000-000000000001",
+  name: "KRINSKYS",
+  active: true,
+};
 
 let fails = 0;
 function check(name: string, cond: boolean, detail = "") {
@@ -224,11 +228,59 @@ const uncoded = buildDayInvoice(STORE,
 check("no Xero item code refuses rather than guessing one",
   uncoded.kind === "refuse" && /no Xero item code/.test(uncoded.refusals[0].reason));
 
-const noContact = buildDayInvoice({ xero_contact_id: null, name: "IGA PADDINGTON" },
+const noContact = buildDayInvoice(
+  { xero_contact_id: null, name: "IGA PADDINGTON", active: true },
   [line({ name: "Challah", days: { mon: 10 }, unit_price: 4.70, xero_code: "CH" })],
   "2026-09-14");
 check("no Xero contact refuses rather than creating a second customer",
   noContact.kind === "refuse" && /no Xero contact/.test(noContact.refusals[0].reason));
+
+/* ---------------------------------------------------------------- *
+ * Inactive stores.
+ *
+ * @Fred, 14 September, having checked BP KINGSFORD live in the legacy
+ * system: "Your inactive flag is correct - the legacy is the stale side,
+ * because it never reads the flag at all... the check belongs in the
+ * invoicing code, not the comparison script. An inactive store with a day
+ * grid shouldn't be drafted. That's the 75 others too."
+ *
+ * Until 15 September the flag was read by which-twelve.sh, which only
+ * COMPARES, and by nothing that actually bills. So the comparison hid a
+ * store the invoicing code would have drafted, which is the worst
+ * possible arrangement: the check existed, and it was in the one place
+ * where being right changed nothing.
+ * ---------------------------------------------------------------- */
+console.log("\n— inactive stores —\n");
+
+const INACTIVE = { ...STORE, name: "BP KINGSFORD", active: false };
+
+const inactiveDay = buildDayInvoice(INACTIVE, GRID, "2026-09-14");
+check("an inactive store is not billed on a day it does have a delivery",
+  inactiveDay.kind === "skip",
+  "the legacy drafts BP KINGSFORD every Tue and Thu for a store its own data calls inactive");
+check("and it says inactive, rather than reading as an ordinary quiet day",
+  inactiveDay.kind === "skip" && /inactive/i.test(inactiveDay.reason));
+
+check("every day of an inactive store's week is skipped",
+  buildWeek(INACTIVE, GRID, "2026-09-14").every((d) => d.kind === "skip"));
+
+// Ordering. Inactive is checked BEFORE the order book, so turning a
+// customer off silences every other complaint about them too.
+const inactiveBroken = buildDayInvoice(INACTIVE,
+  [line({ name: "Challah", days: { mon: 10 }, unit_price: null, xero_code: "CH" })],
+  "2026-09-14");
+check("an inactive store with an unpriced line skips rather than refusing",
+  inactiveBroken.kind === "skip",
+  "otherwise switching a customer off fills the refusal list with work nobody wants done");
+
+const inactiveNoContact = buildDayInvoice(
+  { xero_contact_id: null, name: "BP KINGSFORD", active: false }, GRID, "2026-09-14");
+check("and the same when it has no Xero contact either",
+  inactiveNoContact.kind === "skip");
+
+check("an ACTIVE store is still billed, so the gate is not simply always on",
+  buildDayInvoice(STORE, GRID, "2026-09-14").kind === "ok",
+  "a gate that refuses everything passes every test above and bills nobody");
 
 /* ---------------------------------------------------------------- *
  * A week.

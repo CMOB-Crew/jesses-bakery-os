@@ -252,11 +252,22 @@ async function main() {
 
   const sql = postgres(DB_URL!, { max: 2, prepare: false });
   try {
-    const found = await sql<{ id: string; name: string }[]>`
-      select id::text, name from stores where upper(name) = upper(${STORE!}) limit 2`;
+    const found = await sql<{ id: string; name: string; active: boolean }[]>`
+      select id::text, name, active from stores where upper(name) = upper(${STORE!}) limit 2`;
     if (found.length === 0) die(`No store called "${STORE}".`);
     if (found.length > 1) die(`More than one store called "${STORE}".`);
     const store = found[0];
+
+    // buildWeek would skip all seven days and the empty-week message below
+    // would blame the order book. Say the real reason, here, before any of
+    // the work.
+    if (!store.active) {
+      die(`${store.name} is marked inactive, so it is not invoiced.\n\n` +
+          "          That is the gate @Fred asked for on 14 September, and it is\n" +
+          "          the one real difference between us and the legacy system,\n" +
+          "          which drafts inactive stores because it never reads the flag.\n\n" +
+          "          Pick an active customer, or make this one active.");
+    }
 
     const lines = await standingOrder(sql, store.id);
     const week = WEEK ?? billingWeekStart(new Date().toISOString().slice(0, 10));
@@ -264,7 +275,8 @@ async function main() {
 
     // The real builder. Contact id is irrelevant here but buildWeek refuses
     // without one, so pass the store's own -- it is never sent.
-    const days = buildWeek({ xero_contact_id: "demo", name: store.name }, lines, week);
+    const days = buildWeek(
+      { xero_contact_id: "demo", name: store.name, active: store.active }, lines, week);
 
     const refusals = days.flatMap((d) => (d.kind === "refuse" ? d.refusals : []));
     if (refusals.length) {

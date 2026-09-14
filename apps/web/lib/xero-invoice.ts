@@ -227,12 +227,47 @@ export type DayInvoice =
  * bury the real refusals in noise.
  */
 export function buildDayInvoice(
-  store: { xero_contact_id: string | null; name: string },
+  store: { xero_contact_id: string | null; name: string; active: boolean },
   lines: StandingLine[],
   date: string,
 ): DayInvoice {
   const dow = dowOf(date);
   const refusals: InvoiceRefusal[] = [];
+
+  // AN INACTIVE STORE IS NOT BILLED, ON ANY DAY, WHATEVER ITS ORDER BOOK
+  // SAYS.
+  //
+  // This is the first thing checked, before the order book is looked at
+  // at all, and it is a SKIP rather than a refusal. Both of those are
+  // deliberate.
+  //
+  // A refusal means "fix this and it will bill". There is nothing to fix.
+  // Somebody turned this customer off on purpose, and putting it in the
+  // refusal list would ask a person to undo a decision they meant to
+  // make -- while burying the refusals that are real.
+  //
+  // Checked FIRST so that turning a customer off also silences every
+  // other complaint about them. An inactive store with an unpriced line
+  // is not a pricing problem anybody needs to hear about.
+  //
+  // @Fred, 14 September, having checked BP KINGSFORD live against the
+  // legacy system: "Your inactive flag is correct - the legacy is the
+  // stale side, because it never reads the flag at all... An inactive
+  // store with a day grid shouldn't be drafted. That's the 75 others
+  // too."
+  //
+  // So the legacy system drafts invoices for stores its own master data
+  // says are inactive, and did it again on 13 September. We do not. That
+  // is a DELIBERATE difference from production, and it is the reason a
+  // diff against production will never reach zero.
+  if (!store.active) {
+    return {
+      kind: "skip",
+      date,
+      dow,
+      reason: `${store.name} is marked inactive, so it is not invoiced.`,
+    };
+  }
 
   // A customer whose order book has no day grid at all. Distinguish this
   // from "nothing on Tuesday": the first cannot be billed per day at all,
@@ -327,7 +362,7 @@ export function buildDayInvoice(
  * missing day stops being noticed.
  */
 export function buildWeek(
-  store: { xero_contact_id: string | null; name: string },
+  store: { xero_contact_id: string | null; name: string; active: boolean },
   lines: StandingLine[],
   weekStartYmd: string,
 ): DayInvoice[] {
