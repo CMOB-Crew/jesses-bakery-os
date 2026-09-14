@@ -3,6 +3,7 @@ import { runAsUser, sql } from "@/lib/db";
 import { type UserClaims } from "@/lib/auth";
 import { supabaseAdmin, PROOF_BUCKET } from "@/lib/supabase/admin";
 import { auditProof, proofAuditFailed, proofAuditLines, proofAuditNotes, type ObjectReader } from "@/lib/proof-audit";
+import { auditCoverage, coverageSummary, coverageLines } from "@/lib/proof-coverage";
 
 export const dynamic = "force-dynamic";
 // Existence is one SQL join, so the only thing that takes time is hashing the
@@ -109,8 +110,32 @@ export async function GET(req: NextRequest) {
           auditProof({ sql: tx as unknown as SqlArg, read, sample, includeObjects, withIdentity: true }))
       : await auditProof({ sql: sql as unknown as SqlArg, read, sample, includeObjects, withIdentity: false });
     const failed = proofAuditFailed(audit);
+
+    // WHICH DELIVERIES HAVE NO PROOF AT ALL.
+    //
+    // The audit above answers "is every recorded proof still there". It cannot
+    // answer this one: a delivery with no photograph has no delivery_photos row
+    // to inspect, so eleven drops on a Tuesday with none produce a clean audit
+    // and the only person who knew was the driver who saw the message.
+    //
+    // Reported alongside and deliberately NOT folded into `ok`. A drop with no
+    // photograph is evidence never captured, not evidence lost -- turning the
+    // weekly job red for a flat phone battery is how an alarm stops being read.
+    // Same reasoning that keeps orphans out of the failure condition.
+    const coverage = claims
+      ? await runAsUser(claims, (tx) => auditCoverage({ sql: tx as unknown as SqlArg }))
+      : await auditCoverage({ sql: sql as unknown as SqlArg });
+
     return NextResponse.json(
-      { ok: !failed, ...audit, findings: proofAuditLines(audit), notes: proofAuditNotes(audit) },
+      {
+        ok: !failed,
+        ...audit,
+        findings: proofAuditLines(audit),
+        notes: proofAuditNotes(audit),
+        coverage,
+        coverage_summary: coverageSummary(coverage),
+        coverage_lines: coverageLines(coverage),
+      },
       // 200 either way. The caller decides what to do about ok:false, exactly
       // as it does for the feed poller; a 500 here would read as "the check
       // broke" when the check worked and found something.

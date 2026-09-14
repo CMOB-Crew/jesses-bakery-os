@@ -85,6 +85,19 @@ jobs:
             exit 1
           fi
 
+          # HOW MANY DROPS HAVE NO PROOF AT ALL. Printed on EVERY run,
+          # including clean ones, because a number that only appears when it
+          # is bad teaches nobody what normal looks like. It does not affect
+          # the pass or fail below: a photograph never taken is not the same
+          # as one that has gone missing, and failing weekly over a flat phone
+          # battery is how an alarm stops being read.
+          echo
+          echo "$body" \
+            | grep -o '"coverage_summary":"[^"]*"' \
+            | sed 's/^"coverage_summary":"//; s/"$//' \
+            || echo "COVERAGE not reported — the site may be running an older build."
+          echo
+
           # ok:false here means a signature or a shelf photo is missing or is
           # not the file we recorded. It is meant to be loud. Orphans -- bytes
           # with no row behind them -- are reported in the body and do NOT set
