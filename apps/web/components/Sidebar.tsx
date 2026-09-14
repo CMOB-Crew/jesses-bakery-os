@@ -147,16 +147,28 @@ export default function Sidebar({ user = null, appRole = null }: { user?: Sideba
                 other and both were wrong. */}
             {user.role && <small>{user.role}</small>}
           </div>
-          <a className="signout" href="/auth/signout" title="Sign out">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-4" /><path d="M10 17l-5-5 5-5M5 12h12" /></svg>
-            <span className="sr">Sign out</span>
-          </a>
+          {/* A FORM, not a link.
+              /auth/signout exports POST and nothing else, deliberately: its
+              own comment says "POST-only so a link prefetch or a stray GET
+              can't end a session", which is the right call. This was an <a>,
+              so clicking it sent a GET and Next answered 405. SIGN OUT HAS
+              NEVER WORKED for anybody -- Simona, the drivers, the packers.
+              The route is correct; the control was the wrong element.
+              Nothing renders differently: the button keeps the same class
+              and the form exists only to make the method right. */}
+          <form method="post" action="/auth/signout">
+            <button type="submit" className="signout" title="Sign out">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-4" /><path d="M10 17l-5-5 5-5M5 12h12" /></svg>
+              <span className="sr">Sign out</span>
+            </button>
+          </form>
         </div>
       )}
       <style>{`
         .side .logo .emblem{width:34px;height:34px;flex:none;display:block;border-radius:50%;box-shadow:0 1px 3px rgba(60,45,30,.13)}
         .side .logo .logotext{font-family:var(--serif)}
-        .side .side-foot .signout{margin-left:auto;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;color:var(--muted);flex:none}
+        .side .side-foot form{margin-left:auto;display:flex;flex:none}
+        .side .side-foot .signout{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;color:var(--muted);flex:none;background:none;border:0;padding:0;margin:0;cursor:pointer;font:inherit;-webkit-appearance:none;appearance:none}
         .side .side-foot .signout:hover{background:var(--line);color:var(--espresso)}
         .side .side-foot .signout svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
         .side .side-foot .signout .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
