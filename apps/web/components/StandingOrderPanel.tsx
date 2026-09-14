@@ -2,8 +2,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setStoreOverride, clearStoreOverride, setStorePrice, setStoreDay, clearStoreDays } from "@/app/store/actions";
-import { draftXeroInvoice } from "@/app/store/xero-actions";
-import { weekStart } from "@/lib/xero-invoice";
+import { draftXeroWeek } from "@/app/store/xero-actions";
+import { billingWeekStart } from "@/lib/xero-invoice";
 import type { StandingLine, ProductPick } from "@/lib/queries";
 
 /* ------------------------------------------------------------------ *
@@ -63,47 +63,75 @@ export default function StandingOrderPanel({ storeId, storeName, xeroContactId =
   /* ---------------------------------------------------------------- *
    * The invoice.
    *
-   * A DRAFT in Xero, never authorised and never sent. Simona opens it,
-   * checks it and sends it -- which is what the legacy system did when
-   * she edited a standing order, and the only honest thing to do until a
-   * real Xero organisation has confirmed that a per-customer UnitAmount
-   * overrides the price stored on the Xero item.
+   * DRAFTS in Xero, never authorised and never sent. Simona opens them,
+   * checks them and sends them -- which is what production does too: all
+   * 94 invoices in the week @Fred pulled were posted as DRAFT.
+   *
+   * ONE PER DELIVERY DAY, not one per week. A customer delivered Monday,
+   * Wednesday and Friday gets three invoices, referenced
+   * "MONDAY - KRINSKYS" and so on, each dated on its own delivery day.
    *
    * Every rule about WHAT gets billed is in lib/xero-invoice.ts and
    * asserted in scripts/xero-invoice-check.ts. Nothing here decides it.
    * ---------------------------------------------------------------- */
-  const [invoice, setInvoice] = useState<{ ok: boolean; text: string; url?: string } | null>(null);
+  const [invoice, setInvoice] = useState<
+    { ok: boolean; text: string; rows: { label: string; url?: string }[] } | null
+  >(null);
   const [invoicing, setInvoicing] = useState(false);
 
-  // Monday of the week being billed. `today` is already Sydney's date.
+  // Which week gets billed. `today` is already Sydney's date.
   //
-  // This used to be four lines of date arithmetic right here, and it was
-  // wrong on every machine in Sydney -- it returned the Sunday, and it
-  // returned a DIFFERENT day depending on the viewer's timezone, which made
-  // the invoice's idempotency key depend on whose laptop drafted it. The
-  // comment above says nothing in this file decides what gets billed; the
-  // week being billed is part of that, so it now lives with the rest of the
-  // billing rules and is asserted under four timezones. See weekStart.
-  const periodStart = weekStart(today);
+  // FORWARD, not backward. Production drafts the week that is about to
+  // happen -- the Sunday 6 September run produced invoices dated 7 to 13
+  // September. Ours billed the week that had just finished until 14
+  // September, which would have made the first cutover week either bill
+  // twice or skip one.
+  //
+  // It lives in lib/xero-invoice.ts with the rest of the billing rules and
+  // is asserted under four timezones, because it used to be four lines of
+  // date arithmetic right here that returned a DIFFERENT day depending on
+  // the viewer's timezone -- and the idempotency key is built from it.
+  const billingWeek = billingWeekStart(today);
 
   function makeInvoice() {
     setInvoice(null);
     setInvoicing(true);
     start(async () => {
-      const res = await draftXeroInvoice({ storeId, storeName, xeroContactId, periodStart });
+      const res = await draftXeroWeek({
+        storeId, storeName, xeroContactId, weekStart: billingWeek,
+      });
       setInvoicing(false);
-      if (res.ok) {
-        setInvoice({
-          ok: true,
-          text: `Draft ${res.invoiceNumber ?? "invoice"} created in Xero — ${res.lines} line${res.lines === 1 ? "" : "s"}${res.total != null ? `, $${res.total.toFixed(2)}` : ""}. Check it before you send it.`,
-          url: res.url,
-        });
-      } else {
+
+      if (!res.ok) {
         const detail = (res.refusals ?? [])
           .map((r) => `${r.reason}${r.lines.length ? " (" + r.lines.join(", ") + ")" : ""}`)
           .join(" ");
-        setInvoice({ ok: false, text: `${res.error}${detail ? " " + detail : ""}` });
+        setInvoice({ ok: false, text: `${res.error}${detail ? " " + detail : ""}`, rows: [] });
+        return;
       }
+
+      // One row per invoice that exists, plus one per day that failed.
+      // Quiet days are not listed: for most customers four days a week are
+      // quiet, and listing them would bury the days that matter.
+      const rows = res.days
+        .filter((d) => d.kind !== "skip")
+        .map((d) =>
+          d.kind === "created"
+            ? {
+                label: `${d.reference} — ${d.lines} line${d.lines === 1 ? "" : "s"}${d.total != null ? `, $${d.total.toFixed(2)}` : ""}`,
+                url: d.url,
+              }
+            : { label: `${d.date} — not created. ${d.kind === "failed" ? d.error : ""}` },
+        );
+
+      const failed = res.days.filter((d) => d.kind === "failed").length;
+      setInvoice({
+        ok: failed === 0,
+        text: failed === 0
+          ? `${res.created} draft${res.created === 1 ? "" : "s"} created in Xero for the week of ${res.weekStart}, $${res.total.toFixed(2)} in total. Check them before you send them.`
+          : `${res.created} of ${res.created + failed} drafts created. The rest are listed below, and re-running is safe — Xero will not duplicate the ones that landed.`,
+        rows,
+      });
     });
   }
 
@@ -338,9 +366,9 @@ export default function StandingOrderPanel({ storeId, storeName, xeroContactId =
             disabled={invoicing || pending || total === 0}
             title={total === 0
               ? "There is nothing on this order to bill"
-              : "Creates a DRAFT invoice in Xero. It is not sent."}
+              : `Creates one DRAFT invoice per delivery day for the week of ${billingWeek}. Nothing is sent.`}
           >
-            {invoicing ? "Drafting…" : "Draft invoice in Xero"}
+            {invoicing ? "Drafting…" : "Draft this week's invoices in Xero"}
           </button>
         </div>
       </div>
@@ -348,9 +376,14 @@ export default function StandingOrderPanel({ storeId, storeName, xeroContactId =
       {invoice && (
         <div className={`inv-res ${invoice.ok ? "ok" : "no"}`}>
           <span>{invoice.text}</span>
-          {invoice.url && (
-            <a href={invoice.url} target="_blank" rel="noreferrer">Open it in Xero →</a>
-          )}
+          {invoice.rows.map((r) => (
+            <span key={r.label} className="inv-day">
+              {r.label}
+              {r.url && (
+                <a href={r.url} target="_blank" rel="noreferrer"> Open in Xero →</a>
+              )}
+            </span>
+          ))}
         </div>
       )}
 

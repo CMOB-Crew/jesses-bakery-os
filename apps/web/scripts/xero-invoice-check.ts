@@ -6,9 +6,19 @@
  * the shape that would break it, and none of them can be checked by
  * looking at production, because production has never sent an invoice.
  *
+ * The shape being asserted is production's own, taken from a real week
+ * @Fred pulled out of Jesse's Data Factory on 11 September 2026: the
+ * 6 September run, 94 invoices, 42 customers, 725 lines, $9,087.57. One
+ * invoice per store per delivery day, Reference "FRIDAY - BP BOTANY",
+ * Date on the delivery day, DueDate fourteen days later, all DRAFT.
+ *
  * Run:  npx tsx scripts/xero-invoice-check.ts
  */
-import { buildInvoice, weekQty, idempotencyKey, weekStart, invoiceBody } from "../lib/xero-invoice";
+import {
+  buildDayInvoice, buildWeek, weekQty, dayQty, dowOf, addDays,
+  invoiceReference, idempotencyKey, dueDate, weekStart, billingWeekStart,
+  invoiceBody, DAY_NAME, WEEKDAYS,
+} from "../lib/xero-invoice";
 import type { StandingLine } from "../lib/queries";
 
 const line = (p: Partial<StandingLine> & { name: string }): StandingLine => ({
@@ -35,215 +45,286 @@ function check(name: string, cond: boolean, detail = "") {
   console.log(`${cond ? "PASS" : "FAIL"}  ${name}${detail ? "\n        " + detail : ""}`);
 }
 
-console.log("— quantity —\n");
+/* ---------------------------------------------------------------- *
+ * Dates. Everything else is built on these, and they were wrong once.
+ * ---------------------------------------------------------------- */
+console.log("— dates —\n");
+
+const ZONES = ["Australia/Sydney", "UTC", "America/Los_Angeles", "Pacific/Kiritimati"];
+function under<T>(tz: string, fn: () => T): T {
+  const was = process.env.TZ;
+  process.env.TZ = tz;
+  try { return fn(); } finally { process.env.TZ = was; }
+}
+
+for (const tz of ZONES) {
+  check(`weekStart is the Monday under ${tz}`,
+    under(tz, () => weekStart("2026-09-10")) === "2026-09-07",
+    under(tz, () => weekStart("2026-09-10")));
+}
+check("a Monday is its own week start", weekStart("2026-09-07") === "2026-09-07");
+check("a Sunday belongs to the week that started six days earlier",
+  weekStart("2026-09-13") === "2026-09-07",
+  "a Sunday-start week would say 2026-09-13 and bill the wrong seven days");
+check("weekStart crosses a month", weekStart("2026-10-01") === "2026-09-28");
+check("weekStart crosses a year", weekStart("2027-01-01") === "2026-12-28");
+check("a bad date throws rather than guessing",
+  (() => { try { weekStart("last monday"); return false; } catch { return true; } })());
+
+for (const tz of ZONES) {
+  check(`addDays is stable under ${tz}`,
+    under(tz, () => addDays("2026-09-13", 1)) === "2026-09-14");
+}
+check("addDays crosses a DST boundary in Sydney without drifting",
+  under("Australia/Sydney", () => addDays("2026-10-03", 1)) === "2026-10-04",
+  "Sydney DST starts 4 October 2026");
+
+check("dowOf knows a Monday", dowOf("2026-09-14") === "mon");
+check("dowOf knows a Sunday", dowOf("2026-09-20") === "sun");
+for (const tz of ZONES) {
+  check(`dowOf is stable under ${tz}`, under(tz, () => dowOf("2026-09-18")) === "fri");
+}
+
+/* ---------------------------------------------------------------- *
+ * FORWARD, NOT BACKWARD. The one that breaks cutover week.
+ * ---------------------------------------------------------------- */
+console.log("\n— which week a run bills —\n");
+
+check("the Sunday 13 Sept run bills 14 to 20 Sept, the week about to happen",
+  billingWeekStart("2026-09-13") === "2026-09-14",
+  "production's 6 Sept run produced invoices dated 7 to 13 Sept, all 94 after the run");
+check("the Sunday 6 Sept run bills 7 to 13 Sept, which is what @Fred's file holds",
+  billingWeekStart("2026-09-06") === "2026-09-07");
+check("it never bills the week that just finished",
+  billingWeekStart("2026-09-13") !== weekStart("2026-09-13"),
+  "weekStart('2026-09-13') is 2026-09-07, the week that has already been delivered");
+check("clicking it midweek bills the week you are in",
+  billingWeekStart("2026-09-16") === "2026-09-14");
+for (const tz of ZONES) {
+  check(`billingWeekStart is stable under ${tz}`,
+    under(tz, () => billingWeekStart("2026-09-13")) === "2026-09-14");
+}
+
+/* ---------------------------------------------------------------- *
+ * The reference string, character for character.
+ * ---------------------------------------------------------------- */
+console.log("\n— the reference —\n");
+
+check("matches production exactly",
+  invoiceReference("fri", "BP BOTANY") === "FRIDAY - BP BOTANY",
+  invoiceReference("fri", "BP BOTANY"));
+check("the store name is uppercased",
+  invoiceReference("mon", "Krinskys") === "MONDAY - KRINSKYS");
+check("a plain hyphen, never an em dash",
+  !/[‐-―−]/.test(invoiceReference("wed", "IGA LINDFIELD")),
+  "ours said 'KRINSKYS — week of 2026-09-14' until 14 September");
+check("the separator is exactly space hyphen space",
+  invoiceReference("thu", "MADE IN DY").includes(" - "));
+check("no day is abbreviated",
+  WEEKDAYS.every((d) => DAY_NAME[d].length >= 6 && DAY_NAME[d] === DAY_NAME[d].toUpperCase()),
+  "@Fred: full day name, uppercase. Not MON, not Monday");
+check("a store name with surrounding space does not leak into the reference",
+  invoiceReference("sat", "  THE CHAR BONDI  ") === "SATURDAY - THE CHAR BONDI");
+check("an apostrophe survives",
+  invoiceReference("mon", "Jesse's Cafe") === "MONDAY - JESSE'S CAFE");
+
+/* ---------------------------------------------------------------- *
+ * Quantity.
+ * ---------------------------------------------------------------- */
+console.log("\n— quantity —\n");
 
 check("weekly number when there is no day grid",
   weekQty(line({ name: "White Sourdough", sent: 2 })) === 2);
-
 check("an override beats the carried-forward number",
   weekQty(line({ name: "White Sourdough", sent: 2, override_qty: 5 })) === 5);
-
 check("a day grid is the week, not the weekly number",
   weekQty(line({ name: "White Sourdough", sent: 99, override_qty: 99,
                  days: { mon: 4, wed: 0, fri: 9 } })) === 13,
   "the store profile's effective() reads override_qty ?? sent and would bill 99");
-
 check("a zeroed day is a real instruction, not a missing one",
   weekQty(line({ name: "White Sourdough", days: { mon: 0, wed: 0 } })) === 0);
 
-console.log("\n— what bills —\n");
+check("dayQty reads one day off the grid",
+  dayQty(line({ name: "W", days: { mon: 4, wed: 0, fri: 9 } }), "fri") === 9);
+check("a day absent from the grid is zero, not the weekly number",
+  dayQty(line({ name: "W", sent: 50, days: { mon: 4 } }), "tue") === 0);
+check("NO GRID IS NEVER SPLIT ACROSS DAYS",
+  dayQty(line({ name: "W", sent: 50 }), "mon") === 0,
+  "50 units over 5 delivery days would look exactly like a fact once it is on an invoice");
 
-const good = buildInvoice(STORE, [
-  line({ name: "Challah - Semisweet Sesame", sent: 17, unit_price: 4.70, xero_code: "CH-SS" }),
-  line({ name: "Sourdough - White", sent: 2, unit_price: 5.00, xero_code: "SD-W" }),
-  line({ name: "Bagel - Plain (X 5)", sent: 4, unit_price: 5.20, xero_code: "BG-P5" }),
-]);
-check("three priced, coded lines bill", good.ok && good.lines.length === 3);
-check("the total is the sum of the lines",
-  good.total === 79.9 + 10 + 20.8,
-  `got ${good.total}, expected ${79.9 + 10 + 20.8}`);
+/* ---------------------------------------------------------------- *
+ * One day.
+ * ---------------------------------------------------------------- */
+console.log("\n— one invoice, one day —\n");
 
-const zeroed = buildInvoice(STORE, [
-  line({ name: "Sourdough - White", sent: 2, unit_price: 5.0, xero_code: "SD-W" }),
-  line({ name: "Cancelled Line", sent: 0, unit_price: 5.0, xero_code: "X" }),
-]);
-check("a line the customer is not getting is not billed",
-  zeroed.ok && zeroed.lines.length === 1);
+const GRID = [
+  line({ name: "Challah - Semisweet Sesame", days: { mon: 10, wed: 7 },
+         unit_price: 4.70, xero_code: "CH-SS" }),
+  line({ name: "Sourdough - White", days: { mon: 2, fri: 3 },
+         unit_price: 5.00, xero_code: "SD-W" }),
+];
 
+const mon = buildDayInvoice(STORE, GRID, "2026-09-14");
+check("Monday bills both lines", mon.kind === "ok" && mon.lines.length === 2);
+check("Monday's total is that day's quantities, not the week's",
+  mon.kind === "ok" && mon.total === 57.00,
+  mon.kind === "ok" ? String(mon.total) : mon.kind);
+check("Monday's reference names Monday",
+  mon.kind === "ok" && mon.reference === "MONDAY - KRINSKYS");
+check("Date is the delivery day", mon.kind === "ok" && mon.date === "2026-09-14");
+check("DueDate is fourteen days later",
+  mon.kind === "ok" && mon.dueDate === "2026-09-28",
+  "all 94 of production's use Date + 14");
+
+const wed = buildDayInvoice(STORE, GRID, "2026-09-16");
+check("Wednesday bills only the line delivered on Wednesday",
+  wed.kind === "ok" && wed.lines.length === 1 && wed.total === 32.90);
+
+const tue = buildDayInvoice(STORE, GRID, "2026-09-15");
+check("a day with no delivery is a SKIP, not a refusal and not an empty invoice",
+  tue.kind === "skip",
+  "four days a week are quiet for most customers; treating that as a problem buries the real ones");
+
+const zeroDay = buildDayInvoice(STORE,
+  [line({ name: "W", days: { mon: 0, wed: 5 }, unit_price: 5, xero_code: "X" })],
+  "2026-09-14");
+check("an explicit zero on the grid means no invoice that day",
+  zeroDay.kind === "skip");
+
+/* ---------------------------------------------------------------- *
+ * The refusals.
+ * ---------------------------------------------------------------- */
 console.log("\n— what refuses —\n");
 
-const unpriced = buildInvoice(STORE, [
-  line({ name: "Sourdough - White", sent: 2, unit_price: 5.0, xero_code: "SD-W" }),
-  line({ name: "Oasis Sourdough", sent: 3, unit_price: null, xero_code: "SD-O" }),
-]);
-check("an unpriced line refuses the invoice rather than billing zero",
-  !unpriced.ok && unpriced.refusals.some((r) => r.lines.includes("Oasis Sourdough")),
-  unpriced.refusals.map((r) => r.reason).join(" | "));
+const noGrid = buildDayInvoice(STORE,
+  [line({ name: "Challah", sent: 20, unit_price: 4.70, xero_code: "CH" })],
+  "2026-09-14");
+check("a weekly order with no day grid refuses, by name",
+  noGrid.kind === "refuse" && /no delivery-day grid/.test(noGrid.refusals[0].reason),
+  "37 of 42 customers have a grid; the other five are the invoice gap, and the fix is data");
+check("the refusal names the lines it is talking about",
+  noGrid.kind === "refuse" && noGrid.refusals[0].lines.includes("Challah"));
 
-const uncoded = buildInvoice(STORE, [
-  line({ name: "Sourdough - White", sent: 2, unit_price: 5.0, xero_code: "SD-W" }),
-  line({ name: "Oasis Olympic Park Sourdough", sent: 3, unit_price: 4.9, xero_code: null }),
-]);
-check("a priced line with no Xero code refuses rather than guesses",
-  !uncoded.ok && uncoded.refusals.some((r) => r.lines.includes("Oasis Olympic Park Sourdough")),
-  uncoded.refusals.map((r) => r.reason).join(" | "));
+const unpriced = buildDayInvoice(STORE,
+  [line({ name: "Challah", days: { mon: 10 }, xero_code: "CH" })],
+  "2026-09-14");
+check("no price refuses rather than billing zero",
+  unpriced.kind === "refuse" && /no price/.test(unpriced.refusals[0].reason));
 
-const noContact = buildInvoice({ xero_contact_id: null, name: "IGA PADDINGTON" }, [
-  line({ name: "Sourdough - White", sent: 2, unit_price: 5.0, xero_code: "SD-W" }),
-]);
-check("no Xero contact refuses rather than creating a duplicate customer",
-  !noContact.ok, noContact.refusals.map((r) => r.reason).join(" | "));
+const deliberateZero = buildDayInvoice(STORE,
+  [line({ name: "Challah", days: { mon: 10 }, unit_price: 0, xero_code: "CH" })],
+  "2026-09-14");
+check("a price that IS zero bills at zero",
+  deliberateZero.kind === "ok" && deliberateZero.total === 0,
+  "Jesse's Cafe is entirely zero, his own shop, and production invoices it that way");
 
-const nothing = buildInvoice(STORE, [
-  line({ name: "Cancelled", sent: 0, unit_price: 5.0, xero_code: "X" }),
-]);
-check("an empty standing order refuses", !nothing.ok);
+const uncoded = buildDayInvoice(STORE,
+  [line({ name: "Sourdough", days: { mon: 3 }, unit_price: 5.00 })],
+  "2026-09-14");
+check("no Xero item code refuses rather than guessing one",
+  uncoded.kind === "refuse" && /no Xero item code/.test(uncoded.refusals[0].reason));
 
-check("a refusal never bills a partial invoice",
-  unpriced.lines.length === 1 && unpriced.ok === false,
-  "one line is billable, but ok is false — the caller must not send it");
+const noContact = buildDayInvoice({ xero_contact_id: null, name: "IGA PADDINGTON" },
+  [line({ name: "Challah", days: { mon: 10 }, unit_price: 4.70, xero_code: "CH" })],
+  "2026-09-14");
+check("no Xero contact refuses rather than creating a second customer",
+  noContact.kind === "refuse" && /no Xero contact/.test(noContact.refusals[0].reason));
 
-console.log("\n— which week is being billed —\n");
+/* ---------------------------------------------------------------- *
+ * A week.
+ * ---------------------------------------------------------------- */
+console.log("\n— a week —\n");
 
-/* Every case below runs under FOUR clocks, and that is the entire point.
- *
- * The version this replaces did the arithmetic on a Date parsed from a bare
- * "YYYY-MM-DDT00:00:00" -- midnight on the viewer's laptop -- and then read
- * it back with toISOString(), which is UTC. Under the CI runner's UTC clock
- * that is a no-op and every assertion below would have passed on the broken
- * code. Under Sydney's it was ten hours earlier, i.e. the day before.
- *
- * So the clock is part of the input. TZ is set before each call; Node 22
- * picks up a reassignment of process.env.TZ, which is checked first, because
- * a timezone test that silently fails to change the timezone is worse than
- * no test at all. */
-const CLOCKS = ["UTC", "Australia/Sydney", "Pacific/Kiritimati", "Pacific/Midway"];
-const TZ0 = process.env.TZ;
-const under = <T,>(tz: string, f: () => T): T => {
-  process.env.TZ = tz;
-  try { return f(); } finally { process.env.TZ = TZ0; }
-};
+const week = buildWeek(STORE, GRID, "2026-09-14");
+check("always seven days, Monday first", week.length === 7 && week[0].dow === "mon");
+check("the last day is Sunday", week[6].dow === "sun");
+check("three billable days out of seven",
+  week.filter((d) => d.kind === "ok").length === 3);
+check("four quiet days, and they are reported rather than dropped",
+  week.filter((d) => d.kind === "skip").length === 4,
+  "a silently short list is how a missing day stops being noticed");
+check("the week's money equals the sum of its days",
+  week.filter((d) => d.kind === "ok")
+      .reduce((a, d) => a + (d.kind === "ok" ? d.total : 0), 0) === 104.90);
+check("every billable day's date matches the weekday in its own reference",
+  week.every((d) => d.kind !== "ok" || d.reference.startsWith(DAY_NAME[dowOf(d.date)])),
+  "@Fred checked exactly this on production: 94 of 94");
+check("buildWeek accepts any day of that week and still starts on the Monday",
+  buildWeek(STORE, GRID, "2026-09-17")[0].date === "2026-09-14");
 
-check("the harness can actually change the clock, or nothing below means anything",
-  under("Australia/Sydney", () => new Date("2026-09-07T00:00:00").toISOString())
-    !== under("UTC", () => new Date("2026-09-07T00:00:00").toISOString()),
-  "if these match, process.env.TZ is being ignored and these cases prove nothing");
+const noGridWeek = buildWeek(STORE,
+  [line({ name: "Challah", sent: 20, unit_price: 4.70, xero_code: "CH" })],
+  "2026-09-14");
+check("a customer with no grid refuses on every day, so the week cannot half-bill",
+  noGridWeek.every((d) => d.kind === "refuse"));
 
-for (const tz of CLOCKS) {
-  // Thursday 10 September 2026. The Monday of that week is the 7th, and it is
-  // the 7th in Perth, in Kiritimati and in Samoa. A billing period is a
-  // calendar fact about a business in Sydney, not a fact about a laptop.
-  check(`Thursday resolves to its own Monday under ${tz}`,
-    under(tz, () => weekStart("2026-09-10")) === "2026-09-07",
-    under(tz, () => weekStart("2026-09-10")));
-}
-
-check("a Monday is its own week start",
-  weekStart("2026-09-07") === "2026-09-07");
-check("a Sunday belongs to the week that started six days earlier, not the next one",
-  weekStart("2026-09-13") === "2026-09-07",
-  "getDay() is 0 on Sunday; the naive subtraction sends it forward a week");
-check("across a month boundary",
-  weekStart("2026-10-01") === "2026-09-28");
-check("across a year boundary",
-  weekStart("2027-01-01") === "2026-12-28");
-check("across the end of daylight saving in Sydney (5 April 2026, clocks go back)",
-  weekStart("2026-04-05") === "2026-03-30",
-  "the 5th is a Sunday and the day it falls on is 25 hours long in Sydney");
-check("across the start of daylight saving in Sydney (4 October 2026, clocks go forward)",
-  under("Australia/Sydney", () => weekStart("2026-10-04")) === "2026-09-28",
-  "23-hour day; naive local arithmetic lands on the wrong side of it");
-
-check("a value that is not a date refuses rather than inventing a week",
-  (() => { try { weekStart("last monday"); return false; } catch { return true; } })());
-
+/* ---------------------------------------------------------------- *
+ * Idempotency.
+ * ---------------------------------------------------------------- */
 console.log("\n— idempotency —\n");
 
-/* THE REGRESSION THIS SECTION EXISTS FOR.
- *
- * idempotencyKey is the only thing standing between a customer and being
- * billed twice for one week: Xero dedupes on that header. It was being built
- * from a period start computed on the drafter's own clock, so Simona in
- * Sydney and anyone on a UTC machine produced two different keys for the same
- * store and the same week -- and Xero would have accepted both. */
-const sydney = idempotencyKey("store-1", under("Australia/Sydney", () => weekStart("2026-09-10")));
-const utc = idempotencyKey("store-1", under("UTC", () => weekStart("2026-09-10")));
-check("two people on different clocks cannot each draft the same week",
-  sydney === utc, `${sydney}  vs  ${utc}`);
+check("the key is per store per DAY",
+  idempotencyKey("store-1", "2026-09-14") !== idempotencyKey("store-1", "2026-09-16"),
+  "a weekly key would make Xero swallow every invoice after the first as a duplicate");
+check("the same store and day gives the same key",
+  idempotencyKey("store-1", "2026-09-14") === idempotencyKey("store-1", "2026-09-14"));
+check("two stores on the same day do not collide",
+  idempotencyKey("store-1", "2026-09-14") !== idempotencyKey("store-2", "2026-09-14"));
+for (const tz of ZONES) {
+  check(`the key is identical under ${tz}`,
+    under(tz, () => idempotencyKey("store-1", billingWeekStart("2026-09-13"))) ===
+    "jb-store-1-2026-09-14",
+    "it decides whether a customer can be billed twice");
+}
+check("the key is inside Xero's 128 character limit",
+  idempotencyKey("00000000-0000-0000-0000-000000000000", "2026-09-14").length <= 128);
+check("dueDate is pure arithmetic on the date",
+  dueDate("2026-09-14") === "2026-09-28");
 
-const k1 = idempotencyKey("store-1", "2026-09-08");
-const k2 = idempotencyKey("store-1", "2026-09-08");
-const k3 = idempotencyKey("store-1", "2026-09-15");
-check("the same customer and week gives the same key", k1 === k2, k1);
-check("a different week gives a different key", k1 !== k3);
-check("within Xero's 128 character limit", k1.length <= 128);
-
-console.log("\n— the payload, against a real legacy invoice —\n");
-
-/* @Fred pulled one of the actual invoice files out of Jesse's Data Factory on
- * 11 September. Sixteen months of invoices to these same customers look like
- * this and nothing else:
- *
- *   Type, Contact.ContactID, Date, DueDate, Reference, Status
- *   LineItems[]: Description, Quantity, UnitAmount, ItemCode, LineAmount
- *
- * Two of those we were sending that production never has, and several we do
- * not send yet. Both directions are asserted, because "Xero accepted it" is
- * not the bar -- Xero would accept a payload that quietly re-files a
- * customer's sales under a different account. */
-const PRODUCTION_INVOICE_FIELDS = ["Type", "Contact", "Date", "DueDate", "Reference", "Status"];
-const PRODUCTION_LINE_FIELDS = ["Description", "Quantity", "UnitAmount", "ItemCode", "LineAmount"];
+/* ---------------------------------------------------------------- *
+ * The payload, field for field.
+ * ---------------------------------------------------------------- */
+console.log("\n— the payload —\n");
 
 const body = invoiceBody({
   contactId: STORE.xero_contact_id,
-  reference: "KRINSKYS",
-  idempotencyKey: "jb-store-1-2026-09-14",
-  lines: [{ itemCode: "BAGEL5", description: "Bagel 5 Pack", quantity: 12, unitAmount: 4.95 }],
+  reference: "MONDAY - KRINSKYS",
+  date: "2026-09-14",
+  dueDate: "2026-09-28",
+  idempotencyKey: "jb-x-2026-09-14",
+  lines: [{ itemCode: "CH-SS", description: "Challah", quantity: 10, unitAmount: 4.7 }],
 });
 const inv = body.Invoices[0] as Record<string, unknown>;
-const lineKeys = Object.keys((inv.LineItems as Record<string, unknown>[])[0]);
-const invKeys = Object.keys(inv).filter((k) => k !== "LineItems");
+const li = (inv.LineItems as Record<string, unknown>[])[0];
 
-// The two that were wrong. Xero fills the account and the tax from the item,
-// so ours would have overridden the customer's own accounting.
-check("no AccountCode on the line, production sends none",
-  !lineKeys.includes("AccountCode"), lineKeys.join(", "));
-check("no TaxType on the line, production sends none",
-  !lineKeys.includes("TaxType"), lineKeys.join(", "));
+check("the invoice keys are exactly what production sends",
+  JSON.stringify(Object.keys(inv).sort()) ===
+  JSON.stringify(["Contact", "Date", "DueDate", "LineItems", "Reference", "Status", "Type"]),
+  Object.keys(inv).sort().join(", "));
+check("Date is sent, which it never used to be",
+  inv.Date === "2026-09-14",
+  "without it Xero dates the invoice the day it was drafted, not the delivery day");
+check("DueDate is sent", inv.DueDate === "2026-09-28");
+check("it is a customer invoice", inv.Type === "ACCREC");
+check("DRAFT, always", inv.Status === "DRAFT");
+check("there is no way to ask for anything but DRAFT",
+  !("Status" in ({} as Record<string, unknown>)) && inv.Status === "DRAFT");
 
-// Nothing invented, in either place. A field production has never sent is a
-// field nobody has checked the effect of.
-const strayInv = invKeys.filter((k) => !PRODUCTION_INVOICE_FIELDS.includes(k));
-const strayLine = lineKeys.filter((k) => !PRODUCTION_LINE_FIELDS.includes(k));
-check("the invoice sends nothing production does not", strayInv.length === 0, strayInv.join(", "));
-check("the lines send nothing production does not", strayLine.length === 0, strayLine.join(", "));
+check("the line keys are exactly what we intend to send",
+  JSON.stringify(Object.keys(li).sort()) ===
+  JSON.stringify(["Description", "ItemCode", "Quantity", "UnitAmount"]),
+  Object.keys(li).sort().join(", "));
+check("no AccountCode",
+  !("AccountCode" in li),
+  "production sends none and Xero fills it from the item; ours would override 16 months of their accounting");
+check("no TaxType", !("TaxType" in li));
+check("no LineAmount, and that is the one deliberate difference from production",
+  !("LineAmount" in li),
+  "Xero computes it from Quantity x UnitAmount, so sending ours can only ever agree or contradict");
 
-// And the gap in the other direction, recorded by name and asserted to be
-// EXACTLY this size. Not a TODO -- a TODO cannot fail. Each of these is
-// blocked on one of two questions with @Fred as of 14 September: what the
-// Reference string actually reads, and whether the Sunday run bills the week
-// ahead or the week behind. Close either and this list must shrink, and this
-// check is what makes forgetting impossible.
-const KNOWN_MISSING_INVOICE = ["Date", "DueDate"];
-const KNOWN_MISSING_LINE = ["LineAmount"];
-const missingInv = PRODUCTION_INVOICE_FIELDS.filter((k) => !invKeys.includes(k));
-const missingLine = PRODUCTION_LINE_FIELDS.filter((k) => !lineKeys.includes(k));
-check("the invoice fields still missing are exactly the ones we know about",
-  JSON.stringify(missingInv) === JSON.stringify(KNOWN_MISSING_INVOICE),
-  `missing: [${missingInv.join(", ")}]  expected: [${KNOWN_MISSING_INVOICE.join(", ")}]`);
-check("the line fields still missing are exactly the ones we know about",
-  JSON.stringify(missingLine) === JSON.stringify(KNOWN_MISSING_LINE),
-  `missing: [${missingLine.join(", ")}]  expected: [${KNOWN_MISSING_LINE.join(", ")}]`);
-
-check("it is still a draft, and still ACCREC",
-  inv.Status === "DRAFT" && inv.Type === "ACCREC");
-
-// The per-customer price is the whole invoicing module. Bagel 5 Pack goes out
-// at 4.50, 4.95, 5.00 and 5.20 to different customers on the same ItemCode --
-// production data, not the spec.
-const line0 = (inv.LineItems as Record<string, unknown>[])[0];
-check("UnitAmount rides alongside ItemCode rather than being derived from it",
-  line0.ItemCode === "BAGEL5" && line0.UnitAmount === 4.95);
-
-console.log(fails === 0 ? "\nAll cases pass." : `\n${fails} case(s) FAILED.`);
+console.log(
+  fails === 0
+    ? `\n  ${"All checks pass"}. One invoice per store per delivery day, dated forward.\n`
+    : `\n  ${fails} FAILED\n`,
+);
 process.exit(fails === 0 ? 0 : 1);

@@ -13,23 +13,31 @@
  * tokens are not required. An access token can be requested using only
  * the client_id and client_secret." Access tokens last 30 minutes and are
  * re-requested silently. One organisation per connection, which is
- * exactly what we want. It is a paid add-on.
+ * exactly what we want. It is a paid add-on, and Jesse already has one:
+ * the legacy Data Factory authenticates with client_credentials out of
+ * Key Vault, which only exists via a Custom Connection. Confirmed by
+ * @Fred, 11 September 2026.
  *
- * THE ONE THING NOT PROVEN FROM DOCUMENTATION
+ * THE THING THAT WAS NOT PROVEN IS NOW PROVEN
  *
  * Everything here rests on LineItem.UnitAmount overriding the price
  * stored on the Xero item -- without that, per-customer pricing is
- * impossible and the invoicing module does not work. Xero's own OpenAPI
- * spec and three of their SDKs describe UnitAmount and ItemCode as
- * separate, independently-settable fields with no "recalculate from item"
- * behaviour, and every bulk-invoicing tool relies on that. But their
- * documentation site is a JavaScript app and the page that would say it
- * in one sentence could not be read.
+ * impossible and the invoicing module does not work. This comment used to
+ * say that could not be confirmed: Xero's OpenAPI spec and three of their
+ * SDKs describe UnitAmount and ItemCode as separate, independently
+ * settable fields, but their documentation site is a JavaScript app and
+ * the page that would say it in one sentence could not be read.
  *
- * So the FIRST invoice this creates is a DRAFT, and it should be opened
- * in Xero and checked before anyone trusts the second one. See
- * createDraftInvoice below -- nothing here can create an AUTHORISED
- * invoice at all.
+ * @Fred settled it on 11 September 2026 against production data rather
+ * than against a spec. In the week he pulled out of Jesse's Data Factory,
+ * Bagel 5 Pack goes out at 4.50, 4.95, 5.00 and 5.20 to four different
+ * customers on the SAME ItemCode, and Challah Large at nine different
+ * prices. Per-customer UnitAmount overriding the item price is how every
+ * invoice has been sent since May 2025.
+ *
+ * Everything this creates is still a DRAFT, and there is no parameter to
+ * make it anything else. Production posts drafts too -- all 94 in the week
+ * he pulled -- and Simona sends them from inside Xero.
  *
  * CREDENTIALS live in Supabase secrets. This repository is public.
  * Nothing here logs or returns the client secret, including in an error.
@@ -181,11 +189,15 @@ export type XeroInvoiceResult = {
  * Create ONE draft sales invoice.
  *
  * DRAFT, always. There is no parameter to make it anything else, and
- * that is deliberate: a draft is fully editable and can be deleted, an
- * AUTHORISED invoice with a payment against it is effectively locked, and
- * the whole per-customer-price mechanism has not yet been confirmed
- * against a real Xero organisation. Simona approves and sends from inside
- * Xero, which is also how the legacy system behaved.
+ * that is deliberate: a draft is fully editable and can be deleted, while
+ * an AUTHORISED invoice with a payment against it is effectively locked.
+ * It is also what production does -- every one of the 94 invoices in the
+ * week @Fred pulled was posted as DRAFT. Simona approves and sends from
+ * inside Xero, which is how the legacy system has always behaved.
+ *
+ * ONE INVOICE PER STORE PER DELIVERY DAY, dated on that day. The caller
+ * supplies Date and DueDate; this used to send neither, which left Xero
+ * dating every invoice the day it happened to be drafted.
  *
  * The Idempotency-Key is what makes a retry safe. Timeouts are the case
  * where you cannot tell whether the first call landed, and a duplicate
