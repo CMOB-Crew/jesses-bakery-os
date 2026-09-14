@@ -1,5 +1,10 @@
 # Auth + RLS foundation — setup & apply order
 
+> **Audited 10 Sep 2026 — see [`RLS-AUDIT-2026-09-10.md`](RLS-AUDIT-2026-09-10.md).**
+> The design below is sound and steps 1-4 are verifiably done. Step 5 (the
+> non-owner `jbo_app` role) is the one that decides whether any of it works, and
+> `DEPLOY.md` currently tells you to do the opposite. Read the audit first.
+
 Connection model: **Option A** (Fred, confirmed 19 Aug 2026). Keep the raw
 `postgres.js` SQL layer; inject the verified user's JWT claims per request
 (transaction-local). No query rewrite.

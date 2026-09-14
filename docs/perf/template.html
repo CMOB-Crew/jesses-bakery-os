@@ -1,0 +1,362 @@
+<title>Jesse's Bakery OS Performance Fixes</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style id="css">
+:root{
+  --paper:#f6f1e7;--card:#fffdf8;--surface:#faf6ee;
+  --ink:#211c16;--ink2:#524a3e;--muted:#8a8071;--faint:#a89e8d;
+  --line:#e8dfcf;--line2:#f2ecde;
+  --crust:#b0741c;--crust-deep:#8a5714;
+  --red:#be5138;--red-t:#9c3520;--red-b:#f3dbd1;
+  --amber:#c68a2e;--amber-t:#7c5308;--amber-b:#f5e7cb;
+  --green:#5f8f5a;--green-t:#356630;--green-b:#e8efe2;
+  --violet:#6f5b9e;--violet-t:#4a3a72;--violet-b:#e9e4f2;
+  --code-b:#f1ebdf;--code-t:#3a2e1f;
+  --serif:"Fraunces",Georgia,"Times New Roman",serif;
+  --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sh:0 1px 2px rgba(60,45,30,.06);
+  --measure:68ch;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#1a1511;--card:#221c16;--surface:#1f1913;
+    --ink:#efe7d8;--ink2:#cdbfa9;--muted:#9b8f7c;--faint:#7a7062;
+    --line:#3a3128;--line2:#2c251e;
+    --crust:#d09a3e;--crust-deep:#e2b45f;
+    --red:#d9705a;--red-t:#f0a795;--red-b:#3b2119;
+    --amber:#d9a04a;--amber-t:#f0cd8b;--amber-b:#3a2c12;
+    --green:#7aa874;--green-t:#b7d5b0;--green-b:#1e2c1c;
+    --violet:#9d8bc9;--violet-t:#cdc1e6;--violet-b:#2a2338;
+    --code-b:#2a231b;--code-t:#e6dcc8;
+    --sh:0 1px 2px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#1a1511;--card:#221c16;--surface:#1f1913;
+  --ink:#efe7d8;--ink2:#cdbfa9;--muted:#9b8f7c;--faint:#7a7062;
+  --line:#3a3128;--line2:#2c251e;
+  --crust:#d09a3e;--crust-deep:#e2b45f;
+  --red:#d9705a;--red-t:#f0a795;--red-b:#3b2119;
+  --amber:#d9a04a;--amber-t:#f0cd8b;--amber-b:#3a2c12;
+  --green:#7aa874;--green-t:#b7d5b0;--green-b:#1e2c1c;
+  --violet:#9d8bc9;--violet-t:#cdc1e6;--violet-b:#2a2338;
+  --code-b:#2a231b;--code-t:#e6dcc8;
+  --sh:0 1px 2px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+html{color-scheme:light dark;scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;font-optical-sizing:auto}
+code{font-family:var(--mono);font-size:.86em;background:var(--code-b);color:var(--code-t);padding:1px 5px;border-radius:4px}
+a{color:inherit}
+
+/* ---------- frame ---------- */
+.frame{display:grid;grid-template-columns:260px minmax(0,1fr);gap:0;max-width:1240px;margin:0 auto;padding-inline:24px}
+@media (max-width:900px){.frame{grid-template-columns:minmax(0,1fr);padding-inline:18px}}
+.side{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding-block:40px 40px;padding-right:28px;border-right:1px solid var(--line);font-size:13.5px}
+@media (max-width:900px){.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:22px 0 18px;overflow:visible}}
+.side .brand{font-family:var(--serif);font-size:15px;font-weight:500;color:var(--ink);margin:0 0 4px}
+.side .k{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:22px 0 10px}
+.side ol{list-style:none;margin:0;padding:0}
+.side li a{display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding:7px 10px;margin:0 0 2px -10px;border-radius:8px;text-decoration:none;color:var(--ink2);line-height:1.35}
+.side li a:hover,.side li a:focus-visible{background:var(--surface);color:var(--ink);outline:none}
+.side li a.on{background:var(--card);color:var(--ink);box-shadow:var(--sh);border:1px solid var(--line);margin-left:-11px}
+.side li a .n{font-family:var(--serif);font-size:14px;color:var(--faint);min-width:1.2em}
+.side li a .t{flex:1;min-width:0}
+.side li a .c{font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.side li a.opt .t::after{content:"optional";display:inline-block;margin-left:6px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--violet-t);background:var(--violet-b);padding:1px 6px;border-radius:999px;vertical-align:1px}
+.side .mini{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
+.side .mini .big{font-family:var(--serif);font-size:24px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1}
+.side .mini .big small{font-family:var(--sans);font-size:12px;color:var(--muted);font-weight:400;margin-left:5px}
+.bar{height:6px;border-radius:999px;background:var(--line2);margin-top:10px;overflow:hidden;display:flex}
+.bar i{display:block;height:100%}
+.bar .d{background:var(--green)}.bar .g{background:var(--amber)}.bar .k2{background:var(--faint)}
+.side .saved{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4}
+@media (max-width:900px){.side .k,.side ol,.side .mini{display:none}.side .mini.m{display:block;border:0;padding:0;margin:8px 0 0}}
+
+.main{padding-block:52px 120px;padding-left:56px;min-width:0}
+@media (max-width:900px){.main{padding-left:0;padding-block:28px 90px}}
+.measure{max-width:var(--measure)}
+
+/* ---------- masthead ---------- */
+.mast{margin:0 0 56px;padding-bottom:34px;border-bottom:1px solid var(--ink)}
+.kicker{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--crust-deep);font-weight:600;margin:0 0 18px}
+h1{font-family:var(--serif);font-weight:400;font-size:clamp(38px,5.4vw,60px);line-height:1.02;letter-spacing:-.015em;margin:0 0 20px;text-wrap:balance;font-variation-settings:"opsz" 144;max-width:16ch}
+.stand{font-family:var(--serif);font-weight:300;font-size:clamp(19px,2.2vw,23px);line-height:1.4;color:var(--ink2);margin:0 0 22px;max-width:34ch;font-variation-settings:"opsz" 30}
+.dateline{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.dateline b{color:var(--ink2);font-weight:500}
+
+/* ---------- reading sections ---------- */
+.sec{margin:0 0 64px;scroll-margin-top:24px}
+.sec h2{font-family:var(--serif);font-weight:400;font-size:30px;line-height:1.15;letter-spacing:-.01em;margin:0 0 14px;text-wrap:balance}
+.sec p{margin:0 0 14px;max-width:var(--measure)}
+.sec ol,.sec ul{margin:0 0 14px;padding-left:22px;max-width:var(--measure)}
+.sec li{margin:0 0 8px}
+.sec li::marker{color:var(--crust)}
+.callout{border:1px solid var(--line);border-left:4px solid var(--crust);background:var(--surface);border-radius:0 12px 12px 0;padding:18px 22px;margin:0 0 18px;max-width:var(--measure)}
+.callout h3{font-family:var(--serif);font-weight:500;font-size:19px;margin:0 0 6px}
+.callout p{margin:0 0 8px}
+.callout p:last-child{margin:0}
+.filelist{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14.5px;margin:12px 0 0;max-width:var(--measure)}
+.filelist dt{font-family:var(--mono);font-size:13px;color:var(--crust-deep);white-space:nowrap}
+.filelist dd{margin:0;color:var(--ink2)}
+@media (max-width:600px){.filelist{grid-template-columns:1fr}.filelist dd{margin-bottom:6px}}
+
+/* ---------- phase opener ---------- */
+.phase{margin:0 0 72px;scroll-margin-top:24px}
+.ph{display:grid;grid-template-columns:auto 1fr;gap:22px;align-items:end;padding-top:26px;border-top:2px solid var(--pc,var(--ink));margin:0 0 22px}
+.ph .num{font-family:var(--serif);font-weight:300;font-size:clamp(64px,9vw,104px);line-height:.85;letter-spacing:-.03em;color:var(--pc,var(--ink));font-variation-settings:"opsz" 144}
+.ph .txt h2{font-family:var(--serif);font-weight:400;font-size:clamp(26px,3.2vw,34px);line-height:1.1;letter-spacing:-.01em;margin:0 0 4px}
+.ph .txt .sub{font-family:var(--serif);font-weight:300;font-size:18px;color:var(--ink2);margin:0}
+.ph .txt .cnt{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:8px;font-variant-numeric:tabular-nums}
+.pd{color:var(--ink2);margin:0 0 26px;max-width:var(--measure);font-size:16.5px}
+.p1{--pc:var(--red)}.p2{--pc:var(--amber)}.p3{--pc:var(--green)}.p4{--pc:var(--violet)}.p5{--pc:var(--faint)}
+.gate{border:2px solid var(--violet);background:var(--violet-b);color:var(--violet-t);border-radius:14px;padding:20px 24px;margin:0 0 26px;max-width:var(--measure)}
+.gate h3{font-family:var(--serif);font-weight:500;font-size:20px;margin:0 0 8px;color:inherit}
+.gate p{margin:0 0 8px;color:inherit}
+.gate p:last-child{margin:0}
+.gate b{font-weight:600}
+
+/* ---------- cards ---------- */
+.item{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--sh);margin:0 0 18px;overflow:hidden;scroll-margin-top:24px}
+.item.done{opacity:.72}.item.skip{opacity:.6}
+.ih{display:flex;gap:16px;align-items:flex-start;padding:22px 26px 12px}
+.ih .no{font-family:var(--serif);font-size:22px;font-weight:300;color:var(--faint);min-width:34px;line-height:1.2;font-variant-numeric:tabular-nums}
+.it{flex:1;min-width:0}
+.it h3{font-family:var(--serif);font-weight:500;font-size:21px;line-height:1.25;margin:0 0 8px;letter-spacing:-.005em}
+.item.done .it h3{text-decoration:line-through;text-decoration-color:var(--faint)}
+.tags{display:flex;gap:6px;flex-wrap:wrap}
+.tag{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:999px;line-height:1.5}
+.t-speed{background:var(--amber-b);color:var(--amber-t)}
+.t-data{background:var(--red-b);color:var(--red-t)}
+.t-cost{background:var(--violet-b);color:var(--violet-t)}
+.t-eff{background:var(--line2);color:var(--ink2)}
+.st{display:flex;gap:4px;flex:none;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px}
+.st button{font:inherit;font-size:12.5px;font-weight:500;padding:5px 11px;border-radius:999px;border:0;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap}
+.st button[aria-pressed="true"]{color:var(--ink);background:var(--card);box-shadow:var(--sh)}
+.st button.sdone[aria-pressed="true"]{background:var(--green-b);color:var(--green-t)}
+.st button.sdoing[aria-pressed="true"]{background:var(--amber-b);color:var(--amber-t)}
+.st button:focus-visible{outline:2px solid var(--crust);outline-offset:1px}
+.ib{padding:4px 26px 24px 76px;display:grid;gap:14px}
+@media (max-width:640px){.ih{flex-wrap:wrap;padding:18px 18px 10px}.st{order:3;width:100%;justify-content:space-between}.ib{padding:4px 18px 20px 18px}}
+.kv{display:grid;grid-template-columns:92px minmax(0,1fr);gap:10px 16px;font-size:15px}
+@media (max-width:520px){.kv{grid-template-columns:1fr;gap:4px}}
+.kv b{font-weight:600;color:var(--muted);font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;padding-top:4px}
+.kv p{margin:0;max-width:60ch;color:var(--ink)}
+.where{display:flex;flex-direction:column;gap:4px}
+.where code{font-family:var(--mono);font-size:12.5px;background:transparent;padding:0;color:var(--ink2);word-break:break-all}
+.where code b{color:var(--crust-deep);font-weight:500}
+.ex{display:grid;grid-template-columns:1fr;gap:12px}
+.ex div{min-width:0}
+.ex span{display:block;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 5px}
+.ex .after span{color:var(--green-t)}
+.ex pre{margin:0;font-family:var(--mono);font-size:12.5px;line-height:1.55;background:var(--code-b);color:var(--code-t);padding:12px 14px;border-radius:10px;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;border-left:3px solid var(--line)}
+.ex .after pre{border-left-color:var(--green)}
+.exnote{font-size:12.5px;color:var(--muted);margin-top:6px}
+
+/* ---------- glossary ---------- */
+.gl dl{display:grid;grid-template-columns:minmax(150px,200px) minmax(0,1fr);gap:12px 20px;margin:0;max-width:var(--measure)}
+.gl dt{font-weight:600;font-size:15px}
+.gl dd{margin:0;color:var(--ink2);font-size:15px}
+@media (max-width:520px){.gl dl{grid-template-columns:1fr}.gl dd{margin-bottom:10px}}
+.foot{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13px;max-width:var(--measure)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:9px 14px;border-radius:999px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.on{opacity:1}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+</style>
+<script id="data" type="application/json">__DATA__</script>
+<script id="state" type="application/json">{}</script>
+<div id="app"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script id="boot">
+(function(){
+  // The cards, phases and glossary come from the #data block. It is generated
+  // from gen/items.js, the same source that produces PERFORMANCE-FIXES.md,
+  // so this page and the markdown file always say the same thing.
+  var D = JSON.parse(document.getElementById("data").textContent);
+  var META = D.META, GROUPS = D.GROUPS, ITEMS = D.ITEMS, GLOSSARY = D.GLOSSARY;
+
+  var state = {};
+  try { state = JSON.parse(document.getElementById("state").textContent || "{}") || {}; } catch (e) { state = {}; }
+  var LS_KEY = "jb-perf-local";
+  var local = {};
+  try { local = JSON.parse(localStorage.getItem(LS_KEY) || "{}") || {}; } catch (e) { local = {}; }
+  var mode = "pending", artifactNs = null;
+
+  function st(id){ return (state[id] && state[id].s) || (local[id] && local[id].s) || "todo"; }
+  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+  // `code` spans in prose: backticks -> <code>
+  function md(s){ return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>"); }
+
+  var STATUS = [["todo","To do",""],["doing","Doing","sdoing"],["done","Done","sdone"],["skip","Skip",""]];
+  function whereHtml(w){
+    return '<div class="where">' + w.map(function(p){
+      var m = p.match(/^(.*?)(:\d+)?$/);
+      return '<code>' + esc(m[1]) + (m[2] ? '<b>' + m[2] + '</b>' : '') + '</code>';
+    }).join("") + '</div>';
+  }
+  function tagHtml(t){
+    var map = {speed:["t-speed","Makes it faster"], data:["t-data","Stops lost work"], cost:["t-cost","Costs less to run"]};
+    var x = map[t]; return x ? '<span class="tag '+x[0]+'">'+x[1]+'</span>' : '';
+  }
+  function itemHtml(it, idx){
+    var s = st(it.id);
+    return '<article class="item '+s+'" id="c-'+it.id+'" data-id="'+it.id+'">' +
+      '<div class="ih"><div class="no">'+idx+'</div><div class="it"><h3>'+esc(it.title)+'</h3>' +
+      '<div class="tags"><span class="tag t-eff">'+esc(it.effort)+'</span>'+it.tags.map(tagHtml).join("")+'</div></div>' +
+      '<div class="st" role="group" aria-label="Status">' + STATUS.map(function(x){
+        return '<button type="button" class="'+x[2]+'" data-set="'+x[0]+'" aria-pressed="'+(s===x[0])+'">'+x[1]+'</button>';
+      }).join("") + '</div></div>' +
+      '<div class="ib"><div class="kv">' +
+      '<b>Problem</b><p>'+md(it.why)+'</p>' +
+      '<b>Fix</b><p>'+md(it.fix)+'</p>' +
+      '<b>Where</b>'+whereHtml(it.where) +
+      '<b>Check</b><p>'+md(it.verify)+'</p>' +
+      '<b>Example</b><div><div class="ex"><div class="before"><span>Before</span><pre>'+esc(it.ex.before)+'</pre></div><div class="after"><span>After</span><pre>'+esc(it.ex.after)+'</pre></div></div><div class="exnote">Made-up snippet showing the shape of the change. Not real code from the repo.</div></div>' +
+      '</div></div></article>';
+  }
+  function counts(list){
+    var c = {todo:0,doing:0,done:0,skip:0};
+    list.forEach(function(it){ c[st(it.id)]++; });
+    return c;
+  }
+  function progressHtml(cls){
+    var c = counts(ITEMS), total = ITEMS.length;
+    var pct = function(n){ return (100*n/total).toFixed(1)+'%'; };
+    return '<div class="mini '+(cls||'')+'"><div class="big">'+c.done+'<small>of '+total+' done</small></div>' +
+      '<div class="bar"><i class="d" style="width:'+pct(c.done)+'"></i><i class="g" style="width:'+pct(c.doing)+'"></i><i class="k2" style="width:'+pct(c.skip)+'"></i></div>' +
+      '<div class="saved" id="savedline"></div></div>';
+  }
+  function render(){
+    var html = '<div class="frame"><aside class="side" aria-label="Contents">' +
+      '<p class="brand">Jesse’s Bakery OS</p>' + progressHtml('m') +
+      '<p class="k">Contents</p><ol>' +
+      '<li><a href="#start"><span class="n">·</span><span class="t">How to use this</span></a></li>';
+    GROUPS.forEach(function(g){
+      var all = ITEMS.filter(function(it){ return it.group === g.n; });
+      var d = all.filter(function(it){ return st(it.id) === "done"; }).length;
+      html += '<li><a href="#'+g.key+'" class="'+(g.optional?'opt':'')+'"><span class="n">'+g.n+'</span><span class="t">'+esc(g.title === "Parked" ? "Parked" : g.sub)+'</span><span class="c">'+d+'/'+all.length+'</span></a></li>';
+    });
+    html += '<li><a href="#agent"><span class="n">·</span><span class="t">For your AI agent</span></a></li>' +
+      '<li><a href="#glossary"><span class="n">·</span><span class="t">Words used here</span></a></li></ol>' +
+      progressHtml('') + '</aside><main class="main">';
+
+    html += '<header class="mast"><p class="kicker">Code review · ' + esc(META.date) + ' · nothing changed yet</p>' +
+      '<h1>' + esc(META.title) + '</h1>' +
+      '<p class="stand">' + ITEMS.length + ' changes that make the app faster, keep work from being lost, or cost less to run. Grouped into phases, plain words, one fix per card.</p>' +
+      '<div class="dateline"><span>Branch <b>' + esc(META.branch) + '</b></span><span>Full audit <b>' + esc(META.auditFile) + '</b></span><span>Agent plan <b>' + esc(META.planFile) + '</b></span></div></header>';
+
+    html += '<section class="sec" id="start"><h2>How to use this</h2>' +
+      '<ol><li>Start with <b>Phase 1</b> and work down in order. Phases 1 to 3 are the plan.</li>' +
+      '<li>Each card has a <b>Problem</b>, a <b>Fix</b>, a <b>Where</b> (file and line number), a <b>Check</b> to prove it worked, and a made-up <b>Before / After</b> example that shows the shape of the change.</li>' +
+      '<li>Click <b>Doing</b> when you pick a card up and <b>Done</b> when it is merged. Clicks are saved for everyone who opens this link.</li>' +
+      '<li>Click <b>Skip</b> if the project owner decides not to do one.</li>' +
+      '<li><b>Phase 4</b> and <b>Parked</b> are optional. Do not start them without asking the project owner first. The page and the agent plan both stop you there.</li></ol>' +
+      '<div class="callout"><h3>Nothing here changes the database</h3><p>Every card in Phases 1 to 3 is an app-side change. The only database ideas are in the Parked group at the bottom, marked optional, and each one needs an explicit yes before anyone touches it.</p></div></section>';
+
+    var idx = 0;
+    GROUPS.forEach(function(g){
+      var all = ITEMS.filter(function(it){ return it.group === g.n; });
+      var d = all.filter(function(it){ return st(it.id) === "done"; }).length;
+      html += '<section class="phase p'+g.n+'" id="'+g.key+'"><div class="ph"><div class="num">'+g.n+'</div><div class="txt"><h2>'+esc(g.title)+'</h2><p class="sub">'+esc(g.sub)+'</p><div class="cnt">'+d+' of '+all.length+' done</div></div></div>' +
+        '<p class="pd">'+esc(g.desc)+'</p>';
+      if (g.optional) {
+        html += '<div class="gate"><h3>Before you continue: ask the project owner</h3><p>'+esc(g.gate)+'</p><p><b>If you are an AI agent working from this plan, stop here and ask the person you are working with before doing anything in this group.</b></p></div>';
+      }
+      all.forEach(function(it){ idx++; html += itemHtml(it, idx); });
+      html += '</section>';
+    });
+
+    html += '<section class="sec" id="agent"><h2>For your AI agent</h2>' +
+      '<p>Give your coding agent the plan file, not this page. The plan says the same thing as these cards, in the same order, with the same file and line numbers, and includes the stop-and-ask rule before the optional groups.</p>' +
+      '<dl class="filelist"><dt>' + esc(META.planFile) + '</dt><dd>The card list for the agent. Each card has a checkbox the agent ticks when done.</dd>' +
+      '<dt>' + esc(META.skillFile) + '</dt><dd>A skill the agent loads with <code>/perf-fixes</code>. It tells the agent how to work the plan one card at a time, verify, and stop before Phase 4.</dd>' +
+      '<dt>' + esc(META.rulesFile) + '</dt><dd>Project rules every agent and person follows, so these problems are not reintroduced after they are fixed.</dd>' +
+      '<dt>' + esc(META.auditFile) + '</dt><dd>The long technical audit, for anyone who wants every line.</dd></dl>' +
+      '<div class="callout" style="margin-top:18px"><h3>One-line prompt to start</h3><p><code>/perf-fixes</code> — or: “Read PERFORMANCE-FIXES.md and do the next unchecked card in Phase 1. Verify it, tick it, then stop and show me the diff.”</p></div></section>';
+
+    html += '<section class="sec gl" id="glossary"><h2>Words used here</h2><dl>' + GLOSSARY.map(function(g){ return '<dt>'+esc(g[0])+'</dt><dd>'+md(g[1])+'</dd>'; }).join("") + '</dl></section>';
+    html += '<p class="foot">Order was set by measured cost: trips to the database per page, work per click, and what happens when a request fails. This page and ' + esc(META.planFile) + ' are generated from one list, so they always match.</p>';
+    html += '</main></div>';
+    document.getElementById("app").innerHTML = html;
+    savedLine(); watchSections();
+  }
+  function savedLine(){
+    document.querySelectorAll("#savedline, .saved").forEach(function(el){
+      if (mode === "shared") el.textContent = "Status saves for everyone with this link.";
+      else if (mode === "local") el.textContent = "Read-only copy: status kept on this device only.";
+      else el.textContent = "Connecting…";
+    });
+  }
+  var io = null;
+  function watchSections(){
+    if (io) io.disconnect();
+    var links = {}; document.querySelectorAll(".side li a").forEach(function(a){ links[a.getAttribute("href").slice(1)] = a; });
+    if (!("IntersectionObserver" in window)) return;
+    io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if (en.isIntersecting) {
+          Object.keys(links).forEach(function(k){ links[k].classList.remove("on"); });
+          var a = links[en.target.id]; if (a) a.classList.add("on");
+        }
+      });
+    }, { rootMargin: "-10% 0px -75% 0px", threshold: 0 });
+    document.querySelectorAll(".sec, .phase").forEach(function(s){ io.observe(s); });
+  }
+  function toast(msg){
+    var t = document.getElementById("toast");
+    t.textContent = msg; t.classList.add("on");
+    clearTimeout(toast._t); toast._t = setTimeout(function(){ t.classList.remove("on"); }, 2200);
+  }
+
+  // ---------- the page saves itself ----------
+  function buildDoc(nextState){
+    var css = document.getElementById("css").textContent;
+    var js = document.getElementById("boot").textContent;
+    var data = document.getElementById("data").textContent;
+    var json = JSON.stringify(nextState).replace(/<\//g, "<\\/");
+    return '<!doctype html>\n<html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<title>Jesse’s Bakery OS Performance Fixes</title>' +
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">' +
+      '<style id="css">' + css + '</style></head><body>' +
+      '<script id="data" type="application/json">' + data + '<\/script>' +
+      '<script id="state" type="application/json">' + json + '<\/script>' +
+      '<div id="app"></div><div class="toast" id="toast" role="status" aria-live="polite"></div>' +
+      '<script id="boot">' + js + '<\/script></body></html>';
+  }
+  var saving = false;
+  function saveLocal(){ try { localStorage.setItem(LS_KEY, JSON.stringify(local)); } catch (e) {} }
+  function commit(id, s){
+    var cur = { s: s };
+    if (mode === "local" || !artifactNs) { local[id] = cur; saveLocal(); render(); toast("Saved on this device"); return; }
+    var next = JSON.parse(JSON.stringify(state)); next[id] = cur;
+    state = next; render();
+    if (saving) return;
+    saving = true;
+    artifactNs.publish(buildDoc(next)).then(function(){ toast("Saved for everyone"); }).catch(function(err){
+      saving = false;
+      var code = err && err.code;
+      if (code === "conflict") return;
+      if (code === "not_writer" || code === "not_granted" || code === "not_declared" || code === "capability_disabled") {
+        mode = "local"; local[id] = cur; saveLocal(); render(); toast("Read-only copy: saved on this device"); return;
+      }
+      if (code === "rate_limited") { toast("Saving too fast, try again in a moment"); return; }
+      toast("Could not save: " + (err && err.message ? err.message : "unknown error"));
+    });
+  }
+  document.getElementById("app").addEventListener("click", function(e){
+    var b = e.target.closest("button[data-set]"); if (!b) return;
+    var card = b.closest(".item"); if (!card) return;
+    var id = card.dataset.id;
+    if (st(id) !== b.dataset.set) commit(id, b.dataset.set);
+  });
+
+  render();
+  if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("artifact").then(function(ns){
+      mode = ns ? "shared" : "local"; if (ns) artifactNs = ns;
+      savedLine();
+    });
+  } else { mode = "local"; savedLine(); }
+})();
+</script>
