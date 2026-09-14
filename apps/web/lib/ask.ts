@@ -91,21 +91,70 @@ async function answerQuestionInner(qRaw: string): Promise<Answer> {
     ];
     const catHit = CATS.find((c) => c.kw.some((k) => q.includes(k)));
     if (catHit) {
-      const perProd = await sql<{ name: string; sent: number; sold: number; rec: number }[]>`
-        select p.name, sum(r.sent)::int sent, sum(r.sold)::int sold, sum(r.recommended)::int rec
-        from store_reco r join products p on p.id = r.product_id
+      // MEASURED, not the go-live snapshot.
+      //
+      // This used to read store_reco.sent and store_reco.sold. NOTHING HAS
+      // EVER WRITTEN EITHER COLUMN -- 0 of 588 rows carry a value, and every
+      // migration that touches the table (033, 088, 089) sets only
+      // `recommended`. So the answer came from whatever the legacy load put
+      // there, presented under a label reading "Live query" on a screen that
+      // promises "exact numbers, never guessed".
+      //
+      // 91d8eeb fixed exactly this on the Products page on 10 September and
+      // did not reach here. Same window and the same ranging filter as
+      // v_store_week and Products, so the three cannot disagree about what a
+      // week is.
+      const perProd = await sql<{ name: string; delivered: number; sold: number; standing: number; rec: number }[]>`
+        select p.name,
+               coalesce(sum(dv.delivered), 0)::int as delivered,
+               coalesce(sum(sd.sold), 0)::int      as sold,
+               coalesce(sum(r.sent), 0)::int       as standing,
+               sum(r.recommended)::int             as rec
+        from store_reco r
+        join products p on p.id = r.product_id
+        left join v_store_product_delivered dv
+               on dv.store_id = r.store_id and dv.product_id = r.product_id
+        left join (
+          select s.store_id, s.product_id, sum(s.units_sold)::int as sold
+            from sales_daily s
+            left join store_product_ranging rg
+              on rg.store_id = s.store_id and rg.product_id = s.product_id
+           where s.sale_date >  jb_asof() - 7
+             and s.sale_date <= jb_asof()
+             and coalesce(rg.ranged, true)
+           group by s.store_id, s.product_id
+        ) sd on sd.store_id = r.store_id and sd.product_id = r.product_id
         where p.category = ${catHit.cat}::product_category
-        group by p.name order by sum(r.sent) desc limit 6`;
+        group by p.name
+        order by coalesce(sum(dv.delivered), 0) desc, p.name
+        limit 6`;
       if (perProd.length) {
-        const sent = perProd.reduce((a, r) => a + r.sent, 0);
+        const delivered = perProd.reduce((a, r) => a + r.delivered, 0);
         const sold = perProd.reduce((a, r) => a + r.sold, 0);
+        const standing = perProd.reduce((a, r) => a + r.standing, 0);
         const rec = perProd.reduce((a, r) => a + r.rec, 0);
-        const st = sent > 0 ? Math.round((100 * sold) / sent) : 0;
+        const disclose = `select p.name, sum(dv.delivered) delivered, sum(sd.sold) sold from store_reco r join products p on p.id=r.product_id left join v_store_product_delivered dv on dv.store_id=r.store_id and dv.product_id=r.product_id left join (select store_id, product_id, sum(units_sold) sold from sales_daily where sale_date > jb_asof()-7 and sale_date <= jb_asof() group by 1,2) sd on sd.store_id=r.store_id and sd.product_id=r.product_id where p.category='${catHit.cat}' group by p.name;`;
+
+        // NOTHING DELIVERED IN THE WINDOW IS THE TRUTH TODAY, NOT AN ERROR.
+        // 799 of the 801 delivery rows were seeded in one go on 24 August and
+        // the driver app has been used twice. Printing "0 sells" as though it
+        // were a finding is the exact shape of the bug this replaced, so say
+        // what is actually known instead of dressing a zero as a measurement.
+        if (delivered === 0) {
+          return {
+            headline: `${catHit.label}: no deliveries have been confirmed in the last seven days, so there is nothing measured to report yet. The standing order is ${standing.toLocaleString("en-AU")} a week across ${perProd.length} line${perProd.length === 1 ? "" : "s"}, and the plan would send ${rec.toLocaleString("en-AU")}.`,
+            bars: perProd.map((r) => ({ label: title(r.name), value: r.standing })),
+            note: "Standing order and plan, not measurement. Sell-through fills in as drivers confirm deliveries.",
+            sql: disclose,
+          };
+        }
+
+        const st = Math.round((100 * sold) / delivered);
         return {
-          headline: `${catHit.label}: sending ${sent.toLocaleString("en-AU")} a week across ${perProd.length} line${perProd.length === 1 ? "" : "s"}, ${sold.toLocaleString("en-AU")} sells — ${st}% sell-through. The plan would send ${rec.toLocaleString("en-AU")}.`,
-          bars: perProd.map((r) => ({ label: title(r.name), value: r.sent })),
-          note: `${catHit.label} lines by weekly send. Open Products for the full per-line waste and difference.`,
-          sql: `select p.name, sum(r.sent) sent, sum(r.sold) sold from store_reco r join products p on p.id=r.product_id where p.category='${catHit.cat}' group by p.name;`,
+          headline: `${catHit.label}: ${delivered.toLocaleString("en-AU")} delivered in the last seven days across ${perProd.length} line${perProd.length === 1 ? "" : "s"}, ${sold.toLocaleString("en-AU")} sold — ${st}% sell-through. The plan would send ${rec.toLocaleString("en-AU")}.`,
+          bars: perProd.map((r) => ({ label: title(r.name), value: r.delivered })),
+          note: `${catHit.label} lines by units delivered in the seven days ending the last complete sales day. Open Products for the full per-line waste and difference.`,
+          sql: disclose,
         };
       }
     }
@@ -118,18 +167,62 @@ async function answerQuestionInner(qRaw: string): Promise<Answer> {
     q.includes("over-order") || q.includes("which line") || q.includes("over sending") || q.includes("over-sending") ||
     q.includes("bake less") || q.includes("bake fewer") || q.includes("make less") || q.includes("cut back")
   ) {
-    const rows = await sql<{ name: string; sent: number; sold: number; rec: number; trim: number }[]>`
-      select p.name, sum(r.sent)::int sent, sum(r.sold)::int sold, sum(r.recommended)::int rec,
-             sum(r.sent - r.recommended)::int trim
-      from store_reco r join products p on p.id = r.product_id
-      group by p.name order by trim desc limit 5`;
+    // MEASURED. See the note on the category rollup above -- same two dead
+    // columns, same fix. This one matters more because "What should we cut?"
+    // is a SUGGESTION CHIP on the Overview and on /assistant, so it is one of
+    // the first things anybody clicks.
+    //
+    // It also used to be RANKED UPSIDE DOWN. `trim` was sent - recommended
+    // computed from a column of zeros, so the line it named as most
+    // over-supplied was whichever had the smallest cut.
+    //
+    // Over-supply is now delivered minus sold: what went out and did not
+    // sell. That is what the question actually asks, and it is the same
+    // ordering the Products page uses.
+    const rows = await sql<{ name: string; delivered: number; sold: number; standing: number; rec: number; over: number }[]>`
+      select p.name,
+             coalesce(sum(dv.delivered), 0)::int as delivered,
+             coalesce(sum(sd.sold), 0)::int      as sold,
+             coalesce(sum(r.sent), 0)::int       as standing,
+             sum(r.recommended)::int             as rec,
+             (coalesce(sum(dv.delivered), 0) - coalesce(sum(sd.sold), 0))::int as over
+        from store_reco r
+        join products p on p.id = r.product_id
+        left join v_store_product_delivered dv
+               on dv.store_id = r.store_id and dv.product_id = r.product_id
+        left join (
+          select s.store_id, s.product_id, sum(s.units_sold)::int as sold
+            from sales_daily s
+            left join store_product_ranging rg
+              on rg.store_id = s.store_id and rg.product_id = s.product_id
+           where s.sale_date >  jb_asof() - 7
+             and s.sale_date <= jb_asof()
+             and coalesce(rg.ranged, true)
+           group by s.store_id, s.product_id
+        ) sd on sd.store_id = r.store_id and sd.product_id = r.product_id
+      group by p.name
+      order by over desc, p.name
+      limit 5`;
     if (rows.length) {
       const t = rows[0];
+      const disclose = `select p.name, sum(dv.delivered) delivered, sum(sd.sold) sold, sum(r.recommended) rec from store_reco r join products p on p.id=r.product_id left join v_store_product_delivered dv on dv.store_id=r.store_id and dv.product_id=r.product_id left join (select store_id, product_id, sum(units_sold) sold from sales_daily where sale_date > jb_asof()-7 and sale_date <= jb_asof() group by 1,2) sd on sd.store_id=r.store_id and sd.product_id=r.product_id group by p.name order by sum(dv.delivered)-sum(sd.sold) desc;`;
+
+      // Nothing measured yet is an honest answer. A confident one built from
+      // zeros is what this screen was doing before.
+      if (t.delivered === 0) {
+        return {
+          headline: `Nothing can be measured yet — no deliveries have been confirmed in the last seven days, so there is no sell-through to cut against. The plan already trims the standing order from ${rows.reduce((a, r) => a + r.standing, 0).toLocaleString("en-AU")} to ${rows.reduce((a, r) => a + r.rec, 0).toLocaleString("en-AU")} a week on these five lines.`,
+          bars: rows.map((r) => ({ label: title(r.name), value: r.standing - r.rec })),
+          note: "Standing order against the plan, not measurement. Ask again once drivers have been confirming deliveries for a week.",
+          sql: disclose,
+        };
+      }
+
       return {
-        headline: `${title(t.name)} is the most over-supplied line — sending ${t.sent.toLocaleString("en-AU")} a week across the worst stores where ${t.sold.toLocaleString("en-AU")} sells. The plan would send ${t.rec.toLocaleString("en-AU")}.`,
-        bars: rows.map((r) => ({ label: title(r.name), value: r.trim })),
-        note: "Ranked by units to trim across the worst-waste Woolworths stores. Open a store for its full order.",
-        sql: "select name, sum(sent) sent, sum(recommended) rec from store_reco group by name order by sum(sent-recommended) desc;",
+        headline: `${title(t.name)} is the most over-supplied line — ${t.delivered.toLocaleString("en-AU")} delivered in the last seven days and ${t.sold.toLocaleString("en-AU")} sold, so ${t.over.toLocaleString("en-AU")} did not sell. The plan would send ${t.rec.toLocaleString("en-AU")}.`,
+        bars: rows.map((r) => ({ label: title(r.name), value: r.over })),
+        note: "Ranked by units delivered and not sold in the seven days ending the last complete sales day. Open a store for its full order.",
+        sql: disclose,
       };
     }
   }
