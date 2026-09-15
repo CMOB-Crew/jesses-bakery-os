@@ -59,6 +59,21 @@ export async function changeMyPassword(input: {
   }
   if (!me) return { ok: false, error: "You do not appear to be signed in." };
 
+  // A switched-off account changes nothing, and this one has to be checked
+  // HERE rather than in the database: a password lives in Supabase Auth, not
+  // in Postgres, and Supabase Auth has never heard of public.users.is_active.
+  // Somebody switched off still authenticates -- that is measured, not assumed
+  // -- so without this they could go on rotating the password of an account
+  // that is supposed to be finished with.
+  if (!me.is_active) {
+    return {
+      ok: false,
+      error:
+        "Your account is switched off, so it cannot be changed. Ask whoever " +
+        "manages accounts to switch it back on.",
+    };
+  }
+
   // The rules first, so a typo never costs somebody one of their five
   // attempts a minute.
   const rules = checkNewPassword({
@@ -153,6 +168,21 @@ export async function changeMyName(name: string): Promise<ChangeResult> {
   if (!rules.ok) return { ok: false, error: rules.reason };
 
   try {
+    // Migration 109 refuses this at the database and THAT is the check that
+    // counts -- this one is a courtesy, so the message arrives without a
+    // round trip and both paths say the same sentence. It is deliberately not
+    // the only guard: jb_set_my_name is SECURITY DEFINER, so no policy is
+    // consulted on its update, and a guard that lives only in the app is a
+    // guard that any other caller walks past.
+    const me = await withUser(getMe);
+    if (me && !me.is_active) {
+      return {
+        ok: false,
+        error:
+          "Your account is switched off, so it cannot be changed. Ask whoever " +
+          "manages accounts to switch it back on.",
+      };
+    }
     const saved = await withUser(() => setMyName(name));
     // The root layout reads the name for the sidebar chip, so without this the
     // form says "Saved" while the corner of the screen still shows the old one

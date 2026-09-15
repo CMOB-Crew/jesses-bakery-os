@@ -72,6 +72,41 @@ export default async function AccountPage() {
     );
   }
 
+  // A switched-off person can still sign in: Supabase Auth and public.users
+  // are separate things, so the password still works and a token is still
+  // issued. They arrive at an application where nothing answers -- zero
+  // stores, zero deliveries -- which is correct but reads as broken.
+  //
+  // So say it, rather than showing two forms that would both refuse. The
+  // refusals are still there underneath (migration 109 and the actions); this
+  // is the difference between being told and finding out.
+  if (!me.is_active) {
+    return (
+      <main style={{ padding: "28px 22px", maxWidth: "58ch" }}>
+        <h1 style={{ fontSize: 23, margin: "0 0 6px" }}>Your account</h1>
+        <p style={{ margin: "0 0 18px", opacity: 0.72, lineHeight: 1.6 }}>
+          Signed in as <strong>{me.email}</strong>
+        </p>
+        <div
+          style={{
+            padding: "14px 16px",
+            borderRadius: 5,
+            border: "1px solid rgba(128,128,128,.3)",
+            borderLeft: "3px solid #A32B21",
+            lineHeight: 1.6,
+          }}
+        >
+          <strong>This account has been switched off.</strong>
+          <p style={{ margin: "8px 0 0" }}>
+            You can still sign in, but nothing is available to you and nothing here can
+            be changed — not your name and not your password. If that is not what you
+            expected, ask whoever manages accounts at the bakery to switch it back on.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main style={{ padding: "28px 22px", display: "flex", flexDirection: "column", gap: 34 }}>
       <div>
