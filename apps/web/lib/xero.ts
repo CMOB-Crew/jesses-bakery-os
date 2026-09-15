@@ -110,70 +110,129 @@ export function xeroNotReady(cfg: XeroConfig | null): string | null {
 }
 
 /**
- * THE SCOPES, AND WHY THERE IS ONLY ONE LEFT.
+ * THE SCOPES, AND WHY THIS IS CONFIGURATION AND NOT A CONSTANT.
  *
- * This used to ask for three:
+ * This value has now been wrong twice, in opposite directions, and both
+ * times the code still looked correct. That is the argument for the shape
+ * below, so the history is worth keeping.
+ *
+ * It originally asked for three:
  *
  *     accounting.transactions accounting.contacts.read accounting.settings.read
  *
- * and all three were wrong.
- *
- * accounting.transactions IS GONE FOR ANY APP CREATED SINCE 2 MARCH 2026,
- * which includes the one made for this build on 14 September. It is not
- * gone everywhere: Xero's granular-scopes FAQ gives apps that already
- * existed until September 2027. New ones get granular scopes only.
- *
- * This comment first said "29 April 2026", which was wrong, and said the
- * scope did not exist at all, which was also wrong. Both were written from
- * memory. So it was MEASURED, on 15 September, against our own connection:
+ * On 15 September that was MEASURED against our own connection and the
+ * first one failed:
  *
  *     scope=accounting.transactions   ->   400 invalid_scope
+ *     scope=accounting.invoices       ->   200
  *
- * The token endpoint refuses before an invoice is built. So this code path
- * had never once run against a connection anybody could make today. The
- * only thing that has ever drafted an invoice in Xero is
- * scripts/xero-demo-draft.ts, which carries its own list and had it right,
- * and that is exactly why nobody noticed.
+ * so it was changed to accounting.invoices (8024919). That measurement was
+ * real. It was taken against the WRONG CONNECTION.
  *
- * accounting.settings.read is not granted on Jesse's production
- * connection. @Fred, 14 September: "Prod scopes are narrower (no contacts
- * write, no settings read), build to those." Asking for a scope the
- * connection does not hold fails the WHOLE token request -- so this one
- * line alone would have refused every invoice for every customer.
+ * @Fred measured Jesse's production connection the same morning and got
+ * the exact inverse:
  *
- * accounting.contacts.read IS granted, and we still do not ask for it,
- * because nothing in this file reads a contact. Two Xero endpoints are
- * touched here and no others: /connections, to learn which organisation
- * the connection is for, and /api.xro/2.0/Invoices, to create a draft. An
- * invoice names an existing customer by ContactID. It does not read them.
+ *     accounting.transactions      200
+ *     accounting.contacts.read     200
+ *     accounting.invoices          400 invalid_scope
+ *     accounting.settings.read     400 invalid_scope
  *
- * What is left is the single scope that does the work, and the narrowness
- * is the point. MEASURED on 15 September with a token holding
+ * His words: "your accounting.invoices change is right for the demo and
+ * wrong for prod - against Jesse's connection it fails at the token
+ * endpoint, and step 4 would have died before reaching Xero. Scope per
+ * environment, not one value."
+ *
+ * BOTH MEASUREMENTS ARE CORRECT, and the reason is the cutover date. Our
+ * app was created on 14 September 2026, so it only has granular scopes.
+ * Jesse's predates 2 March 2026, so Xero leaves it on the legacy ones
+ * until September 2027. Two connections to the same API with disjoint
+ * vocabularies.
+ *
+ * @Fred's rule, from both probes, and it is the useful part:
+ *
+ *     You can request any SUBSET of what the connection was configured
+ *     with, but never a scope it does not hold -- INCLUDING A NARROWER
+ *     SIBLING. Demo holds contacts and refused contacts.read; prod holds
+ *     contacts.read and accepted it.
+ *
+ * A scope the connection does not hold fails the WHOLE token request, so
+ * this one line decides whether anything can be invoiced at all. It is the
+ * highest-consequence string in the repository and it cannot be verified
+ * from inside the repository, because the answer lives on whichever
+ * connection the credentials happen to point at.
+ *
+ * SO IT IS AN ENVIRONMENT VARIABLE. Not because that is tidier, but
+ * because when it is wrong the fix must not require a deploy -- and it has
+ * been wrong on every single day it has been looked at.
+ *
+ * WHICH FILE TALKS TO WHICH CONNECTION
+ *
+ *   lib/xero.ts (this file)        the app's Draft button. PRODUCTION.
+ *                                  Reached only by app/store/xero-actions.ts.
+ *   scripts/xero-demo-draft.ts     the demo org. Carries its OWN list and
+ *                                  always had it right, which is exactly
+ *                                  why nobody noticed this file was broken.
+ *
+ * That is why the default below is the PRODUCTION string. If this variable
+ * is unset in Netlify, the app must still be able to bill Jesse.
+ *
+ * WHY accounting.contacts.read IS NOT IN THE DEFAULT, even though prod
+ * grants it and @Fred measured it at 200: nothing in this file reads a
+ * contact. Two Xero endpoints are touched here and no others --
+ * /connections, to learn which organisation the connection is for, and
+ * /api.xro/2.0/Invoices, to create a draft. An invoice names an existing
+ * customer by ContactID; it does not read them. The rule this file already
+ * carried still stands, and it is the right one:
+ *
+ *     ADD THE SCOPE AT THE SAME TIME AS THE CODE THAT USES IT, and have
+ *     @Fred grant it on the production connection FIRST. A scope the
+ *     connection does not hold does not disable the new feature. It takes
+ *     down invoicing entirely.
+ *
+ * When ContactID validation gets built -- and it should, it recovers half
+ * of what the settings.read refusal costs us before step 4 -- it arrives
+ * with accounting.contacts.read, not before.
+ *
+ * WHAT THE NARROWNESS BUYS. Measured 15 September on a token holding
  * accounting.invoices and nothing else:
  *
- *     GET /Items             401        GET /Contacts           401
- *     GET /Accounts          401        GET /BankTransactions   401
+ *     GET /Items     401     GET /Contacts         401
+ *     GET /Accounts  401     GET /BankTransactions 401
  *
- * so a secret that has to live in an environment variable, on a host we do
- * not own, cannot read Jesse's customer list or his chart of accounts.
+ * The equivalent has NOT been measured on the legacy scope, and
+ * accounting.transactions is broader than accounting.invoices by
+ * construction. So a stolen production secret is not as tightly boxed in
+ * as it is on the demo connection. That is a real and accepted cost of
+ * Jesse's connection being old, not something this file can fix.
  *
- * That last measurement also settles something that nearly went to @Fred
- * as a non-problem. A scope mapping published outside Xero says the Items
- * endpoint is reachable from accounting.invoices. On our connection it is
- * NOT -- 401. Reading Items needs a settings scope, @Fred has said
- * production will not grant one, and therefore THE 30 ITEM CODES CANNOT BE
- * CHECKED AGAINST JESSE'S ORGANISATION BEFORE THE FIRST REAL INVOICE. A
- * wrong code is a loud rejection on that line rather than a silent
- * mispricing, which is the safe direction, but step 4 is where it shows
- * up.
- *
- * IF SOMETHING LATER NEEDS MORE -- resolving a ContactID, checking an
- * ItemCode -- add the scope AT THE SAME TIME as the code that uses it, and
- * have @Fred grant it on the production connection FIRST. A scope the
- * connection does not hold does not disable the new feature. It takes down
- * invoicing entirely.
+ * AND THE ONE THAT STILL HURTS. accounting.settings.read is refused on
+ * prod -- @Fred confirmed it, measured, on 15 September. Reading Items
+ * needs it. So THE 30 ITEM CODES CANNOT BE CHECKED AGAINST JESSE'S
+ * ORGANISATION FROM HERE before the first real invoice. A wrong code is a
+ * loud rejection on that line rather than a silent mispricing, which is
+ * the safe direction, but step 4 is where it shows up. @Fred's read-only
+ * web app plus one consent click from Simona is the way round it, and that
+ * is a separate app registration -- this one is a Custom Connection using
+ * client_credentials, so it has no redirect URI at all.
  */
-const XERO_SCOPES = "accounting.invoices";
+
+/**
+ * Jesse's production connection. Legacy scopes, because his Xero app
+ * predates the 2 March 2026 granular cutover.
+ *
+ * The demo organisation needs "accounting.invoices" instead. Set
+ * XERO_SCOPES to override without a deploy.
+ */
+export const DEFAULT_XERO_SCOPES = "accounting.transactions";
+
+/**
+ * Read at module load, so a bad value shows up once rather than per call.
+ * Trimmed, because a trailing space in a Netlify environment variable is
+ * invisible in the dashboard and fails the token request identically to a
+ * wrong scope.
+ */
+export const XERO_SCOPES: string =
+  (process.env.XERO_SCOPES ?? "").trim() || DEFAULT_XERO_SCOPES;
 
 /**
  * An access token. Thirty minutes, re-requested silently, no refresh
@@ -198,11 +257,21 @@ export async function xeroToken(cfg: XeroConfig): Promise<string> {
   if (!res.ok) {
     if (res.status === 401 || res.status === 400) {
       throw new XeroError(
-        "Xero refused the connection. Either the client id or secret is wrong, the " +
-        "Custom Connection has lapsed, or the connection does not grant " +
-        `"${XERO_SCOPES}" -- a scope the connection does not hold fails the whole ` +
-        "request, so check that before you go looking at the credentials. Nothing " +
-        "has been sent.",
+        // Name the scope string AND the variable that changes it. This message
+        // is the only thing anybody has to go on when it fires, and the answer
+        // is different on Jesse's connection than on the demo org -- so
+        // "check the scopes" without saying which ones is not an instruction.
+        `Xero refused the connection, asking for scope "${XERO_SCOPES}". ` +
+        "Nothing has been sent.\n\n" +
+        "A scope the connection does not hold fails the WHOLE token request, so " +
+        "check that before the credentials. It is also per-connection: Jesse's " +
+        "production app predates the 2 March 2026 granular cutover and holds " +
+        "accounting.transactions; an app created since holds accounting.invoices " +
+        "and refuses the other. Measured both ways on 15 September.\n\n" +
+        "Set the XERO_SCOPES environment variable to change this without a " +
+        `deploy. It is currently ${process.env.XERO_SCOPES ? "set explicitly" : "unset, so the production default is in use"}.\n\n` +
+        "Otherwise the client id or secret is wrong, or the Custom Connection " +
+        "has lapsed.",
         res.status,
       );
     }
