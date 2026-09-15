@@ -3,11 +3,11 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import StatusTag from "@/components/StatusTag";
+import StatusTag, { type TagKind } from "@/components/StatusTag";
 import RetailerBadge from "@/components/RetailerBadge";
 import type { StoreWeek, Status } from "@/lib/queries";
 import { isCapStale, effectiveCap, type ShelfCapOverride } from "@/lib/shelfcap";
-import { scoreStore, isMeasured } from "@/lib/store-scoring";
+import { scoreStore, isMeasured, SCORE_LABEL } from "@/lib/store-scoring";
 
 /* ------------------------------------------------------------------ *
  * Stores directory — the searchable, filterable list of every active
@@ -42,6 +42,37 @@ const scoredOf = (s: StoreWeek) => scoreStore({
 const effOf = (s: StoreWeek): Eff => {
   const v = scoredOf(s);
   return isMeasured(v) ? v : "nodata";
+};
+
+/**
+ * What the CHIP says, as opposed to what the FILTER groups by.
+ *
+ * effOf above flattens the three unscoreable states into one "nodata" so the
+ * filter chips and counts keep reconciling with the Overview -- that must not
+ * change, it is the thing the two pages agree on.
+ *
+ * But the chip itself had no reason to be flattened, and flattening it threw
+ * away an answer the scorer had already worked out. Every row read "No data",
+ * which is the least informative thing this app could say about a store it
+ * knows three different things about:
+ *
+ *   invoice      permanent and correct. There is no sales feed and there
+ *                never will be one. Nothing to chase, ever.
+ *   no-feed      the retailer's report has not reached us. Chase them.
+ *                Harris Farm's nine, on a credential dead since 2 September.
+ *   no-delivery  sales ARE arriving; our own delivery record is missing.
+ *                Fills in on its own as drivers confirm.
+ *
+ * StatusTag has carried all three since 9 September, when every delivery run
+ * on the Overview read "No data - 20 awaiting feed" on a morning when all
+ * three feeds were current. This list is the last place still collapsing them.
+ */
+const tagOf = (s: StoreWeek): TagKind => {
+  const v = scoredOf(s);
+  if (v === "invoice") return "invoice";
+  if (v === "no-feed") return "nodata";
+  if (v === "no-delivery") return "nodelivery";
+  return v;
 };
 const EFF_ORDER: Record<Eff, number> = { red: 0, amber: 1, green: 2, nodata: 3 };
 const EFF_LABEL: Record<Eff, string> = { red: "Needs attention", amber: "Watch", green: "On track", nodata: "No data" };
@@ -182,7 +213,7 @@ export default function StoresList({ stores, showRegion = true, initialView, ini
         s.name,
         ...(showRegion ? [s.region ?? ""] : []),
         retailerLabel(s.retailer),
-        EFF_LABEL[effOf(s)],
+        SCORE_LABEL[scoredOf(s)],
         s.waste_pct == null ? "" : Number(s.waste_pct),
         num(s.stockout_days),
         // Same rule as the screen: a figure that exists is exported. The
@@ -326,7 +357,7 @@ export default function StoresList({ stores, showRegion = true, initialView, ini
                   <td className="strong"><Link prefetch={false} href={`/store/${s.store_id}`} onClick={(e) => e.stopPropagation()}>{s.name}</Link></td>
                   {showRegion && <td style={{ color: "var(--ink2)" }}>{s.region ?? "—"}</td>}
                   <td><RetailerBadge retailer={s.retailer} size="sm" /></td>
-                  <td><StatusTag status={effOf(s)} /></td>
+                  <td><StatusTag status={tagOf(s)} /></td>
                   <td className="num">{s.waste_pct == null ? "—" : `${s.waste_pct}%`}</td>
                   {anyStockouts && <td className="num">{num(s.stockout_days) || "—"}</td>}
                   {/* SHOW THE NUMBER WHEN THERE IS ONE. Both of these used to be
