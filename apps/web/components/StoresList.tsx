@@ -185,7 +185,10 @@ export default function StoresList({ stores, showRegion = true, initialView, ini
         EFF_LABEL[effOf(s)],
         s.waste_pct == null ? "" : Number(s.waste_pct),
         num(s.stockout_days),
-        effOf(s) === "nodata" ? "" : num(s.total_sold),
+        // Same rule as the screen: a figure that exists is exported. The
+        // previous version blanked it by status, so a store with 26,998 units
+        // of sales downloaded as an empty cell.
+        num(s.total_sold) > 0 ? num(s.total_sold) : "",
       ].map(csvCell).join(","),
     );
     const csv = [header.map(csvCell).join(","), ...body].join("\r\n");
@@ -326,12 +329,29 @@ export default function StoresList({ stores, showRegion = true, initialView, ini
                   <td><StatusTag status={effOf(s)} /></td>
                   <td className="num">{s.waste_pct == null ? "—" : `${s.waste_pct}%`}</td>
                   {anyStockouts && <td className="num">{num(s.stockout_days) || "—"}</td>}
-                  {/* No delivered figure yet (no-data store, or sold-only feed with no
-                      delivered/sent data loaded) — show "—", not a misleading 0. A 0 next
-                      to real sold units reads as "sold X from nothing delivered". Matches
-                      the waste column, which is also "—" until delivered data lands. */}
-                  <td className="num">{effOf(s) === "nodata" || num(s.total_sent) === 0 ? "—" : nf(num(s.total_sent))}</td>
-                  <td className="num">{effOf(s) === "nodata" ? "—" : nf(num(s.total_sold))}</td>
+                  {/* SHOW THE NUMBER WHEN THERE IS ONE. Both of these used to be
+                      hidden by the STATUS CHIP rather than by whether the figure
+                      existed, and on 15 September that was measured: 218 of 273
+                      stores had a real total_sold in v_store_week -- 26,998 units
+                      over the week -- and every one of them printed a dash.
+
+                      The original reasoning was sound and was applied to the wrong
+                      column. "A 0 next to real sold units reads as 'sold X from
+                      nothing delivered'" is an argument for not printing a ZERO in
+                      the SENT column. It is not an argument for hiding a sold
+                      figure of 26,998.
+
+                      The sent column had the same shape waiting for go-live: an
+                      invoice customer always scores nodata -- no feed, and there
+                      never will be one -- so the moment Jesse's 50 invoice
+                      customers start taking deliveries, their sent figure would
+                      have been hidden too.
+
+                      Now both follow the waste column, which always got this right:
+                      a dash means there is nothing to show, not that the row is
+                      grey. */}
+                  <td className="num">{num(s.total_sent) > 0 ? nf(num(s.total_sent)) : "—"}</td>
+                  <td className="num">{num(s.total_sold) > 0 ? nf(num(s.total_sold)) : "—"}</td>
                 </tr>
               ))}
             </tbody>
