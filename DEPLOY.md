@@ -5,6 +5,20 @@ Recommended: **Supabase** (database) + **Vercel** (app). ~10 minutes.
 
 There are two ways to do it. Either gets you a real, always-on URL.
 
+> ### What this file is, and what it is not
+>
+> **This stands up a DEMO** — free tier, the seeded network, throwaway data.
+>
+> **It is not how Jesse's live site is deployed.** That runs on **Netlify** at
+> `app.jessesbakery.com.au`, on a Supabase Pro project, connecting as the
+> non-owner `jbo_app` role. The operational document for it is the Runbook,
+> not this file.
+>
+> **If you are building a staging environment, read the next box before
+> step 1.4 and do not skip it.** Staging holds a copy of real data, and the
+> quickest path below deliberately turns off every access control in the
+> database.
+
 ---
 
 ## Fast path — you click, I've made each step a paste
@@ -16,18 +30,47 @@ There are two ways to do it. Either gets you a real, always-on URL.
 3. Paste the entire contents of **`db/supabase-setup.sql`** (schema + views +
    the whole seeded network in one file) and click **Run**. You should see
    `seeded | 84 | ... | 14.4` at the bottom.
-4. Go to **Project Settings → Database → Connection string → URI**. Copy it and
-   put your password in place of `[YOUR-PASSWORD]`. This is your `DATABASE_URL`.
+4. **Pick a connection string, and the choice matters more than it looks.**
 
-   > ⚠️ **Demo only.** That URI connects as Supabase's `postgres` role, which has
-   > `rolbypassrls = true` — it skips row-level security entirely, so every
-   > table's policies stop applying. Fine for the open demo, **not for
-   > a live site holding Jesse's data.** Before going live, create the
-   > non-owner `jbo_app` role and use its pooled connection string instead:
-   > see [`db/RLS-AUDIT-2026-09-10.md`](db/RLS-AUDIT-2026-09-10.md) finding 1,
-   > and step 5 of [`db/AUTH-RLS-SETUP.md`](db/AUTH-RLS-SETUP.md).
+   **Throwaway demo, seeded data only** — Project Settings → Database →
+   Connection string → URI, with your password in place of `[YOUR-PASSWORD]`.
+   That is your `DATABASE_URL`, and you can stop reading this step.
+
+   **Anything holding real or copied data, including staging** — do NOT use
+   that URI. Create the non-owner `jbo_app` role first and use its pooled
+   connection string as `DATABASE_URL`:
+
+   ```sql
+   create role jbo_app login password '<strong-password>' noinherit;
+   grant usage on schema public to jbo_app;
+   grant select, insert, update, delete on all tables in schema public to jbo_app;
+   grant usage, select on all sequences in schema public to jbo_app;
+   ```
+
+   The full recipe, including the default privileges for tables created later,
+   is step 5 of [`db/AUTH-RLS-SETUP.md`](db/AUTH-RLS-SETUP.md).
+
+   > ### Why, in one paragraph
+   >
+   > Supabase's `postgres` role has `rolbypassrls = true`. It does not fail an
+   > access check — **it is never asked one.** Every policy in the database
+   > silently stops applying, all 89 of them, and nothing anywhere reports a
+   > problem: the pages render, the tests pass, and a driver can read every
+   > other driver's run. An environment built this way looks identical to a
+   > correct one from the outside.
+   >
+   > This was measured on the live site on 15 September 2026 and it is on
+   > `jbo_app`, so production is correct. This file is the only place that
+   > still pointed the other way.
+   >
+   > See also [`db/RLS-AUDIT-2026-09-10.md`](db/RLS-AUDIT-2026-09-10.md),
+   > finding 1.
 
 ### 2. App (Vercel) — ~4 min
+
+*Vercel is the quickest host for a demo and that is why it is here. Jesse's
+live site is on **Netlify**, deployed from `main` automatically — if you are
+touching the real site, you are in the wrong document.*
 1. Put this repo on GitHub (create a repo, push it) — or use the Vercel CLI from
    the `apps/web` folder: `npm i -g vercel && vercel`.
 2. On vercel.com → **Add New → Project** → import the repo. Set the **Root
