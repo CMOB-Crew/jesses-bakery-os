@@ -42,10 +42,18 @@ const FULL_ACCESS = new Set<string>(["admin", "manager", "office"]);
  *
  * /auth is here on purpose -- signing OUT must never be blocked. A person who
  * cannot leave is a worse bug than a person who can see too much.
+ *
+ * /account is here for the same shape of reason, added 15 September. It is
+ * where a person changes their own password, and the people most likely to
+ * need that are exactly these two roles: every floor password was chosen by
+ * somebody else and read out to them, and their addresses have no mailbox, so
+ * the emailed reset link is not an option either. A driver who cannot change
+ * his own password has to ring somebody, which is the thing the People screen
+ * was built to stop.
  */
 const ALLOWED: Record<string, string[]> = {
-  driver: ["/driver", "/auth", "/login"],
-  packer: ["/packing", "/auth", "/login"],
+  driver: ["/driver", "/account", "/auth", "/login"],
+  packer: ["/packing", "/account", "/auth", "/login"],
 };
 
 /** Where a restricted role should land, and be sent back to. */

@@ -15,7 +15,7 @@
 
 import {
   ROLES, mayManagePeople, mayActOn, mayGrant, mayChangeOwnAccount,
-  wouldRemoveLastAdmin, normaliseEmail,
+  wouldRemoveLastAdmin, normaliseEmail, checkNewPassword, MIN_PASSWORD,
 } from "../lib/people-rules";
 
 let fails = 0;
@@ -115,6 +115,49 @@ check("a normal address passes", normaliseEmail("ankit@jessesbakery.com.au").ok)
 check("a plus address passes",
   normaliseEmail("simona+bakery@jessesbakery.com.au").ok,
   "rejecting these is a classic own goal and they are real addresses");
+
+console.log("\n— changing your own password —\n");
+
+const pw = (over: Partial<Parameters<typeof checkNewPassword>[0]>) =>
+  checkNewPassword({
+    next: "harbour-ferry-tuesday",
+    confirm: "harbour-ferry-tuesday",
+    current: "BDriver47!",
+    email: "ankit@jessesbakery.com.au",
+    ...over,
+  });
+
+check("a long passphrase is accepted with no rules about symbols",
+  pw({}).ok,
+  "composition rules are why people write passwords on the delivery sheet");
+check(`shorter than ${MIN_PASSWORD} characters is refused`,
+  !pw({ next: "short1", confirm: "short1" }).ok);
+check("the two new ones have to match",
+  !pw({ confirm: "harbour-ferry-wednesday" }).ok);
+check("the new one cannot be the one you already have",
+  !pw({ next: "BDriver47!", confirm: "BDriver47!" }).ok,
+  "otherwise it says changed, nothing changed, and somebody thinks they are safe");
+check("the old one is required",
+  !pw({ current: "" }).ok,
+  "a signed-in session is a laptop somebody walked away from");
+
+check("A PASSWORD CONTAINING YOUR OWN EMAIL NAME IS REFUSED",
+  !pw({ next: "ankit-is-here-today", confirm: "ankit-is-here-today" }).ok,
+  "whoever is guessing already has the list of addresses");
+check("and it says which word it objected to",
+  /ankit/.test((pw({ next: "ankit-is-here-today", confirm: "ankit-is-here-today" }) as { reason: string }).reason));
+check("a short email local part does not block half the dictionary",
+  pw({ email: "jo@jessesbakery.com.au" }).ok,
+  "two letters would match almost anything and refuse good passwords");
+
+check("a trailing space is refused rather than locking somebody out",
+  !pw({ next: "harbour-ferry-tue ", confirm: "harbour-ferry-tue " }).ok,
+  "it survives a copy and paste and then cannot be typed back");
+check("a leading space too",
+  !pw({ next: " harbour-ferry-tue", confirm: " harbour-ferry-tue" }).ok);
+check("a space in the MIDDLE is fine",
+  pw({ next: "harbour ferry tuesday", confirm: "harbour ferry tuesday" }).ok,
+  "refusing those would rule out the passphrases this is trying to encourage");
 
 console.log(
   fails === 0

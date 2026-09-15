@@ -147,7 +147,18 @@ export default function Sidebar({ user = null, appRole = null }: { user?: Sideba
       {user && (
         <div className="side-foot">
           <div className="avatar">{(user.email ?? "?").trim().charAt(0).toUpperCase()}</div>
-          <div className="who">
+          {/* The name is now the way to your own account, because the
+              footer is the only part of this sidebar EVERY role sees --
+              a driver has one screen and this is on it. Same class and
+              same position, so nothing about the layout moves; it is an
+              anchor instead of a div. */}
+          <Link
+            prefetch={false}
+            href="/account"
+            className="who"
+            title="Your account"
+            style={{ color: "inherit", textDecoration: "none" }}
+          >
             {(user.email ?? "Signed in").split("@")[0]}
             {/* Only when we actually know. This said "no role set" to
                 everyone, the admin included, because the role is not in the
@@ -155,7 +166,7 @@ export default function Sidebar({ user = null, appRole = null }: { user?: Sideba
                 cannot see anything, so the two screens agreed with each
                 other and both were wrong. */}
             {user.role && <small>{user.role}</small>}
-          </div>
+          </Link>
           {/* A FORM, not a link.
               /auth/signout exports POST and nothing else, deliberately: its
               own comment says "POST-only so a link prefetch or a stray GET

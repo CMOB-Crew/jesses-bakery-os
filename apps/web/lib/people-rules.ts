@@ -182,3 +182,76 @@ export function normaliseEmail(raw: string): { ok: true; email: string } | ({ ok
   }
   return { ok: true, email };
 }
+
+/* ---------------------------------------------------------------------------
+ * Changing your own password.
+ *
+ * Added 15 September, with the self-service change screen. Pure, like
+ * everything else here, so the rules can be asserted rather than believed.
+ *
+ * WHAT IS DELIBERATELY NOT REQUIRED
+ *
+ * No "must contain a capital, a number and a symbol". Those rules are why
+ * people write passwords on the back of the delivery sheet: they push
+ * everyone towards Bakery1! and they make a phone keyboard a fight at 4am.
+ * Length is what actually helps, so length is what is asked for and nothing
+ * else is.
+ *
+ * WHAT IS REQUIRED, AND WHY EACH ONE
+ *
+ *   * TEN CHARACTERS. Long enough to matter, short enough to type in a van.
+ *   * NOT THE ONE YOU ALREADY HAVE. Otherwise the screen says "changed" and
+ *     nothing changed, which is the worst possible answer for somebody who
+ *     changed it because they thought somebody else knew it.
+ *   * NOT YOUR OWN EMAIL NAME. ankit@... choosing "ankit12345" is the single
+ *     most guessable thing available, and the person guessing already has
+ *     the list of addresses.
+ *   * NO SPACE AT EITHER END. Not prudishness -- a trailing space survives a
+ *     copy and paste and then cannot be typed back reliably, and the person
+ *     is locked out of an account they just set the password on.
+ * --------------------------------------------------------------------------- */
+
+/** Ten. Named rather than inlined, because the message quotes it. */
+export const MIN_PASSWORD = 10;
+
+export function checkNewPassword(input: {
+  next: string;
+  confirm: string;
+  current: string;
+  email: string;
+}): Decision {
+  const { next, confirm, current, email } = input;
+
+  if (!current) return no("Type the password you use now, so we know it is you.");
+  if (!next) return no("Type the new password.");
+
+  if (next !== next.trim()) {
+    return no(
+      "That starts or ends with a space. It would survive a copy and paste and " +
+      "then be impossible to type back, so it is refused rather than locking you out.",
+    );
+  }
+  if (next.length < MIN_PASSWORD) {
+    return no(
+      `A password needs at least ${MIN_PASSWORD} characters. There are no rules about ` +
+      `capitals or symbols — length is the part that helps.`,
+    );
+  }
+  if (next === current) {
+    return no("That is the password you already have. Pick a different one.");
+  }
+  if (next !== confirm) {
+    return no("The two new passwords do not match.");
+  }
+
+  const local = String(email ?? "").split("@")[0].toLowerCase();
+  if (local.length >= 3 && next.toLowerCase().includes(local)) {
+    return no(
+      `That contains "${local}", which is the first half of your own email address. ` +
+      `Anybody guessing starts there.`,
+    );
+  }
+
+  return ok;
+}
+
