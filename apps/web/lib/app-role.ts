@@ -28,18 +28,51 @@ import { getSessionClaims } from "./supabase/server";
  * all goes wrong. A null role is treated as unrestricted by nav-access.ts -- see
  * the note there for why that is the right way round.
  * --------------------------------------------------------------------------- */
-export const getAppRole = cache(async (): Promise<string | null> => {
-  if (!AUTH_ENFORCED) return null;
+export type AppIdentity = { role: string | null; fullName: string | null };
+
+/**
+ * The role AND the name, in the ONE query the role already costs.
+ *
+ * Added 15 September. /account let a person set their own name and then the
+ * only place their identity appears all day -- the sidebar footer, the one
+ * part of the nav every role sees -- went on rendering the first half of their
+ * email address. A driver could set his surname and watch nothing change.
+ *
+ * The name is NOT in the token, so it has to be read from public.users. It is
+ * read HERE rather than in its own call because this file's own note, and the
+ * longer one in app/layout.tsx, are both about the day forty-eight Pacific
+ * crossings put every signed-in page over Netlify's ten second ceiling.
+ * Netlify runs in us-east-1 and Supabase in ap-southeast-1, so a second round
+ * trip in the root layout is paid on every page of every route. This is a
+ * second COLUMN on a query that was already being made, which is free.
+ *
+ * The subselect needs no filtering by hand: row-level security already grants
+ * a person exactly their own row of public.users, which apply-108 measured
+ * standing in as a real driver. jb_uid() rather than auth.uid() because
+ * jbo_app has no USAGE on schema auth -- migration 106.
+ */
+export const getAppIdentity = cache(async (): Promise<AppIdentity> => {
+  const none: AppIdentity = { role: null, fullName: null };
+  if (!AUTH_ENFORCED) return none;
   try {
     const claims = await getSessionClaims();
-    if (!claims) return null;
+    if (!claims) return none;
     const rows = await runAsUser(claims, (tx) =>
-      tx<{ role: string | null }[]>`select public.current_app_role() as role`,
+      tx<{ role: string | null; full_name: string | null }[]>`
+        select public.current_app_role() as role,
+               (select u.full_name from public.users u where u.id = public.jb_uid())
+                 as full_name`,
     );
-    return rows[0]?.role ?? null;
+    return { role: rows[0]?.role ?? null, fullName: rows[0]?.full_name ?? null };
   } catch {
     // Never let this take a page down. A failure here means the sidebar shows
     // everything, which is exactly today's behaviour.
-    return null;
+    return none;
   }
+});
+
+// Unchanged for every existing caller. Both are cache()d, so a render that
+// asks for the role and the identity makes ONE query between them.
+export const getAppRole = cache(async (): Promise<string | null> => {
+  return (await getAppIdentity()).role;
 });

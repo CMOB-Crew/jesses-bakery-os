@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { revalidatePath } from "next/cache";
 import { withUser } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -153,6 +154,11 @@ export async function changeMyName(name: string): Promise<ChangeResult> {
 
   try {
     const saved = await withUser(() => setMyName(name));
+    // The root layout reads the name for the sidebar chip, so without this the
+    // form says "Saved" while the corner of the screen still shows the old one
+    // until a hard reload. "layout" rather than "page" because it is the
+    // LAYOUT that reads it, and /account is only one of the pages under it.
+    revalidatePath("/", "layout");
     return {
       ok: true,
       message:

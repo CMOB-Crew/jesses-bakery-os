@@ -49,9 +49,20 @@ export type SidebarUser = { email?: string; role?: string };
 // NOT SidebarUser.role -- that comes from the token and is always undefined,
 // deliberately, per migration 012.
 
-export default function Sidebar({ user = null, appRole = null }: { user?: SidebarUser | null; appRole?: string | null }) {
+// fullName is public.users.full_name, read server-side in the same query as
+// the role (lib/app-role.ts). It is what /account writes, and until 15
+// September nothing displayed it: a driver could set his surname and the one
+// place his identity shows all day still said the first half of his email.
+//
+// Falls back to the email's local part rather than to nothing, because this
+// chip renders for people who have not set a name and it is also the link to
+// the screen where they would.
+export default function Sidebar({ user = null, appRole = null, fullName = null }: { user?: SidebarUser | null; appRole?: string | null; fullName?: string | null }) {
   const path = usePathname();
   const isOn = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
+  // The name if there is one, otherwise the half of the email before the @,
+  // which is what this showed for everybody until 15 September.
+  const shownName = (fullName ?? "").trim() || (user?.email ?? "Signed in").split("@")[0];
   // A driver has one screen and a packer has one screen. Everyone else is
   // unchanged. See lib/nav-access.ts for why hiding these matters even though
   // RLS is what actually stops them reading anything.
@@ -146,7 +157,9 @@ export default function Sidebar({ user = null, appRole = null }: { user?: Sideba
       </nav>
       {user && (
         <div className="side-foot">
-          <div className="avatar">{(user.email ?? "?").trim().charAt(0).toUpperCase()}</div>
+          {/* The initial follows the name too. "A" for Ankit Sharma rather
+              than whatever letter his login happens to start with. */}
+          <div className="avatar">{(shownName || "?").trim().charAt(0).toUpperCase()}</div>
           {/* The name is now the way to your own account, because the
               footer is the only part of this sidebar EVERY role sees --
               a driver has one screen and this is on it. Same class and
@@ -159,7 +172,7 @@ export default function Sidebar({ user = null, appRole = null }: { user?: Sideba
             title="Your account"
             style={{ color: "inherit", textDecoration: "none" }}
           >
-            {(user.email ?? "Signed in").split("@")[0]}
+            {shownName}
             {/* Only when we actually know. This said "no role set" to
                 everyone, the admin included, because the role is not in the
                 token -- and the sign-in page says an account with no role

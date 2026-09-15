@@ -6,7 +6,7 @@ import { getDisplayUser } from "@/lib/supabase/server";
 import DemoTour from "@/components/DemoTour";
 import RouteFrame from "@/components/RouteFrame";
 import RouteGuard from "@/components/RouteGuard";
-import { getAppRole } from "@/lib/app-role";
+import { getAppIdentity } from "@/lib/app-role";
 import { hasFullAccess } from "@/lib/nav-access";
 
 // Demo build only: the guided pop-up tour. NEXT_PUBLIC_DEMO is unset on the live
@@ -53,15 +53,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Both are per-request memoised, and getAppRole only queries when auth is
   // enforced. In parallel: neither depends on the other, and this layout runs
   // in front of every page on every route.
-  const [user, appRole] = await Promise.all([
+  const [user, identity] = await Promise.all([
     getDisplayUser().catch(() => null),
-    getAppRole().catch(() => null),
+    // One query, two answers: the role that decides what the nav shows, and
+    // the name the person set on /account. See lib/app-role.ts.
+    getAppIdentity().catch(() => ({ role: null, fullName: null })),
   ]);
+  const appRole = identity.role;
   return (
     <html lang="en-AU">
       <body>
         <div className="app">
-          <Sidebar user={user} appRole={appRole} />
+          <Sidebar user={user} appRole={appRole} fullName={identity.fullName} />
           {/* Not a security control -- RLS is. This stops a driver following an
               old bookmark into a page that renders empty and reads as broken.
               See components/RouteGuard.tsx. */}
