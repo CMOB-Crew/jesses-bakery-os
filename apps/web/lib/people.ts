@@ -174,3 +174,42 @@ export async function recentEvents(): Promise<AdminEvent[]> {
      limit 50`;
   return rows;
 }
+
+/**
+ * Set your own display name.
+ *
+ * Through jb_set_my_name(), a SECURITY DEFINER function that writes exactly
+ * one column on exactly the caller's own row -- see migration 108 for why it
+ * is not a policy. The short version: row-level security grants a WHOLE ROW,
+ * so a "update your own row" policy would also let anybody set their own
+ * role.
+ *
+ * Returns what the database actually stored, which is the trimmed version,
+ * so the screen shows the truth rather than what was typed.
+ */
+export async function setMyName(name: string): Promise<string> {
+  const rows = await sql<{ jb_set_my_name: string }[]>`
+    select public.jb_set_my_name(${name}) as jb_set_my_name`;
+  return rows[0]?.jb_set_my_name ?? name;
+}
+
+/**
+ * What has been done to YOUR account.
+ *
+ * Reads the same table the People screen writes to. Migration 108 added the
+ * policy that makes this possible: a person sees rows where they are the
+ * target and no others.
+ *
+ * Until this, user_admin_events had no reader at all, which makes an audit
+ * trail a log file.
+ */
+export async function myEvents(): Promise<AdminEvent[]> {
+  const rows = await sql<AdminEvent[]>`
+    select at::text as at, actor_email, action, target_email, detail
+      from public.user_admin_events
+     where target_id = public.jb_uid()
+     order by at desc
+     limit 20`;
+  return rows;
+}
+

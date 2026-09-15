@@ -4,8 +4,8 @@ import { headers } from "next/headers";
 import { withUser } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getMe, recordEvent } from "@/lib/people";
-import { checkNewPassword } from "@/lib/people-rules";
+import { getMe, recordEvent, setMyName } from "@/lib/people";
+import { checkNewPassword, checkName } from "@/lib/people-rules";
 import { checkBeforeAttempt, recordOutcome } from "@/lib/login-rate-limit";
 import { limiterStore, clientIp } from "@/lib/login-rate-limit-store";
 
@@ -135,3 +135,37 @@ export async function changeMyPassword(input: {
       "new one next time — including on your phone.",
   };
 }
+
+/**
+ * Set your own name.
+ *
+ * NO AUDIT ROW, deliberately. user_admin_events records who could sign in and
+ * who could not -- created, reset, switched off, re-roled. A person correcting
+ * the spelling of their own surname is not that, and giving it an action name
+ * would make the table harder to read for the thing it exists to answer.
+ *
+ * The change is not invisible: it lands on public.users, and it is the name
+ * every delivery they sign from then on carries.
+ */
+export async function changeMyName(name: string): Promise<ChangeResult> {
+  const rules = checkName(name);
+  if (!rules.ok) return { ok: false, error: rules.reason };
+
+  try {
+    const saved = await withUser(() => setMyName(name));
+    return {
+      ok: true,
+      message:
+        `Saved. Deliveries you sign from now on will say ${saved}. ` +
+        `Ones you have already signed keep the name they were signed with.`,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: `That did not save, and nothing has been changed. The database said: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    };
+  }
+}
+

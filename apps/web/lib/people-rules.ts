@@ -255,3 +255,64 @@ export function checkNewPassword(input: {
   return ok;
 }
 
+/* ---------------------------------------------------------------------------
+ * Your own name.
+ *
+ * Added 15 September with the account screen, because proof of delivery is
+ * signed with public.users.full_name and the drivers only had first names.
+ *
+ * ALMOST NOTHING IS REFUSED, ON PURPOSE.
+ *
+ * Name validation is where software is most confidently wrong about people.
+ * No requirement for two words, no alphabet restriction, no rejecting
+ * apostrophes or hyphens or spaces in unexpected places. A person's name is
+ * whatever they say it is, and the cost of guessing otherwise falls entirely
+ * on the people with the least ordinary names.
+ *
+ * What IS refused is only what breaks the places it gets printed:
+ *
+ *   * EMPTY. The delivery receipt would be signed by nobody.
+ *   * OVER 80 CHARACTERS. Longer than any real name and long enough to break
+ *     a printed run sheet.
+ *   * LINE BREAKS AND CONTROL CHARACTERS. A newline in a name corrupts every
+ *     layout it lands in, and one of them is the evidence a retailer sees.
+ *
+ * A single word is ALLOWED and merely noted. It is the case this was built
+ * for -- and some people genuinely have one name, so it is a hint and never a
+ * refusal.
+ * --------------------------------------------------------------------------- */
+
+export const MAX_NAME = 80;
+
+export function checkName(raw: string): Decision {
+  const name = String(raw ?? "").trim();
+
+  if (!name) return no("Type the name you want on your deliveries.");
+  if (name.length > MAX_NAME) {
+    return no(`That is longer than ${MAX_NAME} characters — it would not fit on a run sheet.`);
+  }
+  // eslint-disable-next-line no-control-regex -- the point is to find them
+  if (/[ -]/.test(name)) {
+    return no("A name cannot contain line breaks. Paste it as one line.");
+  }
+  return ok;
+}
+
+/**
+ * Not a rule -- a nudge, shown beside the field.
+ *
+ * Returns a sentence when the name is a single word, because that is the exact
+ * thing this exists to fix, and nothing at all otherwise. It never blocks:
+ * mononyms are real and refusing one would be the mistake this file is at
+ * pains not to make.
+ */
+export function nameHint(raw: string): string | null {
+  const name = String(raw ?? "").trim();
+  if (!name || /\s/.test(name)) return null;
+  return (
+    "Just the one word. That is fine if it is your whole name — but if you have " +
+    "a surname, this is what a store sees when they query a delivery."
+  );
+}
+
+

@@ -16,6 +16,7 @@
 import {
   ROLES, mayManagePeople, mayActOn, mayGrant, mayChangeOwnAccount,
   wouldRemoveLastAdmin, normaliseEmail, checkNewPassword, MIN_PASSWORD,
+  checkName, nameHint, MAX_NAME,
 } from "../lib/people-rules";
 
 let fails = 0;
@@ -158,6 +159,33 @@ check("a leading space too",
 check("a space in the MIDDLE is fine",
   pw({ next: "harbour ferry tuesday", confirm: "harbour ferry tuesday" }).ok,
   "refusing those would rule out the passphrases this is trying to encourage");
+
+console.log("\n— your own name, which ends up on a delivery receipt —\n");
+
+check("an ordinary name is accepted", checkName("Ankit Sharma").ok);
+check("A SINGLE NAME IS ACCEPTED",
+  checkName("Ankit").ok,
+  "some people have one name; refusing theirs to catch a missing surname is the wrong trade");
+check("and a single name gets a hint rather than a refusal",
+  nameHint("Ankit") !== null && checkName("Ankit").ok);
+check("a name with a surname gets no hint", nameHint("Ankit Sharma") === null);
+
+check("an apostrophe is fine", checkName("Siobhan O\u0027Donnell").ok,
+  "name validation is where software is most confidently wrong about people");
+check("a hyphen is fine", checkName("Jean-Luc Moreau").ok);
+check("a name outside the Latin alphabet is fine", checkName("\u674e\u5a1c").ok);
+check("several spaces are fine", checkName("Maria del Carmen Garcia Lopez").ok);
+
+check("empty is refused", !checkName("   ").ok);
+check(`longer than ${MAX_NAME} is refused`, !checkName("a".repeat(MAX_NAME + 1)).ok);
+check("exactly the limit is accepted", checkName("a".repeat(MAX_NAME)).ok,
+  "an off-by-one here refuses a name that fits");
+check("A LINE BREAK IS REFUSED",
+  !checkName("Ankit\nSharma").ok,
+  "it corrupts every layout it lands in, and one of them is the delivery evidence");
+check("surrounding space is trimmed rather than refused",
+  checkName("  Ankit Sharma  ").ok,
+  "a pasted name with a space is a person being helpful, not an error");
 
 console.log(
   fails === 0
