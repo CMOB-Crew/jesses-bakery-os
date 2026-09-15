@@ -56,6 +56,10 @@ export default function Sidebar({ user = null, appRole = null }: { user?: Sideba
   // unchanged. See lib/nav-access.ts for why hiding these matters even though
   // RLS is what actually stops them reading anything.
   const full = hasFullAccess(appRole);
+  // NOT hasFullAccess. office sees every other screen in the application
+  // and has no business resetting anybody's password -- lib/people-rules.ts
+  // refuses it server side, and offering the door would be a lie.
+  const canPeople = appRole === "admin" || appRole === "manager";
   const show = (href: string) => full || canOpen(appRole, href);
   return (
     <aside className="side">
@@ -121,6 +125,11 @@ export default function Sidebar({ user = null, appRole = null }: { user?: Sideba
         {show("/settings") && (
         <Link prefetch={false} href="/settings" className={isOn("/settings") ? "on" : ""}>
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" /></svg>Settings<LinkPending href="/settings" />
+        </Link>
+        )}
+        {canPeople && (
+        <Link prefetch={false} href="/people" className={isOn("/people") ? "on" : ""}>
+          <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" /><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5" /><path d="M16 7.5a3 3 0 0 1 0 5.6M18 20c0-2.6-1-4.2-2.6-5" /></svg>People<LinkPending href="/people" />
         </Link>
         )}
         {full && <div className="grp">Field</div>}
