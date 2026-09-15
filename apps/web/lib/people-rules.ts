@@ -291,8 +291,12 @@ export function checkName(raw: string): Decision {
   if (name.length > MAX_NAME) {
     return no(`That is longer than ${MAX_NAME} characters — it would not fit on a run sheet.`);
   }
-  // eslint-disable-next-line no-control-regex -- the point is to find them
-  if (/[ -]/.test(name)) {
+  // The Unicode control category, and NOT a range written as escape
+  // sequences, because those escapes were interpreted on the way into the
+  // file -- so the code that refuses control characters contained three of
+  // them, and so did the migration beside it, where Postgres lost the IF
+  // and asked for a missing THEN. 15 September.
+  if (/\p{Cc}/u.test(name)) {
     return no("A name cannot contain line breaks. Paste it as one line.");
   }
   return ok;
