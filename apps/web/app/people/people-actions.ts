@@ -73,8 +73,18 @@ export async function loadPeople(): Promise<
   try {
     const [me, people] = await withUser(async () => [await getMe(), await listPeople()] as const);
     return { ok: true, me, people };
-  } catch {
-    return { ok: false, error: "Could not read the staff list. Nothing has been changed." };
+  } catch (e) {
+    // The reason, not just the fact. The first version of this said "Could not
+    // read the staff list" and nothing else, and the actual cause -- permission
+    // denied for schema auth -- took three wrong guesses and two scripts to
+    // find. Only admins and managers reach this screen, so there is nobody to
+    // keep it from.
+    return {
+      ok: false,
+      error: `Could not read the staff list, and nothing has been changed. The database said: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    };
   }
 }
 
@@ -95,8 +105,13 @@ async function gate(targetId: string): Promise<
   let target: Person | null;
   try {
     [me, target] = await withUser(async () => [await getMe(), await getPerson(targetId)] as const);
-  } catch {
-    return { ok: false, error: "Could not read those accounts, so nothing has been changed." };
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Could not read those accounts, so nothing has been changed. The database said: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    };
   }
   if (!me) return { ok: false, error: "Could not work out who you are signed in as." };
   if (!target) return { ok: false, error: "That person is not in the staff list." };
@@ -135,10 +150,18 @@ async function audit(
         detail,
       }),
     );
-  } catch {
-    // An audit row that will not write must not undo an account change that
-    // already happened -- that would leave the person unable to sign in AND
-    // no record of why. It is reported on the screen instead.
+  } catch (e) {
+    // Swallowed on purpose: an audit row that will not write must not undo an
+    // account change that already happened -- that would leave the person
+    // unable to sign in AND no record of why.
+    //
+    // But not silently. The one thing whose job is to notice everything must
+    // not be able to stop working without anybody noticing, so it says so
+    // where the deploy can be read.
+    console.error(
+      `[people] the audit row did not write: ${action} on ${target.email} by ${actor.email}`,
+      e instanceof Error ? e.message : String(e),
+    );
   }
 }
 
@@ -161,8 +184,11 @@ export async function createPerson(input: {
   let me: Person | null;
   try {
     me = await withUser(getMe);
-  } catch {
-    return no("Could not work out who you are signed in as. Nothing has been changed.");
+  } catch (e) {
+    return no(
+      `Could not work out who you are signed in as, so nothing has been changed. ` +
+      `The database said: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
   if (!me) return no("Could not work out who you are signed in as.");
 
@@ -248,8 +274,11 @@ export async function setActive(targetId: string, active: boolean): Promise<Peop
     let admins = 0;
     try {
       admins = await withUser(countActiveAdmins);
-    } catch {
-      return no("Could not check how many admins are left, so nothing has been changed.");
+    } catch (e) {
+      return no(
+        `Could not check how many admins are left, so nothing has been changed. ` +
+        `The database said: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
     const last = wouldRemoveLastAdmin(g.target, admins, { deactivating: true });
     if (!last.ok) return no(last.reason);
@@ -286,8 +315,11 @@ export async function setRole(targetId: string, newRole: string): Promise<People
   let admins = 0;
   try {
     admins = await withUser(countActiveAdmins);
-  } catch {
-    return no("Could not check how many admins are left, so nothing has been changed.");
+  } catch (e) {
+    return no(
+      `Could not check how many admins are left, so nothing has been changed. ` +
+      `The database said: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
   const last = wouldRemoveLastAdmin(g.target, admins, { newRole });
   if (!last.ok) return no(last.reason);

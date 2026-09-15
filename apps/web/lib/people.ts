@@ -70,13 +70,22 @@ export async function getPerson(id: string): Promise<Person | null> {
   return rows[0] ?? null;
 }
 
-/** The signed-in person, from public.users rather than from the token. */
+/**
+ * The signed-in person, from public.users rather than from the token.
+ *
+ * public.jb_uid() and NOT auth.uid(). The application connects as jbo_app,
+ * which has no USAGE on schema auth, so a direct call is `permission denied
+ * for schema auth` -- which is what this screen did on the afternoon it
+ * shipped. Every other read in this codebase goes through
+ * current_app_role() or jb_is_admin() for the same reason; migration 106
+ * added the missing wrapper for the id.
+ */
 export async function getMe(): Promise<Person | null> {
   const rows = await sql<Person[]>`
     select id::text, email, full_name, role::text as role, is_active,
            created_at::text as created_at
       from public.users
-     where id = auth.uid()
+     where id = public.jb_uid()
      limit 1`;
   return rows[0] ?? null;
 }
@@ -129,7 +138,7 @@ export async function recordEvent(e: {
   await sql`
     insert into public.user_admin_events
            (actor_id, actor_email, actor_role, action, target_id, target_email, target_role, detail)
-    values (auth.uid(), ${e.actorEmail}, ${e.actorRole}, ${e.action},
+    values (public.jb_uid(), ${e.actorEmail}, ${e.actorRole}, ${e.action},
             ${e.targetId}, ${e.targetEmail}, ${e.targetRole},
             ${JSON.stringify(e.detail ?? {})}::jsonb)`;
 }
