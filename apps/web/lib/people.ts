@@ -106,9 +106,23 @@ export async function countActiveAdmins(): Promise<number> {
   return Number(rows[0]?.n ?? 0);
 }
 
+/**
+ * Every action user_admin_events will accept.
+ *
+ * THIS LIST AND THE CHECK CONSTRAINT IN THE MIGRATIONS ARE THE SAME LIST.
+ * They were not, for about a minute on 15 September: migration 107 added
+ * 'password_changed' to the database and this union was left behind, so the
+ * build failed on the one line that used it. It failed loudly and before
+ * anything shipped, which is the good version -- but two copies of one list
+ * in two files is the same shape as the 512-word list that moved into
+ * password-words.json for exactly this reason.
+ *
+ * A guard in the ship script parses both and fails if they differ.
+ */
 export type AdminAction =
   | "created"
   | "password_reset"
+  | "password_changed"
   | "deactivated"
   | "reactivated"
   | "role_changed";
